@@ -446,10 +446,21 @@ public class ExcelImportExportService : IExcelImportExportService
             {
                 if (string.IsNullOrWhiteSpace(item.Description))
                     item.Description = pm.Description;
+
+                // Áp đơn giá Gò nếu là hàng Gò không may và PM có đơn giá Gò riêng
+                bool isGo = item.ProcessType == ProcessType.GoKhongMay;
                 if (!item.UnitPriceCMT.HasValue || item.UnitPriceCMT == 0)
-                    item.UnitPriceCMT = pm.UnitPriceCMT;
+                {
+                    item.UnitPriceCMT = (isGo && pm.UnitPriceCMT_Go.HasValue && pm.UnitPriceCMT_Go.Value > 0)
+                        ? pm.UnitPriceCMT_Go.Value
+                        : pm.UnitPriceCMT;
+                }
                 if (!item.UnitPriceDAP.HasValue || item.UnitPriceDAP == 0)
-                    item.UnitPriceDAP = pm.UnitPriceDAP;
+                {
+                    item.UnitPriceDAP = (isGo && pm.UnitPriceDAP_Go.HasValue && pm.UnitPriceDAP_Go.Value > 0)
+                        ? pm.UnitPriceDAP_Go.Value
+                        : pm.UnitPriceDAP;
+                }
                 if (string.IsNullOrWhiteSpace(item.Unit))
                     item.Unit = pm.Unit;
             }
@@ -625,34 +636,62 @@ public class ExcelImportExportService : IExcelImportExportService
         pklSheet.Cell(pklTotalRow, 8).FormulaA1 = $"ROUNDUP(G{pklTotalRow}+F{pklTotalRow}*0.1,0)";
 
         // ==========================================
-        // 4. CẬP NHẬT SHEET2 (Master Data của đợt xuất)
+        // 4. CẬP NHẬT SHEET2 (Master Data — TOÀN BỘ danh mục)
+        // Quy tắc: Sheet2 LUÔN chứa TẤT CẢ ProductMaster trong hệ thống,
+        // bất kể file đang là Gò hay Thành hình, để đảm bảo VLOOKUP hoạt động đầy đủ.
         // ==========================================
         if (sheet2 != null)
         {
-            int oldSheet2LastRow = sheet2.LastRowUsed()?.RowNumber() ?? 0;
-            for (int i = 0; i < invItemCount; i++)
-            {
-                int row = 1 + i;
-                var item = items[i];
-                var fullCode = !string.IsNullOrWhiteSpace(item.FullItemCode)
-                    ? item.FullItemCode
-                    : (item.ProcessType == ProcessType.GoKhongMay
-                        ? $"{item.StyleCode}.G {request.PoSuffix}".Trim()
-                        : $"{item.StyleCode} {request.PoSuffix}".Trim());
+            // Load toàn bộ danh mục từ DB
+            var allProducts = _context != null
+                ? await _context.ProductMasters
+                    .AsNoTracking()
+                    .OrderBy(p => p.StyleCode)
+                    .ToListAsync()
+                : new List<ProductMaster>();
 
-                sheet2.Cell(row, 1).SetValue(item.StyleCode);
-                sheet2.Cell(row, 2).SetValue(request.PoSuffix);
-                sheet2.Cell(row, 3).SetValue(fullCode);
-                sheet2.Cell(row, 4).SetValue(item.UnitPriceCMT ?? 0m);
-                sheet2.Cell(row, 5).SetValue(item.UnitPriceDAP ?? 0m);
-                sheet2.Cell(row, 6).SetValue(item.Description ?? string.Empty);
-                sheet2.Cell(row, 7).SetValue(!string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "PR");
-                sheet2.Cell(row, 8).SetValue("64041990");
+            int sheet2Row = 1;
+
+            foreach (var pm in allProducts)
+            {
+                // Dòng 1: Mã Thành hình (Standard)
+                var standardCode = $"{pm.StyleCode} {request.PoSuffix}".Trim();
+                sheet2.Cell(sheet2Row, 1).SetValue(pm.StyleCode);
+                sheet2.Cell(sheet2Row, 2).SetValue(request.PoSuffix ?? string.Empty);
+                sheet2.Cell(sheet2Row, 3).SetValue(standardCode);
+                sheet2.Cell(sheet2Row, 4).SetValue(pm.UnitPriceCMT);
+                sheet2.Cell(sheet2Row, 5).SetValue(pm.UnitPriceDAP);
+                sheet2.Cell(sheet2Row, 6).SetValue(pm.Description);
+                sheet2.Cell(sheet2Row, 7).SetValue(!string.IsNullOrWhiteSpace(pm.Unit) ? pm.Unit : "PR");
+                sheet2.Cell(sheet2Row, 8).SetValue(pm.HsCode);
+                sheet2Row++;
+
+                // Dòng 2: Mã Gò không may (nếu có đơn giá Gò riêng)
+                // Luôn xuất cả dòng Gò để VLOOKUP bằng mã .G luôn tìm được kết quả
+                var goCode = $"{pm.StyleCode}.G {request.PoSuffix}".Trim();
+                decimal goCmt = (pm.UnitPriceCMT_Go.HasValue && pm.UnitPriceCMT_Go.Value > 0)
+                    ? pm.UnitPriceCMT_Go.Value
+                    : pm.UnitPriceCMT;
+                decimal goDap = (pm.UnitPriceDAP_Go.HasValue && pm.UnitPriceDAP_Go.Value > 0)
+                    ? pm.UnitPriceDAP_Go.Value
+                    : pm.UnitPriceDAP;
+
+                sheet2.Cell(sheet2Row, 1).SetValue($"{pm.StyleCode}.G");
+                sheet2.Cell(sheet2Row, 2).SetValue(request.PoSuffix ?? string.Empty);
+                sheet2.Cell(sheet2Row, 3).SetValue(goCode);
+                sheet2.Cell(sheet2Row, 4).SetValue(goCmt);
+                sheet2.Cell(sheet2Row, 5).SetValue(goDap);
+                sheet2.Cell(sheet2Row, 6).SetValue(pm.Description);
+                sheet2.Cell(sheet2Row, 7).SetValue(!string.IsNullOrWhiteSpace(pm.Unit) ? pm.Unit : "PR");
+                sheet2.Cell(sheet2Row, 8).SetValue(pm.HsCode);
+                sheet2Row++;
             }
 
-            if (oldSheet2LastRow > invItemCount)
+            // Xóa các dòng cũ thừa (nếu lần này ít dòng hơn lần trước)
+            int oldLastRow = sheet2.LastRowUsed()?.RowNumber() ?? 0;
+            if (oldLastRow > sheet2Row - 1 && sheet2Row > 1)
             {
-                sheet2.Rows(invItemCount + 1, oldSheet2LastRow).Delete();
+                sheet2.Rows(sheet2Row, oldLastRow).Delete();
             }
         }
 
@@ -1101,5 +1140,47 @@ public class ExcelImportExportService : IExcelImportExportService
             // Nếu không tìm thấy, gán tại ô B(invTotalRow + 2)
             invSheet.Cell(invTotalRow + 2, 2).SetValue(textInWords);
         }
+    }
+
+    /// <summary>
+    /// Xuất 2 file Excel độc lập (1 cho Gò không may, 1 cho Thành hình)
+    /// và đóng gói thành 1 file ZIP để tải về.
+    /// </summary>
+    public async Task<byte[]> ExportSplitToZipAsync(
+        CreateShipmentRequestDto goRequest,
+        string goFileName,
+        CreateShipmentRequestDto standardRequest,
+        string standardFileName)
+    {
+        _logger?.LogInformation("Bắt đầu xuất 2 file tách: {GoFile} & {StdFile}", goFileName, standardFileName);
+
+        // Xuất song song 2 file để tăng tốc
+        var goTask = ExportShipmentMultiSheetExcelAsync(goRequest);
+        var standardTask = ExportShipmentMultiSheetExcelAsync(standardRequest);
+
+        await Task.WhenAll(goTask, standardTask);
+
+        var goBytes = await goTask;
+        var standardBytes = await standardTask;
+
+        // Đóng gói thành ZIP
+        using var zipStream = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(zipStream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var goEntry = archive.CreateEntry(goFileName, System.IO.Compression.CompressionLevel.Optimal);
+            using (var entryStream = goEntry.Open())
+            {
+                await entryStream.WriteAsync(goBytes);
+            }
+
+            var stdEntry = archive.CreateEntry(standardFileName, System.IO.Compression.CompressionLevel.Optimal);
+            using (var entryStream = stdEntry.Open())
+            {
+                await entryStream.WriteAsync(standardBytes);
+            }
+        }
+
+        zipStream.Position = 0;
+        return zipStream.ToArray();
     }
 }

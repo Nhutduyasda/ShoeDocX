@@ -125,8 +125,8 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
   return (
     <Modal
       title={
-        <div className="text-sm font-semibold text-slate-900 tracking-tight">
-          Import Danh mục Hàng hóa từ Excel (.xlsx)
+        <div className="text-sm font-semibold text-slate-900">
+          Nhập dữ liệu Master Data từ Excel (.xlsx)
         </div>
       }
       open={visible}
@@ -135,7 +135,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
         <Button
           key="close"
           onClick={handleClose}
-          className="border-slate-200 text-slate-600 hover:bg-slate-50 text-xs h-8"
+          className="border-slate-300 text-slate-700 text-xs h-9 px-3.5"
         >
           {result ? 'Đóng' : 'Hủy'}
         </Button>,
@@ -146,20 +146,20 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
             loading={uploading}
             disabled={fileList.length === 0}
             onClick={handleUpload}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white border-none shadow-none text-xs h-8"
+            className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4"
           >
-            Bắt đầu Import
+            Bắt đầu Nhập dữ liệu
           </Button>
         ),
       ]}
-      width={650}
+      width={640}
       destroyOnClose
     >
-      <div className="space-y-4 my-3">
+      <div className="space-y-4 my-2">
         {/* Template download & options bar */}
-        <div className="flex flex-wrap items-center justify-between bg-slate-50 border border-slate-200/80 rounded-lg px-3 py-2 text-xs">
+        <div className="flex flex-wrap items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2 text-xs">
           <div className="flex items-center space-x-2">
-            <span className="text-slate-600">Ghi đè mã đã có:</span>
+            <span className="text-slate-600">Ghi đè mã đã tồn tại:</span>
             <Switch
               size="small"
               checked={updateExisting}
@@ -167,15 +167,15 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
             />
           </div>
 
-          <button
-            type="button"
+          <Button
+            type="link"
             onClick={handleDownloadTemplate}
             disabled={downloadingTemplate}
-            className="text-indigo-600 hover:text-indigo-700 font-medium flex items-center space-x-1 bg-transparent border-none cursor-pointer p-0 text-xs"
+            icon={<DownloadOutlined />}
+            className="text-blue-600 hover:text-blue-700 p-0 text-xs font-medium"
           >
-            <DownloadOutlined />
-            <span>Tải file mẫu Excel</span>
-          </button>
+            Tải file Excel mẫu
+          </Button>
         </div>
 
         {/* Upload dragger */}
@@ -198,16 +198,16 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
               setFileList([]);
             }}
             maxCount={1}
-            className="bg-slate-50/40 border-slate-200 hover:border-indigo-400 rounded-lg p-3 transition-colors"
+            className="border-dashed border-slate-300 hover:border-blue-500 rounded-lg p-4 bg-white"
           >
             <p className="ant-upload-drag-icon text-slate-400 my-2">
-              <InboxOutlined style={{ fontSize: '36px' }} />
+              <InboxOutlined style={{ fontSize: '32px' }} />
             </p>
-            <p className="ant-upload-text text-xs font-medium text-slate-700 m-0">
-              Kéo thả file Excel vào đây hoặc click để chọn
+            <p className="ant-upload-text text-xs font-medium text-slate-800 m-0">
+              Kéo thả file Excel vào đây hoặc bấm để duyệt file
             </p>
             <p className="ant-upload-hint text-[11px] text-slate-400 mt-1 m-0">
-              Định dạng file .xlsx theo cấu trúc bảng chuẩn
+              Chỉ chấp nhận file định dạng .xlsx theo cấu trúc cột chuẩn
             </p>
           </Dragger>
         )}
@@ -217,22 +217,22 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
           <div className="space-y-3">
             <Alert
               message={
-                <div className="text-xs font-semibold text-slate-800">
+                <div className="text-xs font-semibold text-slate-900">
                   Tổng {result.totalRows} dòng dữ liệu
                 </div>
               }
               description={
-                <div className="flex items-center space-x-5 mt-1 text-xs text-slate-600">
+                <div className="flex items-center space-x-4 mt-1 text-xs text-slate-700">
                   <span className="flex items-center space-x-1">
-                    <CheckCircleOutlined className="text-emerald-500" />
-                    <span>Thêm mới: {result.createdCount}</span>
+                    <CheckCircleOutlined className="text-emerald-600" />
+                    <span>Tạo mới: {result.createdCount}</span>
                   </span>
                   <span className="flex items-center space-x-1">
-                    <CheckCircleOutlined className="text-indigo-500" />
+                    <CheckCircleOutlined className="text-blue-600" />
                     <span>Cập nhật: {result.updatedCount}</span>
                   </span>
                   {result.failedCount > 0 && (
-                    <span className="flex items-center space-x-1 text-rose-500">
+                    <span className="flex items-center space-x-1 text-red-600">
                       <CloseCircleOutlined />
                       <span>Lỗi: {result.failedCount}</span>
                     </span>
@@ -240,7 +240,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
                 </div>
               }
               type={result.failedCount === 0 ? 'success' : 'warning'}
-              className="rounded-lg border-slate-200"
+              className="border-slate-200"
               showIcon
             />
 
@@ -266,9 +266,9 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
                   setFileList([]);
                   setResult(null);
                 }}
-                className="text-xs text-slate-600 border-slate-200"
+                className="text-xs text-slate-700 border-slate-300"
               >
-                Import file khác
+                Nhập file khác
               </Button>
             </div>
           </div>

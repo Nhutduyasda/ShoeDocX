@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
     public DbSet<ProductMaster> ProductMasters => Set<ProductMaster>();
     public DbSet<ShipmentOrder> ShipmentOrders => Set<ShipmentOrder>();
     public DbSet<ShipmentOrderItem> ShipmentOrderItems => Set<ShipmentOrderItem>();
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -29,6 +30,10 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ShipmentOrder>(entity =>
         {
             entity.HasIndex(e => e.InvoiceNo).IsUnique();
+            entity.HasIndex(e => e.DeclarationNo);
+            entity.Property(e => e.CustomsGrossWeight).HasPrecision(18, 4);
+            entity.Property(e => e.CustomsTotalDap).HasPrecision(18, 4);
+            entity.Property(e => e.CustomsTotalCmt).HasPrecision(18, 4);
             entity.HasMany(e => e.Items)
                   .WithOne(e => e.ShipmentOrder)
                   .HasForeignKey(e => e.ShipmentOrderId)
@@ -40,6 +45,12 @@ public class AppDbContext : DbContext
         {
             entity.Property(e => e.UnitPriceCMT).HasPrecision(18, 4);
             entity.Property(e => e.UnitPriceDAP).HasPrecision(18, 4);
+        });
+
+        // SystemSetting configuration
+        modelBuilder.Entity<SystemSetting>(entity =>
+        {
+            entity.HasIndex(e => e.Key).IsUnique();
         });
     }
 }

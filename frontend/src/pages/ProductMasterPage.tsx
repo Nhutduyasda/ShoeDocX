@@ -5,9 +5,6 @@ import {
   Input,
   Space,
   Popconfirm,
-  Card,
-  Row,
-  Col,
   message,
   Tooltip,
 } from 'antd';
@@ -19,9 +16,6 @@ import {
   ReloadOutlined,
   EditOutlined,
   DeleteOutlined,
-  AppstoreOutlined,
-  DollarOutlined,
-  ShoppingOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { ProductMaster } from '../types';
@@ -69,6 +63,7 @@ export const ProductMasterPage: React.FC = () => {
       fetchProducts();
     } catch (err) {
       console.error(err);
+      message.error('Không thể xóa mã hàng này.');
     }
   };
 
@@ -77,7 +72,7 @@ export const ProductMasterPage: React.FC = () => {
     try {
       setExporting(true);
       await productMasterApi.exportExcel();
-      message.success('Đã xuất file Excel hóa đơn & đóng gói thành công!');
+      message.success('Đã xuất file Excel Master Data thành công!');
     } catch (err) {
       console.error(err);
       message.error('Không thể xuất file Excel.');
@@ -86,12 +81,19 @@ export const ProductMasterPage: React.FC = () => {
     }
   };
 
-  // Table Columns - Clean & Monochromatic
+  // Quick statistics calculation
+  const avgCmt = products.length > 0
+    ? (products.reduce((acc, p) => acc + p.unitPriceCMT, 0) / products.length).toFixed(4)
+    : '0.0000';
+  const avgDap = products.length > 0
+    ? (products.reduce((acc, p) => acc + p.unitPriceDAP, 0) / products.length).toFixed(4)
+    : '0.0000';
+
   const columns: ColumnsType<ProductMaster> = [
     {
       title: 'STT',
       key: 'index',
-      width: 55,
+      width: 50,
       align: 'center',
       render: (_, __, index) => (
         <span className="font-mono text-xs text-slate-400">
@@ -105,7 +107,7 @@ export const ProductMasterPage: React.FC = () => {
       key: 'styleCode',
       width: 170,
       render: (code: string) => (
-        <span className="font-mono font-semibold text-xs text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/60 tracking-tight">
+        <span className="font-mono font-semibold text-xs text-slate-900 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
           {code}
         </span>
       ),
@@ -127,10 +129,10 @@ export const ProductMasterPage: React.FC = () => {
       title: 'Đơn giá CMT',
       dataIndex: 'unitPriceCMT',
       key: 'unitPriceCMT',
-      width: 120,
+      width: 110,
       align: 'right',
       render: (price: number) => (
-        <span className="font-mono text-xs text-slate-700">
+        <span className="font-mono text-xs text-slate-800">
           ${price.toFixed(4)}
         </span>
       ),
@@ -139,22 +141,60 @@ export const ProductMasterPage: React.FC = () => {
       title: 'Đơn giá DAP',
       dataIndex: 'unitPriceDAP',
       key: 'unitPriceDAP',
-      width: 120,
+      width: 110,
       align: 'right',
       render: (price: number) => (
-        <span className="font-mono text-xs text-slate-700">
+        <span className="font-mono text-xs font-medium text-slate-900">
           ${price.toFixed(4)}
         </span>
       ),
     },
     {
+      title: (
+        <Tooltip title="Đơn giá CMT riêng cho hàng Gò không may (.G)">
+          <span>CMT Gò</span>
+        </Tooltip>
+      ),
+      dataIndex: 'unitPriceCMT_Go',
+      key: 'unitPriceCMT_Go',
+      width: 105,
+      align: 'right',
+      render: (price: number | null | undefined) =>
+        price && price > 0 ? (
+          <span className="font-mono text-xs text-purple-700 font-medium">
+            ${price.toFixed(4)}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400">—</span>
+        ),
+    },
+    {
+      title: (
+        <Tooltip title="Đơn giá DAP riêng cho hàng Gò không may (.G)">
+          <span>DAP Gò</span>
+        </Tooltip>
+      ),
+      dataIndex: 'unitPriceDAP_Go',
+      key: 'unitPriceDAP_Go',
+      width: 105,
+      align: 'right',
+      render: (price: number | null | undefined) =>
+        price && price > 0 ? (
+          <span className="font-mono text-xs text-purple-700 font-medium">
+            ${price.toFixed(4)}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400">—</span>
+        ),
+    },
+    {
       title: 'Mã HS',
       dataIndex: 'hsCode',
       key: 'hsCode',
-      width: 110,
+      width: 100,
       align: 'center',
       render: (hs: string) => (
-        <span className="font-mono text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+        <span className="font-mono text-xs text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
           {hs}
         </span>
       ),
@@ -163,10 +203,10 @@ export const ProductMasterPage: React.FC = () => {
       title: 'ĐVT',
       dataIndex: 'unit',
       key: 'unit',
-      width: 65,
+      width: 60,
       align: 'center',
       render: (unit: string) => (
-        <span className="text-xs text-slate-500">{unit}</span>
+        <span className="text-xs text-slate-600">{unit}</span>
       ),
     },
     {
@@ -174,9 +214,9 @@ export const ProductMasterPage: React.FC = () => {
       dataIndex: 'pairPerCarton',
       key: 'pairPerCarton',
       width: 80,
-      align: 'center',
+      align: 'right',
       render: (pair: number) => (
-        <span className="font-mono text-xs text-slate-600">
+        <span className="font-mono text-xs text-slate-800 font-medium">
           {pair}
         </span>
       ),
@@ -184,15 +224,15 @@ export const ProductMasterPage: React.FC = () => {
     {
       title: 'Thao tác',
       key: 'actions',
-      width: 90,
+      width: 80,
       align: 'center',
       render: (_, record) => (
-        <Space size={4}>
+        <Space size={2}>
           <Tooltip title="Chỉnh sửa mã sản phẩm">
             <Button
               type="text"
               size="small"
-              className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded"
+              className="text-slate-500 hover:text-blue-600 hover:bg-slate-100"
               icon={<EditOutlined className="text-xs" />}
               onClick={() => {
                 setSelectedProduct(record);
@@ -204,7 +244,7 @@ export const ProductMasterPage: React.FC = () => {
           <Tooltip title="Xóa mã sản phẩm">
             <Popconfirm
               title={`Xóa mã "${record.styleCode}"?`}
-              description="Hành động này không thể hoàn tác."
+              description="Hành động này sẽ xóa dữ liệu khỏi Master Data."
               onConfirm={() => handleDelete(record.id, record.styleCode)}
               okText="Xóa"
               cancelText="Hủy"
@@ -213,8 +253,9 @@ export const ProductMasterPage: React.FC = () => {
             >
               <Button
                 type="text"
+                danger
                 size="small"
-                className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"
+                className="text-slate-400 hover:text-red-600 hover:bg-red-50"
                 icon={<DeleteOutlined className="text-xs" />}
               />
             </Popconfirm>
@@ -224,24 +265,16 @@ export const ProductMasterPage: React.FC = () => {
     },
   ];
 
-  // Quick statistics calculation
-  const avgCmt = products.length > 0
-    ? (products.reduce((acc, p) => acc + p.unitPriceCMT, 0) / products.length).toFixed(2)
-    : '0.00';
-  const avgDap = products.length > 0
-    ? (products.reduce((acc, p) => acc + p.unitPriceDAP, 0) / products.length).toFixed(2)
-    : '0.00';
-
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-5">
-      {/* Page Title & Actions Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/80">
+    <div className="space-y-6">
+      {/* 1. Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-lg font-semibold text-slate-900 tracking-tight m-0">
-            Danh mục Hàng hóa (Product Master)
+          <h1 className="text-xl font-semibold text-slate-900 tracking-tight m-0">
+            Danh mục Hàng hóa (Master Data)
           </h1>
           <p className="text-xs text-slate-500 mt-1 m-0">
-            Quản lý mã hình thể gốc, giá gia công CMT, giá DAP và mã HS xuất khẩu
+            Quản lý mã hình thể gốc, giá gia công CMT, DAP và quy cách đóng gói xuất khẩu
           </p>
         </div>
 
@@ -250,7 +283,7 @@ export const ProductMasterPage: React.FC = () => {
             icon={<DownloadOutlined />}
             onClick={handleExportExcel}
             loading={exporting}
-            className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 text-xs h-8"
+            className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-normal"
           >
             Xuất Excel
           </Button>
@@ -258,9 +291,9 @@ export const ProductMasterPage: React.FC = () => {
           <Button
             icon={<UploadOutlined />}
             onClick={() => setImportModalVisible(true)}
-            className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 text-xs h-8"
+            className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-normal"
           >
-            Import Excel
+            Nhập Excel
           </Button>
 
           <Button
@@ -270,120 +303,82 @@ export const ProductMasterPage: React.FC = () => {
               setSelectedProduct(null);
               setModalVisible(true);
             }}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white border-none shadow-none text-xs font-medium h-8"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs h-9 px-4"
           >
-            Thêm mã giày mới
+            + Thêm mã hàng
           </Button>
         </div>
       </div>
 
-      {/* Flat Minimalist Metric Cards */}
-      <Row gutter={16}>
-        <Col xs={24} sm={8}>
-          <Card
-            className="bg-white border border-slate-200/80 rounded-xl shadow-sm hover:border-slate-300 transition-colors"
-            bordered={false}
-            bodyStyle={{ padding: '16px 20px' }}
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[11px] uppercase tracking-wider font-medium text-slate-500 m-0">
-                  Tổng số mã sản phẩm
-                </p>
-                <div className="flex items-baseline space-x-1.5 mt-2">
-                  <span className="text-2xl font-semibold text-slate-900 tracking-tight font-mono">
-                    {totalCount}
-                  </span>
-                  <span className="text-xs text-slate-400 font-normal">mã hình thể</span>
-                </div>
-              </div>
-              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-sm">
-                <AppstoreOutlined />
-              </div>
-            </div>
-          </Card>
-        </Col>
-
-        <Col xs={24} sm={8}>
-          <Card
-            className="bg-white border border-slate-200/80 rounded-xl shadow-sm hover:border-slate-300 transition-colors"
-            bordered={false}
-            bodyStyle={{ padding: '16px 20px' }}
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[11px] uppercase tracking-wider font-medium text-slate-500 m-0">
-                  Đơn giá CMT trung bình
-                </p>
-                <div className="flex items-baseline space-x-1.5 mt-2">
-                  <span className="text-2xl font-semibold text-slate-900 tracking-tight font-mono">
-                    ${avgCmt}
-                  </span>
-                  <span className="text-xs text-slate-400 font-normal">USD/đôi</span>
-                </div>
-              </div>
-              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-sm">
-                <DollarOutlined />
-              </div>
-            </div>
-          </Card>
-        </Col>
-
-        <Col xs={24} sm={8}>
-          <Card
-            className="bg-white border border-slate-200/80 rounded-xl shadow-sm hover:border-slate-300 transition-colors"
-            bordered={false}
-            bodyStyle={{ padding: '16px 20px' }}
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[11px] uppercase tracking-wider font-medium text-slate-500 m-0">
-                  Đơn giá DAP trung bình
-                </p>
-                <div className="flex items-baseline space-x-1.5 mt-2">
-                  <span className="text-2xl font-semibold text-slate-900 tracking-tight font-mono">
-                    ${avgDap}
-                  </span>
-                  <span className="text-xs text-slate-400 font-normal">USD/đôi</span>
-                </div>
-              </div>
-              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-sm">
-                <ShoppingOutlined />
-              </div>
-            </div>
-          </Card>
-        </Col>
-      </Row>
-
-      {/* Filter & Search Bar */}
-      <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm flex flex-wrap items-center justify-between gap-3">
-        <div className="flex-1 min-w-[280px] max-w-md">
-          <Input
-            placeholder="Tìm theo mã hình thể, mô tả hoặc HS Code..."
-            prefix={<SearchOutlined className="text-slate-400 text-xs mr-1" />}
-            value={searchText}
-            onChange={(e) => {
-              setSearchText(e.target.value);
-              setPage(1);
-            }}
-            allowClear
-            size="middle"
-            className="rounded-lg text-xs bg-slate-50/50 border-slate-200 hover:border-slate-300 focus:bg-white"
-          />
+      {/* 2. Calm Operational Metric Bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white border border-slate-200 rounded-lg p-3.5">
+          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+            Tổng số mã sản phẩm
+          </div>
+          <div className="mt-1 flex items-baseline space-x-1.5">
+            <span className="text-2xl font-semibold text-slate-900 font-mono">
+              {totalCount}
+            </span>
+            <span className="text-xs text-slate-400">mã hình thể</span>
+          </div>
         </div>
 
-        <Button
-          icon={<ReloadOutlined className="text-xs" />}
-          onClick={() => fetchProducts()}
-          loading={loading}
-          className="bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 text-xs h-8"
-        >
-          Làm mới
-        </Button>
+        <div className="bg-white border border-slate-200 rounded-lg p-3.5">
+          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+            Đơn giá CMT trung bình
+          </div>
+          <div className="mt-1 flex items-baseline space-x-1.5">
+            <span className="text-2xl font-semibold text-slate-900 font-mono">
+              ${avgCmt}
+            </span>
+            <span className="text-xs text-slate-400">USD/đôi</span>
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-lg p-3.5">
+          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+            Đơn giá DAP trung bình
+          </div>
+          <div className="mt-1 flex items-baseline space-x-1.5">
+            <span className="text-2xl font-semibold text-slate-900 font-mono">
+              ${avgDap}
+            </span>
+            <span className="text-xs text-slate-400">USD/đôi</span>
+          </div>
+        </div>
       </div>
 
-      {/* Data Table */}
-      <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
+      {/* 3. Table Container with Integrated Toolbar */}
+      <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
+        {/* Table Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="w-full sm:w-80">
+            <Input
+              placeholder="Tìm theo mã hình thể, mô tả hoặc HS Code..."
+              prefix={<SearchOutlined className="text-slate-400 text-xs mr-1" />}
+              value={searchText}
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setPage(1);
+              }}
+              allowClear
+              size="middle"
+              className="text-xs"
+            />
+          </div>
+
+          <Button
+            icon={<ReloadOutlined className="text-xs" />}
+            onClick={() => fetchProducts()}
+            loading={loading}
+            className="text-xs text-slate-700 border-slate-300 hover:bg-slate-50 h-9 px-3"
+          >
+            Làm mới
+          </Button>
+        </div>
+
+        {/* Enterprise Data Table */}
         <Table
           columns={columns}
           dataSource={products}
@@ -395,9 +390,9 @@ export const ProductMasterPage: React.FC = () => {
             total: totalCount,
             showSizeChanger: true,
             pageSizeOptions: ['10', '20', '50', '100'],
-            showTotal: (total) => (
-              <span className="text-xs text-slate-400 font-normal">
-                {total} sản phẩm
+            showTotal: (total, range) => (
+              <span className="text-xs text-slate-500">
+                Hiển thị {range[0]}-{range[1]} / {total} mã hàng
               </span>
             ),
             onChange: (p, ps) => {
@@ -406,7 +401,6 @@ export const ProductMasterPage: React.FC = () => {
             },
           }}
           size="middle"
-          rowClassName="hover:bg-slate-50/60 transition-colors"
         />
       </div>
 

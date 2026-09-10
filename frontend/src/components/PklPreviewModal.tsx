@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Table, Button } from 'antd';
+import { Modal, Table, Button, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { PklPreviewResponse, PklBreakdownItem } from '../types';
@@ -27,9 +27,9 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       title: 'Dải số kiện',
       dataIndex: 'cartonRange',
       key: 'cartonRange',
-      width: 120,
+      width: 110,
       render: (range: string) => (
-        <span className="inline-flex items-center px-2 py-0.5 rounded font-mono text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+        <span className="font-mono text-xs font-semibold text-slate-900 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
           {range}
         </span>
       ),
@@ -38,27 +38,27 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       title: 'Phân loại',
       dataIndex: 'isOddCarton',
       key: 'isOddCarton',
-      width: 110,
+      width: 95,
       render: (isOdd: boolean) =>
         isOdd ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+          <Tag className="bg-amber-50 text-amber-700 border-amber-200 text-[11px] m-0">
             Thùng lẻ
-          </span>
+          </Tag>
         ) : (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+          <Tag className="bg-slate-50 text-slate-600 border-slate-200 text-[11px] m-0">
             Thùng chẵn
-          </span>
+          </Tag>
         ),
     },
     {
       title: 'Mã hàng hóa',
       dataIndex: 'fullItemCode',
       key: 'fullItemCode',
-      width: 200,
+      width: 180,
       render: (code: string, record) => (
         <div>
           <div className="font-mono text-xs font-medium text-slate-900">{code}</div>
-          <div className="text-[11px] text-slate-500 truncate max-w-[220px]">
+          <div className="text-[11px] text-slate-400 truncate max-w-[200px]">
             {record.description || record.styleCode}
           </div>
         </div>
@@ -68,27 +68,27 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       title: 'Quy trình',
       dataIndex: 'processType',
       key: 'processType',
-      width: 120,
+      width: 110,
       render: (type: number) =>
         type === ProcessType.GoKhongMay ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 border border-amber-200/60 font-medium">
-            Gò không may (.G)
+          <span className="text-xs text-purple-700 font-medium">
+            Gò (.G)
           </span>
         ) : (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700 border border-slate-200 font-medium">
-            Thành phẩm
+          <span className="text-xs text-slate-600">
+            Thành hình
           </span>
         ),
     },
     {
       title: 'Quy cách',
       key: 'standardPairPerCarton',
-      align: 'center',
-      width: 110,
+      align: 'right',
+      width: 95,
       render: (_, record) => {
         const std = record.standardPairPerCarton || 12;
         return (
-          <span className="font-mono text-xs text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+          <span className="font-mono text-xs text-slate-700">
             {std} đôi/thùng
           </span>
         );
@@ -99,9 +99,9 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       dataIndex: 'cartonCount',
       key: 'cartonCount',
       align: 'right',
-      width: 90,
+      width: 80,
       render: (count: number) => (
-        <span className="font-mono font-medium text-slate-800">{count}</span>
+        <span className="font-mono font-medium text-slate-800 text-xs">{count}</span>
       ),
     },
     {
@@ -109,9 +109,9 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       dataIndex: 'pairsPerCarton',
       key: 'pairsPerCarton',
       align: 'right',
-      width: 90,
+      width: 80,
       render: (pairs: number, record) => (
-        <span className={`font-mono text-xs ${record.isOddCarton ? 'text-amber-700 font-bold' : 'text-slate-600'}`}>
+        <span className={`font-mono text-xs ${record.isOddCarton ? 'text-amber-700 font-semibold' : 'text-slate-600'}`}>
           {pairs}
         </span>
       ),
@@ -121,9 +121,9 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       dataIndex: 'quantity',
       key: 'quantity',
       align: 'right',
-      width: 110,
+      width: 105,
       render: (qty: number) => (
-        <span className="font-mono font-semibold text-slate-900">
+        <span className="font-mono font-semibold text-slate-900 text-xs">
           {qty.toLocaleString()}
         </span>
       ),
@@ -133,9 +133,9 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       dataIndex: 'netWeight',
       key: 'netWeight',
       align: 'right',
-      width: 105,
+      width: 100,
       render: (nw: number) => (
-        <span className="font-mono text-xs text-slate-600">{nw.toFixed(2)}</span>
+        <span className="font-mono text-xs text-slate-700">{nw.toFixed(2)}</span>
       ),
     },
     {
@@ -143,9 +143,9 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       dataIndex: 'grossWeight',
       key: 'grossWeight',
       align: 'right',
-      width: 105,
+      width: 100,
       render: (gw: number) => (
-        <span className="font-mono text-xs font-medium text-slate-800">{gw.toFixed(0)}</span>
+        <span className="font-mono text-xs text-slate-700">{gw.toFixed(0)}</span>
       ),
     },
   ];
@@ -153,14 +153,16 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
   return (
     <Modal
       title={
-        <div className="flex items-center justify-between pr-6 border-b border-slate-100 pb-3">
-          <div className="flex items-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
-            <span className="font-semibold text-slate-900 text-base">
-              Xem trước Phân rã Đóng gói Packing List (PKL)
-            </span>
+        <div className="flex items-center justify-between pr-6 pb-2 border-b border-slate-100">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">
+              Phân rã Đóng gói Packing List (PKL)
+            </div>
+            <div className="text-xs text-slate-500 font-normal mt-0.5">
+              Chi tiết quy cách đóng gói và dải số kiện lũy kế
+            </div>
           </div>
-          <span className="text-xs font-mono bg-slate-100 text-slate-600 px-2.5 py-1 rounded border border-slate-200">
+          <span className="font-mono text-xs bg-slate-50 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
             {data.invoiceNo} {data.poSuffix}
           </span>
         </div>
@@ -169,7 +171,7 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       onCancel={onClose}
       width={1050}
       footer={[
-        <Button key="close" onClick={onClose}>
+        <Button key="close" onClick={onClose} className="border-slate-300 text-slate-700 text-xs h-9 px-3.5">
           Đóng
         </Button>,
         <Button
@@ -178,16 +180,16 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
           icon={<DownloadOutlined />}
           loading={exporting}
           onClick={onExportExcel}
-          className="bg-indigo-600 hover:bg-indigo-700"
+          className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4"
         >
-          Xuất File Excel Đa Sheet (.xlsx)
+          Xuất File Excel (.xlsx)
         </Button>,
       ]}
     >
       <div className="py-2 space-y-4">
         {/* KPI Summary Cards */}
         <div className="grid grid-cols-4 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-          <div className="bg-white p-3 rounded border border-slate-200/80 shadow-2xs">
+          <div className="bg-white p-3 rounded border border-slate-200">
             <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
               Tổng số lượng
             </div>
@@ -199,9 +201,9 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
             </div>
           </div>
 
-          <div className="bg-white p-3 rounded border border-slate-200/80 shadow-2xs">
+          <div className="bg-white p-3 rounded border border-slate-200">
             <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
-              Tổng số kiện (Cartons)
+              Tổng số kiện
             </div>
             <div className="mt-1 flex items-baseline">
               <span className="text-xl font-bold font-mono text-slate-900">
@@ -211,7 +213,7 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
             </div>
           </div>
 
-          <div className="bg-white p-3 rounded border border-slate-200/80 shadow-2xs">
+          <div className="bg-white p-3 rounded border border-slate-200">
             <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
               Trọng lượng Net (N.W)
             </div>
@@ -223,7 +225,7 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
             </div>
           </div>
 
-          <div className="bg-white p-3 rounded border border-slate-200/80 shadow-2xs">
+          <div className="bg-white p-3 rounded border border-slate-200">
             <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
               Trọng lượng Gross (G.W)
             </div>
@@ -237,55 +239,51 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
         </div>
 
         {/* Packing List Breakdown Table */}
-        <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-          <Table
-            dataSource={data.breakdownItems}
-            columns={columns}
-            rowKey={(_, index) => `${index}`}
-            pagination={false}
-            size="small"
-            scroll={{ y: 380 }}
-            summary={() => (
-              <Table.Summary fixed>
-                <Table.Summary.Row className="bg-slate-50 font-semibold text-slate-900">
-                  <Table.Summary.Cell index={0} colSpan={5}>
-                    <div className="font-semibold text-slate-800 pl-2">TỔNG CỘNG PACKING LIST</div>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={5} align="right">
-                    <span className="font-mono text-slate-900 font-bold">
-                      {data.totalCartons.toLocaleString()}
-                    </span>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={6} align="right">
-                    -
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={7} align="right">
-                    <span className="font-mono text-slate-900 font-bold">
-                      {data.totalQuantity.toLocaleString()}
-                    </span>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={8} align="right">
-                    <span className="font-mono text-slate-800">
-                      {data.totalNetWeight.toFixed(2)}
-                    </span>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={9} align="right">
-                    <span className="font-mono text-slate-800">
-                      {data.totalGrossWeight.toFixed(0)}
-                    </span>
-                  </Table.Summary.Cell>
-                </Table.Summary.Row>
-              </Table.Summary>
-            )}
-          />
-        </div>
+        <Table
+          dataSource={data.breakdownItems}
+          columns={columns}
+          rowKey={(_, index) => `${index}`}
+          pagination={false}
+          size="small"
+          scroll={{ y: 360 }}
+          summary={() => (
+            <Table.Summary fixed>
+              <Table.Summary.Row className="bg-slate-50 font-semibold text-slate-900">
+                <Table.Summary.Cell index={0} colSpan={5}>
+                  <div className="font-semibold text-slate-800 pl-2 text-xs">TỔNG CỘNG PACKING LIST</div>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={5} align="right">
+                  <span className="font-mono text-slate-900 font-bold text-xs">
+                    {data.totalCartons.toLocaleString()}
+                  </span>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={6} align="right">
+                  -
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={7} align="right">
+                  <span className="font-mono text-slate-900 font-bold text-xs">
+                    {data.totalQuantity.toLocaleString()}
+                  </span>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={8} align="right">
+                  <span className="font-mono text-slate-800 text-xs">
+                    {data.totalNetWeight.toFixed(2)}
+                  </span>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={9} align="right">
+                  <span className="font-mono text-slate-800 text-xs">
+                    {data.totalGrossWeight.toFixed(0)}
+                  </span>
+                </Table.Summary.Cell>
+              </Table.Summary.Row>
+            </Table.Summary>
+          )}
+        />
 
-        {/* Rule explanation tip */}
-        <div className="bg-slate-50 p-2.5 rounded text-xs text-slate-500 border border-slate-200/60 flex items-start space-x-2">
-          <InfoCircleOutlined className="text-slate-400 mt-0.5" />
+        <div className="text-xs text-slate-500 flex items-start space-x-1.5 pt-1">
+          <InfoCircleOutlined className="text-slate-400 mt-0.5 shrink-0" />
           <span>
-            Quy cách đóng gói: Tự động phân rã kiện chẵn/lẻ theo quy cách (đôi/thùng) của từng mã hàng.
-            Dải số kiện lũy kế liên tục và công thức tính trọng lượng động được bảo toàn 100% khi xuất sang file Excel mẫu thực tế.
+            Quy cách đóng gói tự động chia tách kiện chẵn và kiện lẻ theo quy định Master Data. Toàn bộ dải số kiện và trọng lượng sẽ được bảo toàn khi xuất file Excel 3 sheet thực tế.
           </span>
         </div>
       </div>

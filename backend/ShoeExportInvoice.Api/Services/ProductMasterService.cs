@@ -78,6 +78,8 @@ public class ProductMasterService : IProductMasterService
             Description = dto.Description.Trim(),
             UnitPriceCMT = dto.UnitPriceCMT,
             UnitPriceDAP = dto.UnitPriceDAP,
+            UnitPriceCMT_Go = (dto.UnitPriceCMT_Go.HasValue && dto.UnitPriceCMT_Go.Value > 0) ? dto.UnitPriceCMT_Go : null,
+            UnitPriceDAP_Go = (dto.UnitPriceDAP_Go.HasValue && dto.UnitPriceDAP_Go.Value > 0) ? dto.UnitPriceDAP_Go : null,
             HsCode = string.IsNullOrWhiteSpace(dto.HsCode) ? "64041990" : dto.HsCode.Trim(),
             Unit = string.IsNullOrWhiteSpace(dto.Unit) ? "đôi" : dto.Unit.Trim(),
             PairPerCarton = dto.PairPerCarton <= 0 ? 12 : dto.PairPerCarton,
@@ -106,6 +108,8 @@ public class ProductMasterService : IProductMasterService
         entity.Description = dto.Description.Trim();
         entity.UnitPriceCMT = dto.UnitPriceCMT;
         entity.UnitPriceDAP = dto.UnitPriceDAP;
+        entity.UnitPriceCMT_Go = (dto.UnitPriceCMT_Go.HasValue && dto.UnitPriceCMT_Go.Value > 0) ? dto.UnitPriceCMT_Go : null;
+        entity.UnitPriceDAP_Go = (dto.UnitPriceDAP_Go.HasValue && dto.UnitPriceDAP_Go.Value > 0) ? dto.UnitPriceDAP_Go : null;
         entity.HsCode = string.IsNullOrWhiteSpace(dto.HsCode) ? "64041990" : dto.HsCode.Trim();
         entity.Unit = string.IsNullOrWhiteSpace(dto.Unit) ? "đôi" : dto.Unit.Trim();
         entity.PairPerCarton = dto.PairPerCarton <= 0 ? 12 : dto.PairPerCarton;
@@ -143,6 +147,8 @@ public class ProductMasterService : IProductMasterService
         Description = p.Description,
         UnitPriceCMT = p.UnitPriceCMT,
         UnitPriceDAP = p.UnitPriceDAP,
+        UnitPriceCMT_Go = p.UnitPriceCMT_Go,
+        UnitPriceDAP_Go = p.UnitPriceDAP_Go,
         HsCode = p.HsCode,
         Unit = p.Unit,
         PairPerCarton = p.PairPerCarton,

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Modal, Form, Input, InputNumber, Row, Col, message } from 'antd';
+import { Modal, Form, Input, InputNumber, Row, Col, message, Divider } from 'antd';
 import type { ProductMaster, CreateProductMasterRequest } from '../types';
 import { productMasterApi } from '../api/productMasterApi';
 
@@ -28,6 +28,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           description: product.description,
           unitPriceCMT: product.unitPriceCMT,
           unitPriceDAP: product.unitPriceDAP,
+          unitPriceCMT_Go: product.unitPriceCMT_Go ?? undefined,
+          unitPriceDAP_Go: product.unitPriceDAP_Go ?? undefined,
           hsCode: product.hsCode,
           unit: product.unit,
           pairPerCarton: product.pairPerCarton,
@@ -55,6 +57,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         description: values.description.trim(),
         unitPriceCMT: values.unitPriceCMT || 0,
         unitPriceDAP: values.unitPriceDAP || 0,
+        unitPriceCMT_Go: values.unitPriceCMT_Go || null,
+        unitPriceDAP_Go: values.unitPriceDAP_Go || null,
         hsCode: values.hsCode?.trim() || '64041990',
         unit: values.unit?.trim() || 'đôi',
         pairPerCarton: values.pairPerCarton || 12,
@@ -72,6 +76,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     } catch (err: any) {
       if (err.errorFields) return;
       console.error(err);
+      message.error('Vui lòng kiểm tra lại dữ liệu nhập.');
     } finally {
       setLoading(false);
     }
@@ -80,8 +85,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   return (
     <Modal
       title={
-        <div className="text-sm font-semibold text-slate-900 tracking-tight">
-          {isEdit ? `Chỉnh sửa mã hàng: ${product?.styleCode}` : 'Thêm mới mã hàng Master'}
+        <div className="text-sm font-semibold text-slate-900">
+          {isEdit ? `Chỉnh sửa mã hàng: ${product?.styleCode}` : 'Thêm mới mã hàng Master Data'}
         </div>
       }
       open={visible}
@@ -90,26 +95,20 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       confirmLoading={loading}
       okText={isEdit ? 'Lưu thay đổi' : 'Tạo mới'}
       cancelText="Hủy"
-      okButtonProps={{
-        className: 'bg-indigo-600 hover:bg-indigo-500 text-white border-none shadow-none',
-      }}
-      cancelButtonProps={{
-        className: 'border-slate-200 text-slate-600 hover:bg-slate-50',
-      }}
-      width={620}
+      width={640}
       destroyOnClose
     >
       <Form
         form={form}
         layout="vertical"
-        className="mt-4"
+        className="mt-3 space-y-1"
         requiredMark="optional"
       >
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
               name="styleCode"
-              label={<span className="text-xs font-medium text-slate-700">Mã hình thể (Style Code)</span>}
+              label={<span className="text-xs font-medium text-slate-700">Mã hình thể (Style Code) *</span>}
               rules={[
                 { required: true, message: 'Vui lòng nhập mã hình thể' },
                 { max: 50, message: 'Tối đa 50 ký tự' },
@@ -118,7 +117,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             >
               <Input
                 placeholder="42072-030"
-                className="uppercase font-mono text-xs rounded-lg"
+                className="uppercase font-mono text-xs"
               />
             </Form.Item>
           </Col>
@@ -126,21 +125,21 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           <Col span={12}>
             <Form.Item
               name="hsCode"
-              label={<span className="text-xs font-medium text-slate-700">Mã HS Code Hải Quan</span>}
+              label={<span className="text-xs font-medium text-slate-700">Mã HS Code Hải quan *</span>}
               rules={[
                 { required: true, message: 'Vui lòng nhập mã HS Code' },
                 { max: 30, message: 'Tối đa 30 ký tự' },
               ]}
-              extra={<span className="text-[11px] text-slate-400">Thường dùng: 64041990</span>}
+              extra={<span className="text-[11px] text-slate-400">Mặc định: 64041990</span>}
             >
-              <Input placeholder="64041990" className="font-mono text-xs rounded-lg" />
+              <Input placeholder="64041990" className="font-mono text-xs" />
             </Form.Item>
           </Col>
         </Row>
 
         <Form.Item
           name="description"
-          label={<span className="text-xs font-medium text-slate-700">Mô tả hàng hóa xuất khẩu</span>}
+          label={<span className="text-xs font-medium text-slate-700">Mô tả hàng hóa xuất khẩu *</span>}
           rules={[
             { required: true, message: 'Vui lòng nhập mô tả hàng hóa' },
             { max: 255, message: 'Tối đa 255 ký tự' },
@@ -148,20 +147,25 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         >
           <Input.TextArea
             rows={2}
-            className="text-xs rounded-lg"
+            className="text-xs"
             placeholder="Giày thể thao nữ buộc dây đế cao su (Women's Athletic Shoes Rubber Sole)..."
           />
         </Form.Item>
+
+        {/* Đơn giá Thành hình (Standard) */}
+        <Divider className="my-2 text-xs text-slate-500 font-medium">
+          Đơn giá Thành hình (Standard)
+        </Divider>
 
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
               name="unitPriceCMT"
-              label={<span className="text-xs font-medium text-slate-700">Đơn giá gia công CMT (USD)</span>}
+              label={<span className="text-xs font-medium text-slate-700">Đơn giá gia công CMT (USD) *</span>}
               rules={[{ required: true, message: 'Vui lòng nhập đơn giá CMT' }]}
             >
               <InputNumber
-                className="w-full font-mono text-xs rounded-lg"
+                className="w-full font-mono text-xs"
                 min={0}
                 step={0.01}
                 precision={4}
@@ -174,11 +178,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           <Col span={12}>
             <Form.Item
               name="unitPriceDAP"
-              label={<span className="text-xs font-medium text-slate-700">Đơn giá DAP (USD)</span>}
+              label={<span className="text-xs font-medium text-slate-700">Đơn giá DAP (USD) *</span>}
               rules={[{ required: true, message: 'Vui lòng nhập đơn giá DAP' }]}
             >
               <InputNumber
-                className="w-full font-mono text-xs rounded-lg"
+                className="w-full font-mono text-xs"
                 min={0}
                 step={0.01}
                 precision={4}
@@ -189,25 +193,64 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           </Col>
         </Row>
 
+        {/* Đơn giá Gò không may */}
+        <Divider className="my-2 text-xs text-slate-500 font-medium">
+          Đơn giá riêng Gò không may (.G) — Để trống nếu dùng chung giá trên
+        </Divider>
+
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
+              name="unitPriceCMT_Go"
+              label={<span className="text-xs font-medium text-slate-700">CMT Gò không may (USD)</span>}
+            >
+              <InputNumber
+                className="w-full font-mono text-xs"
+                min={0}
+                step={0.01}
+                precision={4}
+                prefix={<span className="text-slate-400">$</span>}
+                placeholder="Để trống = dùng chung"
+              />
+            </Form.Item>
+          </Col>
+
+          <Col span={12}>
+            <Form.Item
+              name="unitPriceDAP_Go"
+              label={<span className="text-xs font-medium text-slate-700">DAP Gò không may (USD)</span>}
+            >
+              <InputNumber
+                className="w-full font-mono text-xs"
+                min={0}
+                step={0.01}
+                precision={4}
+                prefix={<span className="text-slate-400">$</span>}
+                placeholder="Để trống = dùng chung"
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
               name="unit"
-              label={<span className="text-xs font-medium text-slate-700">Đơn vị tính</span>}
+              label={<span className="text-xs font-medium text-slate-700">Đơn vị tính *</span>}
               rules={[{ required: true, message: 'Vui lòng nhập đơn vị tính' }]}
             >
-              <Input placeholder="đôi" className="text-xs rounded-lg" />
+              <Input placeholder="đôi" className="text-xs" />
             </Form.Item>
           </Col>
 
           <Col span={12}>
             <Form.Item
               name="pairPerCarton"
-              label={<span className="text-xs font-medium text-slate-700">Số đôi / Thùng (Pair/CTN)</span>}
+              label={<span className="text-xs font-medium text-slate-700">Số đôi / Thùng (Pair/CTN) *</span>}
               rules={[{ required: true, message: 'Vui lòng nhập quy cách đóng gói' }]}
             >
               <InputNumber
-                className="w-full font-mono text-xs rounded-lg"
+                className="w-full font-mono text-xs"
                 min={1}
                 max={1000}
                 placeholder="12"

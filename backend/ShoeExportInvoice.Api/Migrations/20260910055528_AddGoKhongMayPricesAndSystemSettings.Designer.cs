@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ShoeExportInvoice.Api.Data;
 
@@ -10,9 +11,11 @@ using ShoeExportInvoice.Api.Data;
 namespace ShoeExportInvoice.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260910055528_AddGoKhongMayPricesAndSystemSettings")]
+    partial class AddGoKhongMayPricesAndSystemSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
@@ -84,9 +87,6 @@ namespace ShoeExportInvoice.Api.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime?>("ClearanceDate")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("ContractNo")
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
@@ -97,40 +97,6 @@ namespace ShoeExportInvoice.Api.Migrations
                     b.Property<string>("CustomerName")
                         .IsRequired()
                         .HasMaxLength(255)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CustomsAttachmentFileName")
-                        .HasMaxLength(255)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("CustomsChannel")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("CustomsDeclarationType")
-                        .HasMaxLength(20)
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal?>("CustomsGrossWeight")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<string>("CustomsOffice")
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("CustomsPackageQty")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<decimal?>("CustomsTotalCmt")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<decimal?>("CustomsTotalDap")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<string>("DeclarationNo")
-                        .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("DeliveryTerms")
@@ -153,12 +119,7 @@ namespace ShoeExportInvoice.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
-
                     b.HasKey("Id");
-
-                    b.HasIndex("DeclarationNo");
 
                     b.HasIndex("InvoiceNo")
                         .IsUnique();

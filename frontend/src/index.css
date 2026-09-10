@@ -3,9 +3,9 @@
 @tailwind utilities;
 
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
-  color: #334155;
-  background-color: #f8fafc;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #111827;
+  background-color: #F8FAFC;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -14,7 +14,8 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  background-color: #f8fafc;
+  background-color: #F8FAFC;
+  color: #111827;
 }
 
 #root {
@@ -23,10 +24,10 @@ body {
   flex-direction: column;
 }
 
-/* Subtle scrollbar */
+/* Subtle, calm scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -34,29 +35,97 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 9999px;
+  background: #D1D5DB;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #9CA3AF;
 }
 
-/* Subtle Ant Design table styling */
+/* Ant Design Table adjustments for Enterprise feel */
 .ant-table-wrapper .ant-table {
-  border-radius: 0.75rem !important;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px !important;
+  overflow: hidden;
 }
 
 .ant-table-thead > tr > th {
-  font-size: 11px !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.05em !important;
+  font-size: 12px !important;
   font-weight: 600 !important;
-  color: #64748b !important;
-  background: #f8fafc !important;
-  border-bottom: 1px solid #e2e8f0 !important;
+  color: #374151 !important;
+  background: #F9FAFB !important;
+  border-bottom: 1px solid #E5E7EB !important;
+  padding: 10px 12px !important;
 }
 
 .ant-table-tbody > tr > td {
-  border-bottom: 1px solid #f1f5f9 !important;
+  border-bottom: 1px solid #F3F4F6 !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  color: #1F2937;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background-color: #F9FAFB !important;
+}
+
+/* Table Summary Row */
+.ant-table-summary {
+  background-color: #F9FAFB;
+}
+
+.ant-table-summary > tr > td {
+  border-top: 1px solid #E5E7EB !important;
+  border-bottom: none !important;
+  padding: 10px 12px !important;
+}
+
+/* Calm Input & Select Styling */
+.ant-input,
+.ant-input-number,
+.ant-select-selector,
+.ant-picker {
+  border-color: #E5E7EB !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  transition: border-color 150ms ease, box-shadow 150ms ease !important;
+}
+
+.ant-input:focus,
+.ant-input-focused,
+.ant-input-number-focused,
+.ant-select-focused .ant-select-selector,
+.ant-picker-focused {
+  border-color: #2563EB !important;
+  box-shadow: 0 0 0 1px #2563EB !important;
+}
+
+/* Enterprise Card */
+.ant-card {
+  border: 1px solid #E5E7EB !important;
+  border-radius: 8px !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Modal styling */
+.ant-modal-content {
+  border-radius: 8px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1) !important;
+  border: 1px solid #E5E7EB !important;
+  padding: 20px !important;
+}
+
+.ant-modal-header {
+  margin-bottom: 16px !important;
+  padding-bottom: 12px !important;
+  border-bottom: 1px solid #F3F4F6 !important;
+}
+
+/* Tag styling */
+.ant-tag {
+  border-radius: 4px !important;
+  font-size: 12px !important;
+  line-height: 18px !important;
+  padding: 1px 8px !important;
 }

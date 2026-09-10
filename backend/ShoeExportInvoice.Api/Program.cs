@@ -42,6 +42,8 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<IProductMasterService, ProductMasterService>();
 builder.Services.AddScoped<IExcelImportExportService, ExcelImportExportService>();
 builder.Services.AddScoped<IOcrExtractionService, OcrExtractionService>();
+builder.Services.AddScoped<ISequenceService, SequenceService>();
+builder.Services.AddScoped<ICustomsDeclarationService, CustomsDeclarationService>();
 
 // CORS Policy for Vite Frontend
 builder.Services.AddCors(options =>

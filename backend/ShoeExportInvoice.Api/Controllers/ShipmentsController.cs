@@ -4,6 +4,7 @@ using ShoeExportInvoice.Api.Data;
 using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Models.Entities;
 using ShoeExportInvoice.Api.Services;
+using System.Text.Json;
 
 namespace ShoeExportInvoice.Api.Controllers;
 
@@ -13,15 +14,18 @@ public class ShipmentsController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IExcelImportExportService _excelService;
+    private readonly ISequenceService _sequenceService;
     private readonly ILogger<ShipmentsController> _logger;
 
     public ShipmentsController(
         AppDbContext context,
         IExcelImportExportService excelService,
+        ISequenceService sequenceService,
         ILogger<ShipmentsController> logger)
     {
         _context = context;
         _excelService = excelService;
+        _sequenceService = sequenceService;
         _logger = logger;
     }
 
@@ -50,7 +54,10 @@ public class ShipmentsController : ControllerBase
     }
 
     /// <summary>
-    /// Xuất file Excel đa sheet (INV, PKL, Sheet2) chuẩn hóa đơn xuất khẩu từ file mẫu
+    /// Xuất file Excel đa sheet (INV, PKL, Sheet2) chuẩn hóa đơn xuất khẩu từ file mẫu.
+    /// - Nếu đơn có CẢ HAI loại hàng (Standard + GoKhongMay): tự động tách 2 file và đóng gói ZIP.
+    /// - Nếu đơn chỉ có 1 loại: trả về 1 file XLSX với tên KM3-26-DH{XXX}.xlsx.
+    /// - Tên file đồng bộ với số cuối của Invoice No.
     /// </summary>
     [HttpPost("export-excel")]
     public async Task<IActionResult> ExportExcel([FromBody] CreateShipmentRequestDto request)
@@ -62,32 +69,183 @@ public class ShipmentsController : ControllerBase
 
         try
         {
-            // Tự động lưu hoặc cập nhật đơn hàng vào SQLite khi xuất file Excel
-            if (!string.IsNullOrWhiteSpace(request.InvoiceNo))
+            // Phân loại items theo loại công đoạn
+            var goItems = request.Items.Where(i => i.ProcessType == ProcessType.GoKhongMay).ToList();
+            var standardItems = request.Items.Where(i => i.ProcessType == ProcessType.Standard).ToList();
+
+            bool hasBothTypes = goItems.Count > 0 && standardItems.Count > 0;
+
+            if (hasBothTypes)
             {
+                // ===== TÁCH 2 FILE: Lấy 2 số thứ tự liên tiếp =====
+                var seqNumbers = await _sequenceService.GetNextSequenceNumbersAsync(2);
+                int goSeq = seqNumbers[0];      // File Gò lấy số nhỏ hơn
+                int standardSeq = seqNumbers[1]; // File Thành hình lấy số tiếp theo
+
+                string goInvoiceNo = _sequenceService.ToInvoiceNo(goSeq);
+                string standardInvoiceNo = _sequenceService.ToInvoiceNo(standardSeq);
+                string goFileName = _sequenceService.ToFileName(goSeq);
+                string standardFileName = _sequenceService.ToFileName(standardSeq);
+
+                // Tạo 2 request riêng cho mỗi loại hàng
+                var goRequest = CloneRequestWithItems(request, goItems, goInvoiceNo);
+                var standardRequest = CloneRequestWithItems(request, standardItems, standardInvoiceNo);
+
+                // Lưu CẢ HAI đơn hàng thực tế vào DB với trạng thái Exported (Chờ thông quan)
                 try
                 {
-                    await SaveOrUpdateShipmentInternalAsync(request);
+                    await SaveOrUpdateShipmentInternalAsync(goRequest, ShipmentStatus.Exported);
+                    await SaveOrUpdateShipmentInternalAsync(standardRequest, ShipmentStatus.Exported);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Không thể tự động lưu đơn hàng khi xuất Excel: {Message}", ex.Message);
+                    _logger.LogError(ex, "Lỗi khi tự động lưu 2 đơn hàng tách khi xuất Excel: {Message}", ex.Message);
                 }
+
+                // Xuất 2 file và đóng gói ZIP
+                var zipBytes = await _excelService.ExportSplitToZipAsync(goRequest, goFileName, standardRequest, standardFileName);
+
+                // Thông tin tổng kết để frontend hiển thị
+                var exportResult = new ExportResultDto
+                {
+                    HasTwoFiles = true,
+                    GoFileName = goFileName,
+                    GoInvoiceNo = goInvoiceNo,
+                    GoTotalQuantity = goItems.Sum(i => i.Quantity),
+                    GoSequenceNumber = goSeq,
+                    StandardFileName = standardFileName,
+                    StandardInvoiceNo = standardInvoiceNo,
+                    StandardTotalQuantity = standardItems.Sum(i => i.Quantity),
+                    StandardSequenceNumber = standardSeq,
+                };
+
+                // Đặt tên file ZIP theo cặp số thứ tự
+                string zipName = $"KM3-26-DH{goSeq}-{standardSeq}.zip";
+
+                Response.Headers["X-Export-Info"] = JsonSerializer.Serialize(exportResult, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                });
+                Response.Headers["Access-Control-Expose-Headers"] = "X-Export-Info";
+
+                _logger.LogInformation("Xuất 2 file tách: {GoFile} ({GoQty} đôi) + {StdFile} ({StdQty} đôi) → ZIP: {ZipName}",
+                    goFileName, exportResult.GoTotalQuantity, standardFileName, exportResult.StandardTotalQuantity, zipName);
+
+                return File(zipBytes, "application/zip", zipName);
             }
+            else
+            {
+                // ===== 1 FILE DUY NHẤT =====
+                // Ưu tiên dùng Invoice No từ request nếu hợp lệ, ngược lại cấp số mới
+                string invoiceNo = request.InvoiceNo?.Trim() ?? string.Empty;
+                string fileName;
 
-            var excelBytes = await _excelService.ExportShipmentMultiSheetExcelAsync(request);
-            var safeInvoiceNo = string.IsNullOrWhiteSpace(request.InvoiceNo) ? "Shipment" : request.InvoiceNo.Trim().Replace("/", "-").Replace("\\", "-");
-            var fileName = $"{safeInvoiceNo}_INV_PKL.xlsx";
+                var extractedSeq = _sequenceService.ExtractSequenceNumber(invoiceNo);
+                if (extractedSeq.HasValue)
+                {
+                    // Invoice No đã có số hợp lệ → dùng luôn, không tiêu thụ số mới
+                    fileName = _sequenceService.ToFileName(extractedSeq.Value);
+                }
+                else
+                {
+                    // Invoice No không theo chuẩn → cấp 1 số mới
+                    var seqNumbers = await _sequenceService.GetNextSequenceNumbersAsync(1);
+                    int seq = seqNumbers[0];
+                    invoiceNo = _sequenceService.ToInvoiceNo(seq);
+                    request.InvoiceNo = invoiceNo;
+                    fileName = _sequenceService.ToFileName(seq);
+                }
 
-            return File(
-                excelBytes,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                fileName);
+                // Lưu đơn hàng 1 file vào DB với trạng thái Exported (Chờ thông quan)
+                try
+                {
+                    await SaveOrUpdateShipmentInternalAsync(request, ShipmentStatus.Exported);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi tự động lưu đơn hàng 1 file khi xuất Excel: {Message}", ex.Message);
+                }
+
+                var excelBytes = await _excelService.ExportShipmentMultiSheetExcelAsync(request);
+
+                var exportResult = new ExportResultDto
+                {
+                    HasTwoFiles = false,
+                    SingleFileName = fileName,
+                    SingleInvoiceNo = invoiceNo,
+                    SingleTotalQuantity = request.Items.Sum(i => i.Quantity),
+                };
+
+                Response.Headers["X-Export-Info"] = JsonSerializer.Serialize(exportResult, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                });
+                Response.Headers["Access-Control-Expose-Headers"] = "X-Export-Info";
+
+                _logger.LogInformation("Xuất 1 file: {FileName} ({Qty} đôi)", fileName, exportResult.SingleTotalQuantity);
+
+                return File(
+                    excelBytes,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    fileName);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi xuất file Excel đa sheet cho đơn hàng.");
             return StatusCode(500, new { message = "Lỗi khi xuất file Excel", detail = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Lấy số thứ tự Invoice tiếp theo sẽ được cấp (chưa tiêu thụ)
+    /// </summary>
+    [HttpGet("sequence/current")]
+    public async Task<IActionResult> GetCurrentSequence()
+    {
+        try
+        {
+            var nextNumber = await _sequenceService.GetCurrentNextNumberAsync();
+            return Ok(new
+            {
+                nextNumber,
+                previewInvoiceNo = _sequenceService.ToInvoiceNo(nextNumber),
+                previewFileName = _sequenceService.ToFileName(nextNumber)
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi đọc số thứ tự hiện tại.");
+            return StatusCode(500, new { message = "Lỗi khi đọc số thứ tự", detail = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Ghi đè số thứ tự bắt đầu. Lần xuất tiếp theo sẽ bắt đầu từ nextNumber.
+    /// </summary>
+    [HttpPut("sequence")]
+    public async Task<IActionResult> SetSequence([FromBody] SetSequenceRequest body)
+    {
+        if (body == null || body.NextNumber <= 0)
+        {
+            return BadRequest(new { message = "nextNumber phải lớn hơn 0." });
+        }
+
+        try
+        {
+            await _sequenceService.SetNextSequenceNumberAsync(body.NextNumber);
+            return Ok(new
+            {
+                message = $"Đã ghi đè thành công. Lần xuất tiếp theo sẽ bắt đầu từ {body.NextNumber}.",
+                nextNumber = body.NextNumber,
+                previewInvoiceNo = _sequenceService.ToInvoiceNo(body.NextNumber),
+                previewFileName = _sequenceService.ToFileName(body.NextNumber)
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi ghi đè số thứ tự.");
+            return StatusCode(500, new { message = "Lỗi khi ghi đè số thứ tự", detail = ex.Message });
         }
     }
 
@@ -130,7 +288,7 @@ public class ShipmentsController : ControllerBase
         }
     }
 
-    private async Task<ShipmentOrder> SaveOrUpdateShipmentInternalAsync(CreateShipmentRequestDto request)
+    private async Task<ShipmentOrder> SaveOrUpdateShipmentInternalAsync(CreateShipmentRequestDto request, ShipmentStatus status = ShipmentStatus.Draft)
     {
         var invoiceNo = request.InvoiceNo.Trim();
         var existing = await _context.ShipmentOrders
@@ -153,6 +311,12 @@ public class ShipmentsController : ControllerBase
             existing.DeliveryTerms = request.DeliveryTerms?.Trim() ?? "DAP";
             existing.PaymentTerms = request.PaymentTerms?.Trim() ?? "T/T";
 
+            // Cập nhật trạng thái nếu đơn cũ đang là Draft hoặc status mới được chỉ định là Exported
+            if (status == ShipmentStatus.Exported || existing.Status == ShipmentStatus.Draft)
+            {
+                existing.Status = status;
+            }
+
             _context.ShipmentOrderItems.RemoveRange(existing.Items);
 
             foreach (var item in request.Items)
@@ -160,19 +324,11 @@ public class ShipmentsController : ControllerBase
                 var key = item.StyleCode.Trim().ToUpperInvariant();
                 dbProducts.TryGetValue(key, out var pm);
 
-                var cmt = (item.UnitPriceCMT.HasValue && item.UnitPriceCMT > 0)
-                    ? item.UnitPriceCMT.Value
-                    : (pm?.UnitPriceCMT ?? 0m);
+                bool isGo = item.ProcessType == ProcessType.GoKhongMay;
+                var cmt = ResolvePrice(item.UnitPriceCMT, isGo, pm?.UnitPriceCMT_Go, pm?.UnitPriceCMT);
+                var dap = ResolvePrice(item.UnitPriceDAP, isGo, pm?.UnitPriceDAP_Go, pm?.UnitPriceDAP);
 
-                var dap = (item.UnitPriceDAP.HasValue && item.UnitPriceDAP > 0)
-                    ? item.UnitPriceDAP.Value
-                    : (pm?.UnitPriceDAP ?? 0m);
-
-                var fullCode = !string.IsNullOrWhiteSpace(item.FullItemCode)
-                    ? item.FullItemCode
-                    : (item.ProcessType == ProcessType.GoKhongMay
-                        ? $"{item.StyleCode}.G {request.PoSuffix}".Trim()
-                        : $"{item.StyleCode} {request.PoSuffix}".Trim());
+                var fullCode = BuildFullItemCode(item, request.PoSuffix);
 
                 _context.ShipmentOrderItems.Add(new ShipmentOrderItem
                 {
@@ -200,6 +356,7 @@ public class ShipmentsController : ControllerBase
             Address = request.Address?.Trim(),
             DeliveryTerms = request.DeliveryTerms?.Trim() ?? "DAP",
             PaymentTerms = request.PaymentTerms?.Trim() ?? "T/T",
+            Status = status,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -208,19 +365,11 @@ public class ShipmentsController : ControllerBase
             var key = item.StyleCode.Trim().ToUpperInvariant();
             dbProducts.TryGetValue(key, out var pm);
 
-            var cmt = (item.UnitPriceCMT.HasValue && item.UnitPriceCMT > 0)
-                ? item.UnitPriceCMT.Value
-                : (pm?.UnitPriceCMT ?? 0m);
+            bool isGo = item.ProcessType == ProcessType.GoKhongMay;
+            var cmt = ResolvePrice(item.UnitPriceCMT, isGo, pm?.UnitPriceCMT_Go, pm?.UnitPriceCMT);
+            var dap = ResolvePrice(item.UnitPriceDAP, isGo, pm?.UnitPriceDAP_Go, pm?.UnitPriceDAP);
 
-            var dap = (item.UnitPriceDAP.HasValue && item.UnitPriceDAP > 0)
-                ? item.UnitPriceDAP.Value
-                : (pm?.UnitPriceDAP ?? 0m);
-
-            var fullCode = !string.IsNullOrWhiteSpace(item.FullItemCode)
-                ? item.FullItemCode
-                : (item.ProcessType == ProcessType.GoKhongMay
-                    ? $"{item.StyleCode}.G {request.PoSuffix}".Trim()
-                    : $"{item.StyleCode} {request.PoSuffix}".Trim());
+            var fullCode = BuildFullItemCode(item, request.PoSuffix);
 
             shipment.Items.Add(new ShipmentOrderItem
             {
@@ -271,6 +420,18 @@ public class ShipmentsController : ControllerBase
             s.DeliveryTerms,
             s.PaymentTerms,
             s.CreatedAt,
+            Status = (int)s.Status,
+            StatusName = s.Status.ToString(),
+            s.DeclarationNo,
+            s.ClearanceDate,
+            s.CustomsDeclarationType,
+            s.CustomsChannel,
+            s.CustomsOffice,
+            s.CustomsPackageQty,
+            s.CustomsGrossWeight,
+            s.CustomsTotalDap,
+            s.CustomsTotalCmt,
+            s.CustomsAttachmentFileName,
             ItemCount = s.Items.Count,
             TotalQuantity = s.Items.Sum(i => i.Quantity),
             TotalAmountCMT = s.Items.Sum(i => i.UnitPriceCMT * i.Quantity),
@@ -354,12 +515,65 @@ public class ShipmentsController : ControllerBase
         };
 
         var excelBytes = await _excelService.ExportShipmentMultiSheetExcelAsync(request);
-        var safeInvoiceNo = shipment.InvoiceNo.Trim().Replace("/", "-").Replace("\\", "-");
-        var fileName = $"{safeInvoiceNo}_INV_PKL.xlsx";
+
+        // Đặt tên file chuẩn từ Invoice No
+        var seqNum = _sequenceService.ExtractSequenceNumber(shipment.InvoiceNo);
+        var fileName = seqNum.HasValue
+            ? _sequenceService.ToFileName(seqNum.Value)
+            : $"{shipment.InvoiceNo.Trim().Replace("/", "-").Replace("\\", "-")}.xlsx";
 
         return File(
             excelBytes,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             fileName);
     }
+
+    // ====== Helper methods ======
+
+    /// <summary>
+    /// Clone request với danh sách items mới và Invoice No mới
+    /// </summary>
+    private static CreateShipmentRequestDto CloneRequestWithItems(
+        CreateShipmentRequestDto original,
+        List<CreateShipmentItemDto> newItems,
+        string newInvoiceNo)
+    {
+        return new CreateShipmentRequestDto
+        {
+            InvoiceNo = newInvoiceNo,
+            InvoiceDate = original.InvoiceDate,
+            PoSuffix = original.PoSuffix,
+            ContractNo = original.ContractNo,
+            CustomerName = original.CustomerName,
+            Address = original.Address,
+            DeliveryTerms = original.DeliveryTerms,
+            PaymentTerms = original.PaymentTerms,
+            Items = newItems
+        };
+    }
+
+    /// <summary>
+    /// Xây dựng FullItemCode từ item và PoSuffix
+    /// </summary>
+    private static string BuildFullItemCode(CreateShipmentItemDto item, string? poSuffix)
+    {
+        if (!string.IsNullOrWhiteSpace(item.FullItemCode)) return item.FullItemCode;
+
+        return item.ProcessType == ProcessType.GoKhongMay
+            ? $"{item.StyleCode}.G {poSuffix}".Trim()
+            : $"{item.StyleCode} {poSuffix}".Trim();
+    }
+
+    /// <summary>
+    /// Giải quyết đơn giá: ưu tiên giá người dùng nhập, sau đó giá Gò nếu là hàng Gò, cuối cùng giá thường
+    /// </summary>
+    private static decimal ResolvePrice(decimal? userPrice, bool isGo, decimal? goPricePm, decimal? standardPricePm)
+    {
+        if (userPrice.HasValue && userPrice.Value > 0) return userPrice.Value;
+        if (isGo && goPricePm.HasValue && goPricePm.Value > 0) return goPricePm.Value;
+        return standardPricePm ?? 0m;
+    }
 }
+
+/// <summary>Request body cho PUT /api/shipments/sequence</summary>
+public record SetSequenceRequest(int NextNumber);

@@ -14,7 +14,6 @@ import {
   CheckCircleOutlined,
   ExclamationCircleOutlined,
   ClearOutlined,
-  ThunderboltOutlined,
 } from '@ant-design/icons';
 import type { CreateShipmentItem, ProductMaster } from '../types';
 import { ProcessType } from '../types';
@@ -53,7 +52,6 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
   const [pastedText, setPastedText] = useState<string>('');
   const [applyMode, setApplyMode] = useState<'replace' | 'append'>('replace');
 
-  // Tạo map tra cứu nhanh sản phẩm theo mã viết hoa
   const productMap = useMemo(() => {
     const map = new Map<string, ProductMaster>();
     products.forEach((p) => {
@@ -62,7 +60,6 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
     return map;
   }, [products]);
 
-  // Parser bóc tách dữ liệu từ văn bản
   const parsedData = useMemo(() => {
     if (!pastedText.trim()) {
       return { items: [], totalQuantity: 0, validCount: 0, invalidCount: 0 };
@@ -75,7 +72,6 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
       const trimmed = line.trim();
       if (!trimmed) return;
 
-      // Bỏ qua dòng tiêu đề nếu người dùng copy cả header từ Excel
       const lower = trimmed.toLowerCase();
       if (
         (lower.includes('mã') || lower.includes('style') || lower.includes('item')) &&
@@ -84,7 +80,6 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
         return;
       }
 
-      // Tách cột: ưu tiên tab \t (từ Excel), tiếp theo là dấu gạch đứng |, dấu phẩy hoặc khoảng trắng
       let parts: string[] = [];
       if (trimmed.includes('\t')) {
         parts = trimmed.split('\t');
@@ -93,41 +88,32 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
       } else if (trimmed.includes(',')) {
         parts = trimmed.split(',');
       } else {
-        // Tách bởi 1 hoặc nhiều khoảng trắng
         parts = trimmed.split(/\s+/);
       }
 
-      // Làm sạch các phần tử
       parts = parts.map((p) => p.trim()).filter((p) => p.length > 0);
       if (parts.length === 0) return;
 
-      // Cột 1: Mã hình thể (StyleCode)
       let rawStyleCode = parts[0] || '';
-      // Loại bỏ các ký tự dấu nháy kép thừa nếu copy từ CSV
       rawStyleCode = rawStyleCode.replace(/^["']|["']$/g, '').trim();
 
-      // Cột 2: Số lượng (Quantity)
       const rawQtyStr = (parts[1] || '').replace(/[,.\s]/g, '');
       const parsedQty = parseInt(rawQtyStr, 10);
 
-      // Cột 3 (nếu có): Ghi chú / Công đoạn
       const remainingNotes = parts.slice(2).join(' ');
 
-      // Kiểm tra quy trình công nghệ từ ghi chú hoặc hậu tố mã (.G)
       const isGoProcess =
         /g[oò]|gò\s*không\s*may|\.g/i.test(remainingNotes) ||
         rawStyleCode.toUpperCase().endsWith('.G');
 
       const processType = isGoProcess ? ProcessType.GoKhongMay : ProcessType.Standard;
 
-      // Chuẩn hóa mã gốc: nếu mã bị gắn đuôi .G thì có thể tách ra để tra cứu trong Master Data
       let lookupCode = rawStyleCode.toUpperCase();
       if (lookupCode.endsWith('.G')) {
         lookupCode = lookupCode.substring(0, lookupCode.length - 2).trim();
       }
 
       const matched = productMap.get(lookupCode);
-
       const isValid = Boolean(rawStyleCode) && !isNaN(parsedQty) && parsedQty > 0;
 
       result.push({
@@ -162,7 +148,6 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
     };
   }, [pastedText, productMap]);
 
-  // Xử lý áp dụng dữ liệu vào bảng
   const handleApply = () => {
     const validRows = parsedData.items.filter((r) => r.isValid);
     if (validRows.length === 0) return;
@@ -198,7 +183,7 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
     {
       title: 'STT',
       key: 'stt',
-      width: 45,
+      width: 44,
       align: 'center',
       render: (_, __, idx) => (
         <span className="font-mono text-xs text-slate-400">{idx + 1}</span>
@@ -208,12 +193,12 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
       title: 'Mã hình thể',
       dataIndex: 'styleCode',
       key: 'styleCode',
-      width: 150,
+      width: 140,
       render: (code: string, record) => (
         <div>
-          <span className="font-mono font-semibold text-slate-900">{code}</span>
+          <span className="font-mono font-medium text-slate-900 text-xs">{code}</span>
           {record.description && (
-            <div className="text-[11px] text-slate-400 truncate max-w-[200px]" title={record.description}>
+            <div className="text-[11px] text-slate-400 truncate max-w-[180px]" title={record.description}>
               {record.description}
             </div>
           )}
@@ -224,12 +209,12 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
       title: 'Số lượng (đôi)',
       dataIndex: 'quantity',
       key: 'quantity',
-      width: 120,
+      width: 110,
       align: 'right',
       render: (qty: number, record) => (
         <span
-          className={`font-mono font-bold ${
-            record.isValid ? 'text-slate-900' : 'text-rose-600'
+          className={`font-mono font-semibold text-xs ${
+            record.isValid ? 'text-slate-900' : 'text-red-600'
           }`}
         >
           {record.isValid ? qty.toLocaleString() : 'Lỗi'}
@@ -237,17 +222,17 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
       ),
     },
     {
-      title: 'Loại công đoạn',
+      title: 'Công đoạn',
       dataIndex: 'processType',
       key: 'processType',
-      width: 140,
+      width: 130,
       render: (proc: ProcessType) =>
         proc === ProcessType.GoKhongMay ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200/60">
+          <span className="text-xs text-purple-700 font-medium">
             Gò không may (.G)
           </span>
         ) : (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+          <span className="text-xs text-slate-700">
             Thành hình
           </span>
         ),
@@ -256,31 +241,30 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
       title: 'Quy cách',
       dataIndex: 'pairPerCarton',
       key: 'pairPerCarton',
-      width: 100,
-      align: 'center',
+      width: 90,
+      align: 'right',
       render: (pairs: number) => (
-        <span className="font-mono text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+        <span className="font-mono text-xs text-slate-700">
           {pairs} đôi/thùng
         </span>
       ),
     },
     {
-      title: 'Master Data',
+      title: 'Đối chiếu Master',
       key: 'matchStatus',
-      width: 130,
+      width: 120,
+      align: 'center',
       render: (_, record) =>
         record.matchedProduct ? (
-          <Tooltip title={`Đơn giá CMT: $${record.unitPriceCMT} | DAP: $${record.unitPriceDAP}`}>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-              <CheckCircleOutlined className="text-[10px]" /> Đã khớp mã
+          <Tooltip title={`CMT: $${record.unitPriceCMT} | DAP: $${record.unitPriceDAP}`}>
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
+              <CheckCircleOutlined className="text-[10px]" /> Đã khớp
             </span>
           </Tooltip>
         ) : (
-          <Tooltip title="Mã chưa có trong danh mục. Hệ thống vẫn cho phép nhập.">
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
-              <ExclamationCircleOutlined className="text-[10px]" /> Mã mới
-            </span>
-          </Tooltip>
+          <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+            <ExclamationCircleOutlined className="text-[10px]" /> Mã mới
+          </span>
         ),
     },
   ];
@@ -288,133 +272,125 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
   return (
     <Modal
       title={
-        <div className="flex items-center justify-between pr-6 border-b border-slate-100 pb-3">
-          <div className="flex items-center space-x-2">
-            <ThunderboltOutlined className="text-indigo-600 text-lg" />
-            <span className="font-bold text-slate-900 text-base">
-              Dán nhanh số liệu từ Clipboard (Quick Paste)
-            </span>
+        <div className="pb-1">
+          <div className="text-sm font-semibold text-slate-900">
+            Dán nhanh dữ liệu (Quick Paste)
           </div>
-          <span className="text-[11px] font-mono font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-            Hỗ trợ Excel & Zalo
-          </span>
+          <div className="text-xs text-slate-500 font-normal mt-0.5">
+            Dán dữ liệu được sao chép từ Excel hoặc Zalo để phân tích và đưa vào hóa đơn
+          </div>
         </div>
       }
       open={visible}
       onCancel={onClose}
-      width={900}
+      width={860}
       footer={[
-        <Button key="cancel" onClick={onClose} className="border-slate-200 text-slate-700">
-          Đóng
+        <Button key="cancel" onClick={onClose} className="border-slate-300 text-slate-700 text-xs h-9 px-3.5">
+          Hủy
         </Button>,
         <Button
           key="apply"
           type="primary"
-          icon={<ThunderboltOutlined />}
           disabled={parsedData.validCount === 0}
           onClick={handleApply}
-          className="bg-indigo-600 hover:bg-indigo-700"
+          className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4"
         >
-          Áp dụng vào bảng ({parsedData.validCount} mã - {parsedData.totalQuantity.toLocaleString()} đôi)
+          Áp dụng dữ liệu ({parsedData.validCount} mã - {parsedData.totalQuantity.toLocaleString()} đôi)
         </Button>,
       ]}
     >
       <div className="space-y-4 py-2">
-        {/* Hướng dẫn & Nút dán mẫu */}
+        {/* Helper bar */}
         <div className="flex items-center justify-between text-xs text-slate-500">
           <span>
-            Sao chép các cột <strong>[Mã hình thể] [Số lượng] [Ghi chú / Công đoạn]</strong> từ Excel hoặc tin nhắn Zalo rồi dán (Ctrl+V) vào ô bên dưới:
+            Định dạng: <strong>[Mã hình thể] [Số lượng] [Ghi chú / Công đoạn]</strong>
           </span>
-          <Space size="small">
-            <Button size="small" type="link" onClick={handlePasteExample} className="text-indigo-600 p-0 text-xs font-medium">
+          <Space size="middle">
+            <Button size="small" type="link" onClick={handlePasteExample} className="text-blue-600 p-0 text-xs">
               Dán dữ liệu mẫu
             </Button>
             <span className="text-slate-300">|</span>
             <Button size="small" type="link" icon={<ClearOutlined />} onClick={handleClear} className="text-slate-500 hover:text-slate-700 p-0 text-xs">
-              Xóa ô
+              Xóa nội dung
             </Button>
           </Space>
         </div>
 
-        {/* Ô Textarea nhập liệu */}
+        {/* Textarea */}
         <TextArea
           rows={5}
           value={pastedText}
           onChange={(e) => setPastedText(e.target.value)}
-          placeholder={`Dán dữ liệu tại đây (dạng tab từ Excel hoặc khoảng trắng):
+          placeholder={`Dán dữ liệu tại đây (từ Excel hoặc văn bản):
 42072-030\t36\tThành phẩm
 45428-2LX\t4032\tGÒ KHÔNG MAY
 51200-1BK\t5\tMẫu lẻ`}
-          className="font-mono text-xs border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          className="font-mono text-xs"
         />
 
-        {/* Thanh đối soát kết quả bóc tách */}
+        {/* Parsed summary indicators */}
         {pastedText.trim() && (
-          <div className="grid grid-cols-3 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-            <div className="bg-white p-2.5 rounded border border-slate-200/80">
-              <div className="text-[11px] font-medium text-slate-500 uppercase">Mã hợp lệ bóc tách</div>
-              <div className="mt-0.5 text-lg font-bold font-mono text-slate-900">
+          <div className="grid grid-cols-3 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-center">
+            <div className="bg-white p-2.5 rounded border border-slate-200">
+              <div className="text-[11px] font-medium text-slate-500 uppercase">Mã hợp lệ</div>
+              <div className="mt-0.5 text-base font-semibold font-mono text-slate-900">
                 {parsedData.validCount} <span className="text-xs font-normal text-slate-400">mặt hàng</span>
               </div>
             </div>
 
-            <div className="bg-white p-2.5 rounded border border-slate-200/80">
-              <div className="text-[11px] font-medium text-slate-500 uppercase">Tổng số đôi đối soát</div>
-              <div className="mt-0.5 text-lg font-bold font-mono text-slate-900">
+            <div className="bg-white p-2.5 rounded border border-slate-200">
+              <div className="text-[11px] font-medium text-slate-500 uppercase">Tổng số đôi</div>
+              <div className="mt-0.5 text-base font-semibold font-mono text-slate-900">
                 {parsedData.totalQuantity.toLocaleString()} <span className="text-xs font-normal text-slate-400">đôi</span>
               </div>
             </div>
 
-            <div className="bg-white p-2.5 rounded border border-slate-200/80">
+            <div className="bg-white p-2.5 rounded border border-slate-200">
               <div className="text-[11px] font-medium text-slate-500 uppercase">Khớp Master Data</div>
-              <div className="mt-0.5 text-lg font-bold font-mono text-slate-800">
+              <div className="mt-0.5 text-base font-semibold font-mono text-slate-900">
                 {parsedData.items.filter((r) => r.matchedProduct).length} / {parsedData.validCount}
               </div>
             </div>
           </div>
         )}
 
-        {/* Cảnh báo lỗi bóc tách nếu có dòng sai định dạng */}
         {parsedData.invalidCount > 0 && (
           <Alert
             type="warning"
             showIcon
-            message={`Phát hiện ${parsedData.invalidCount} dòng chưa đúng định dạng. Các dòng này sẽ được bỏ qua khi áp dụng.`}
+            message={`Có ${parsedData.invalidCount} dòng không hợp lệ sẽ tự động được bỏ qua.`}
             className="text-xs py-1.5"
           />
         )}
 
-        {/* Bảng xem trước dữ liệu bóc tách */}
+        {/* Parsed Preview Table */}
         {parsedData.items.length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                Xem trước kết quả nhận diện ({parsedData.items.length} dòng)
+                Kết quả nhận diện ({parsedData.items.length} dòng):
               </span>
-              <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-500">Chế độ áp dụng:</span>
+              <div className="flex items-center space-x-2 text-xs text-slate-600">
+                <span>Chế độ:</span>
                 <Radio.Group
                   size="small"
                   value={applyMode}
                   onChange={(e) => setApplyMode(e.target.value)}
                   optionType="button"
-                  buttonStyle="solid"
                 >
-                  <Radio.Button value="replace">Thay thế toàn bộ</Radio.Button>
+                  <Radio.Button value="replace">Thay thế bảng</Radio.Button>
                   <Radio.Button value="append">Thêm nối tiếp</Radio.Button>
                 </Radio.Group>
               </div>
             </div>
 
-            <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-              <Table
-                dataSource={parsedData.items}
-                columns={columns}
-                pagination={false}
-                size="small"
-                scroll={{ y: 220 }}
-              />
-            </div>
+            <Table
+              dataSource={parsedData.items}
+              columns={columns}
+              pagination={false}
+              size="small"
+              scroll={{ y: 220 }}
+            />
           </div>
         )}
       </div>

@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # 1. Backend Service: ASP.NET Core 8 Web API
+  backend:
+    build:
+      context: .
+      dockerfile: backend/ShoeExportInvoice.Api/Dockerfile
+    container_name: shoe-export-backend
+    restart: unless-stopped
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5270
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/shoe_export.db
+      - OpenAI__ApiKey=${OPENAI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      # Lưu trữ cơ sở dữ liệu SQLite bền vững ra thư mục data ở máy host
+      - ./data:/app/data
+      # Mount thư mục Templates từ máy host để có thể cập nhật mẫu Excel trực tiếp
+      - ./Templates:/app/Templates
+    ports:
+      - "${BACKEND_PORT:-5270}:5270"
+    networks:
+      - app-network
+
+  # 2. Frontend Service: React + Vite SPA served via Nginx
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: shoe-export-frontend
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

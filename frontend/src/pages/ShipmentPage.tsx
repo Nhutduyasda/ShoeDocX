@@ -36,6 +36,7 @@ import {
   PaperClipOutlined,
   ExclamationCircleOutlined,
   HistoryOutlined,
+  RocketOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { shipmentApi, invoiceNoToFileName } from '../api/shipmentApi';
@@ -54,11 +55,13 @@ import { ProcessType, ShipmentStatus } from '../types';
 import { PklPreviewModal } from '../components/PklPreviewModal';
 import { QuickPasteModal } from '../components/QuickPasteModal';
 import { OcrUploadModal } from '../components/OcrUploadModal';
+import { BatchOcrModal } from '../components/BatchOcrModal';
 import { CustomsSyncModal } from '../components/CustomsSyncModal';
 
 export interface ShipmentPageRef {
   loadHistoricalOrder: (id: number) => void;
   openOcrModal: () => void;
+  openBatchOcrModal: () => void;
 }
 
 interface ShipmentPageProps {
@@ -75,6 +78,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [form] = Form.useForm();
   const [quickPasteVisible, setQuickPasteVisible] = useState<boolean>(false);
   const [ocrModalVisible, setOcrModalVisible] = useState<boolean>(false);
+  const [batchOcrModalVisible, setBatchOcrModalVisible] = useState<boolean>(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   const [items, setItems] = useState<CreateShipmentItem[]>([
@@ -138,6 +142,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     },
     openOcrModal: () => {
       setOcrModalVisible(true);
+    },
+    openBatchOcrModal: () => {
+      setBatchOcrModalVisible(true);
     },
   }));
 
@@ -1424,6 +1431,13 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                   Quét OCR Phiếu kho
                 </Button>
                 <Button
+                  icon={<RocketOutlined />}
+                  onClick={() => setBatchOcrModalVisible(true)}
+                  className="text-xs h-8 border-blue-300 text-blue-700 bg-blue-50/50 hover:bg-blue-100/50 font-medium"
+                >
+                  Quét OCR hàng loạt (Batch)
+                </Button>
+                <Button
                   icon={<ThunderboltOutlined />}
                   onClick={() => setQuickPasteVisible(true)}
                   className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
@@ -1526,6 +1540,17 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         onClose={() => setOcrModalVisible(false)}
         products={products}
         onApply={handleApplyOcr}
+      />
+
+      {/* Modal Quét ảnh OCR hàng loạt theo lô (Batch Upload / Multi-Scan) */}
+      <BatchOcrModal
+        visible={batchOcrModalVisible}
+        onClose={() => setBatchOcrModalVisible(false)}
+        products={products}
+        onSuccess={() => {
+          loadShipmentsHistory();
+          loadSequence();
+        }}
       />
 
       {/* Modal Sequence override */}

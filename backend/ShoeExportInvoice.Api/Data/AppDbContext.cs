@@ -13,6 +13,8 @@ public class AppDbContext : DbContext
     public DbSet<ShipmentOrder> ShipmentOrders => Set<ShipmentOrder>();
     public DbSet<ShipmentOrderItem> ShipmentOrderItems => Set<ShipmentOrderItem>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+    public DbSet<CustomsSettlementPeriod> CustomsSettlementPeriods => Set<CustomsSettlementPeriod>();
+    public DbSet<CustomsSettlementItem> CustomsSettlementItems => Set<CustomsSettlementItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -51,6 +53,25 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<SystemSetting>(entity =>
         {
             entity.HasIndex(e => e.Key).IsUnique();
+        });
+
+        // CustomsSettlementPeriod configuration
+        modelBuilder.Entity<CustomsSettlementPeriod>(entity =>
+        {
+            entity.HasMany(e => e.Items)
+                  .WithOne(e => e.SettlementPeriod)
+                  .HasForeignKey(e => e.SettlementPeriodId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // CustomsSettlementItem configuration
+        modelBuilder.Entity<CustomsSettlementItem>(entity =>
+        {
+            entity.Property(e => e.OpeningBalance).HasPrecision(18, 2);
+            entity.Property(e => e.InPeriodProduction).HasPrecision(18, 2);
+            entity.Property(e => e.InPeriodExport).HasPrecision(18, 2);
+            entity.Property(e => e.OtherExport).HasPrecision(18, 2);
+            entity.Property(e => e.ClosingBalance).HasPrecision(18, 2);
         });
     }
 }

@@ -9,6 +9,7 @@ import {
   FolderOpenOutlined,
   DownloadOutlined,
   ArrowRightOutlined,
+  AuditOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { shipmentApi } from '../api/shipmentApi';
@@ -176,6 +177,13 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            icon={<AuditOutlined />}
+            onClick={() => onNavigate('settlement')}
+            className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50"
+          >
+            Quyết toán Mẫu 16
+          </Button>
           <Button
             icon={<CameraOutlined />}
             onClick={() => onNavigate('ocr')}

@@ -333,3 +333,126 @@ export interface ConfirmCustomsSyncRequest {
   isFullyMatched: boolean;
 }
 
+// ==========================================
+// CUSTOMS SETTLEMENT (MẪU 16/BCQT-SP-GSQL)
+// ==========================================
+
+export interface SettlementItem {
+  id: number;
+  productCode: string;
+  productName: string;
+  unit: string;
+  openingBalance: number;
+  inPeriodProduction: number;
+  inPeriodExport: number;
+  otherExport: number;
+  closingBalance: number;
+  note?: string;
+  exportedOrderCount: number;
+  relatedDeclarationNos: string[];
+}
+
+export interface SettlementReport {
+  periodId?: number;
+  year: number;
+  fromDate: string;
+  toDate: string;
+  contractNo?: string;
+  companyName: string;
+  taxCode: string;
+  address: string;
+  note?: string;
+  items: SettlementItem[];
+  totalOpeningBalance: number;
+  totalInPeriodProduction: number;
+  totalInPeriodExport: number;
+  totalOtherExport: number;
+  totalClosingBalance: number;
+  clearedOrderCount: number;
+}
+
+export interface CalculateSettlementRequest {
+  year: number;
+  fromDate: string;
+  toDate: string;
+  contractNo?: string;
+}
+
+export interface SaveSettlementPeriodRequest {
+  id?: number;
+  year: number;
+  fromDate: string;
+  toDate: string;
+  contractNo?: string;
+  companyName?: string;
+  taxCode?: string;
+  address?: string;
+  note?: string;
+  items: SettlementItem[];
+}
+
+export interface SettlementPeriodSummary {
+  id: number;
+  year: number;
+  fromDate: string;
+  toDate: string;
+  contractNo?: string;
+  createdAt: string;
+  itemCount: number;
+  totalExportQuantity: number;
+  totalClosingBalance: number;
+}
+
+export interface SettlementDrillDownItem {
+  orderId: number;
+  declarationNo: string;
+  clearanceDate?: string;
+  invoiceNo: string;
+  contractNo?: string;
+  productCode: string;
+  fullItemCode: string;
+  quantity: number;
+  unitPriceCMT: number;
+  unitPriceDAP: number;
+  customerName: string;
+}
+
+// ==========================================
+// BATCH OCR TYPES
+// ==========================================
+
+export interface BatchOcrScanResult {
+  batchId: string;
+  fileName: string;
+  title: string;
+  reportedTotal: number;
+  calculatedTotal: number;
+  isMatched: boolean;
+  discrepancy: number;
+  items: OcrItem[];
+  hasStandardItems: boolean;
+  hasGoItems: boolean;
+  isSuccess: boolean;
+  errorMessage?: string;
+}
+
+export interface BatchScanItemExport {
+  batchId: string;
+  title: string;
+  items: CreateShipmentItem[];
+}
+
+export interface BatchOcrConfirmRequest {
+  poSuffix?: string;
+  contractNo?: string;
+  customerName?: string;
+  address?: string;
+  deliveryTerms?: string;
+  paymentTerms?: string;
+  invoiceDate?: string;
+  batches: BatchScanItemExport[];
+}
+
+
+
+

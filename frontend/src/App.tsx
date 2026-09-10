@@ -5,6 +5,7 @@ import { AppLayout, type NavTabKey } from './layouts/AppLayout';
 import { OverviewPage } from './pages/OverviewPage';
 import { ProductMasterPage } from './pages/ProductMasterPage';
 import { ShipmentPage, type ShipmentPageRef } from './pages/ShipmentPage';
+import { CustomsSettlementPage } from './pages/CustomsSettlementPage';
 import { enterpriseTheme } from './theme/themeConfig';
 
 const App: React.FC = () => {
@@ -41,6 +42,8 @@ const App: React.FC = () => {
         )}
 
         {currentTab === 'products' && <ProductMasterPage />}
+
+        {currentTab === 'settlement' && <CustomsSettlementPage />}
 
         {(currentTab === 'shipment' || currentTab === 'history' || currentTab === 'ocr') && (
           <ShipmentPage

@@ -12,9 +12,10 @@ import {
   UserOutlined,
   SettingOutlined,
   CheckCircleFilled,
+  AuditOutlined,
 } from '@ant-design/icons';
 
-export type NavTabKey = 'overview' | 'shipment' | 'ocr' | 'history' | 'products';
+export type NavTabKey = 'overview' | 'shipment' | 'ocr' | 'history' | 'settlement' | 'products';
 
 interface AppLayoutProps {
   currentTab: NavTabKey;
@@ -71,6 +72,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           label: 'Lịch sử chứng từ',
           icon: <HistoryOutlined className="text-base" />,
         },
+        {
+          key: 'settlement',
+          label: 'Báo cáo Quyết toán Hải quan',
+          icon: <AuditOutlined className="text-base" />,
+          badge: 'Mẫu 16',
+        },
       ],
     },
     {
@@ -106,6 +113,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         return [
           { title: <span className="text-slate-400">Nghiệp vụ</span> },
           { title: <span className="text-slate-700 font-medium">Lịch sử xuất hàng</span> },
+        ];
+      case 'settlement':
+        return [
+          { title: <span className="text-slate-400">Nghiệp vụ</span> },
+          { title: <span className="text-slate-700 font-medium">Báo cáo Quyết toán Mẫu 16 (BCQT-SP-GSQL)</span> },
         ];
       case 'products':
         return [

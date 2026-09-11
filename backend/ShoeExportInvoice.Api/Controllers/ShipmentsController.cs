@@ -342,6 +342,10 @@ public class ShipmentsController : ControllerBase
                 ItemCount = shipment.Items.Count
             });
         }
+        catch (InvalidOperationException ioe)
+        {
+            return BadRequest(new { message = ioe.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi lưu đơn hàng.");
@@ -364,6 +368,11 @@ public class ShipmentsController : ControllerBase
 
         if (existing != null)
         {
+            if (existing.IsLocked || existing.Status == ShipmentStatus.Cleared)
+            {
+                throw new InvalidOperationException("Đơn hàng đã thông quan hải quan, không thể chỉnh sửa hoặc xóa!");
+            }
+
             existing.InvoiceDate = request.InvoiceDate;
             existing.PoSuffix = request.PoSuffix?.Trim();
             existing.ContractNo = request.ContractNo.Trim();
@@ -493,6 +502,8 @@ public class ShipmentsController : ControllerBase
             s.CustomsTotalDap,
             s.CustomsTotalCmt,
             s.CustomsAttachmentFileName,
+            s.CustomsAttachmentFilePath,
+            IsLocked = s.IsLocked || s.Status == ShipmentStatus.Cleared,
             ItemCount = s.Items.Count,
             TotalQuantity = s.Items.Sum(i => i.Quantity),
             TotalAmountCMT = s.Items.Sum(i => i.UnitPriceCMT * i.Quantity),
@@ -524,6 +535,33 @@ public class ShipmentsController : ControllerBase
         }
 
         return Ok(shipment);
+    }
+
+    /// <summary>
+    /// Xóa một đơn hàng theo Id (bảo vệ bởi Lock Guard: Không cho phép xóa đơn đã thông quan)
+    /// </summary>
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> DeleteShipment(int id)
+    {
+        var shipment = await _context.ShipmentOrders
+            .Include(s => s.Items)
+            .FirstOrDefaultAsync(s => s.Id == id);
+
+        if (shipment == null)
+        {
+            return NotFound(new { message = $"Không tìm thấy đơn hàng #{id}" });
+        }
+
+        if (shipment.IsLocked || shipment.Status == ShipmentStatus.Cleared)
+        {
+            return BadRequest(new { message = "Đơn hàng đã thông quan hải quan, không thể chỉnh sửa hoặc xóa!" });
+        }
+
+        _context.ShipmentOrderItems.RemoveRange(shipment.Items);
+        _context.ShipmentOrders.Remove(shipment);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { message = $"Đã xóa đơn hàng {shipment.InvoiceNo} thành công." });
     }
 
     /// <summary>

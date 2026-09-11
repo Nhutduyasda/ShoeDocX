@@ -12,6 +12,43 @@ public static class DbInitializer
             // Apply any pending migrations or create database
             await context.Database.MigrateAsync();
 
+            // Ensure columns exist on SQLite table ShipmentOrders
+            try
+            {
+                using var conn = context.Database.GetDbConnection();
+                await conn.OpenAsync();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "PRAGMA table_info(ShipmentOrders);";
+                var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = await cmd.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        columns.Add(reader.GetString(1));
+                    }
+                }
+
+                if (!columns.Contains("IsLocked"))
+                {
+                    using var alterCmd = conn.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE ShipmentOrders ADD COLUMN IsLocked INTEGER NOT NULL DEFAULT 0;";
+                    await alterCmd.ExecuteNonQueryAsync();
+                    logger.LogInformation("Added column IsLocked to ShipmentOrders table.");
+                }
+
+                if (!columns.Contains("CustomsAttachmentFilePath"))
+                {
+                    using var alterCmd = conn.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE ShipmentOrders ADD COLUMN CustomsAttachmentFilePath TEXT NULL;";
+                    await alterCmd.ExecuteNonQueryAsync();
+                    logger.LogInformation("Added column CustomsAttachmentFilePath to ShipmentOrders table.");
+                }
+            }
+            catch (Exception colEx)
+            {
+                logger.LogWarning(colEx, "Warning verifying table columns on ShipmentOrders.");
+            }
+
             // Chỉ nạp dữ liệu mẫu khi có cấu hình biến môi trường SEED_SAMPLE_DATA=true (mặc định để trống để người dùng nạp dữ liệu thật)
             var shouldSeed = Environment.GetEnvironmentVariable("SEED_SAMPLE_DATA")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
 

@@ -10,9 +10,13 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+html,
 body {
   margin: 0;
   padding: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
   min-height: 100vh;
   background-color: #F8FAFC;
   color: #111827;
@@ -20,6 +24,9 @@ body {
 
 #root {
   min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -129,3 +136,97 @@ body {
   line-height: 18px !important;
   padding: 1px 8px !important;
 }
+
+/* =========================================================================
+   ShoeDocX Custom Driver.js Interactive Tour Popover Theme
+   ========================================================================= */
+.driver-popover.shoedocx-tour-popover {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-radius: 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08) !important;
+  padding: 18px 20px !important;
+  max-width: 360px !important;
+  font-family: inherit !important;
+  z-index: 100000 !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-title {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  margin-bottom: 6px !important;
+  line-height: 1.4 !important;
+  padding-right: 18px !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-description {
+  font-size: 12px !important;
+  color: #475569 !important;
+  line-height: 1.55 !important;
+  margin-bottom: 14px !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-progress-text {
+  font-size: 11px !important;
+  color: #64748b !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-weight: 600 !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-footer {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-top: 14px !important;
+  padding-top: 12px !important;
+  border-top: 1px solid #f1f5f9 !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-next-btn,
+.driver-popover.shoedocx-tour-popover .driver-popover-prev-btn {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  padding: 6px 14px !important;
+  cursor: pointer !important;
+  transition: all 150ms ease !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-next-btn {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  border: 1px solid #2563eb !important;
+  text-shadow: none !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-next-btn:hover {
+  background-color: #1d4ed8 !important;
+  border-color: #1d4ed8 !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-prev-btn {
+  background-color: #f8fafc !important;
+  color: #475569 !important;
+  border: 1px solid #e2e8f0 !important;
+  margin-right: 6px !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-prev-btn:hover {
+  background-color: #f1f5f9 !important;
+  color: #1e293b !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-close-btn {
+  color: #94a3b8 !important;
+  font-size: 18px !important;
+  top: 12px !important;
+  right: 12px !important;
+  transition: color 150ms ease !important;
+}
+
+.driver-popover.shoedocx-tour-popover .driver-popover-close-btn:hover {
+  color: #334155 !important;
+}
+

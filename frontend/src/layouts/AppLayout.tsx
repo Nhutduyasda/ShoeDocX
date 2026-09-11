@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Drawer, Breadcrumb, Tooltip, Dropdown } from 'antd';
+import { useState, useEffect } from 'react';
+import { Drawer, Breadcrumb, Tooltip, Dropdown, Button } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   FileTextOutlined,
@@ -13,7 +13,13 @@ import {
   SettingOutlined,
   CheckCircleFilled,
   AuditOutlined,
+  QuestionCircleOutlined,
+  RocketOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
 } from '@ant-design/icons';
+import { CheatsheetModal } from '../components/CheatsheetModal';
+import { startOnboardingTour } from '../services/tourService';
 
 export type NavTabKey = 'overview' | 'shipment' | 'ocr' | 'history' | 'settlement' | 'products';
 
@@ -41,6 +47,37 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   children,
 }) => {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState<boolean>(false);
+  const [cheatsheetOpen, setCheatsheetOpen] = useState<boolean>(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('shoedocx_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('shoedocx_sidebar_collapsed', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        toggleCollapsed();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const menuGroups: MenuGroupDef[] = [
     {
@@ -148,94 +185,180 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     },
   ];
 
-  const renderSidebarContent = () => (
-    <div className="h-full flex flex-col justify-between bg-white select-none">
-      <div>
-        {/* Sidebar Brand Header */}
-        <div className="h-14 px-5 flex items-center border-b border-slate-200">
+  const renderSidebarContent = (isDrawer: boolean = false) => {
+    const isMini = collapsed && !isDrawer;
+
+    return (
+      <div className="h-full flex flex-col justify-between bg-white select-none">
+        <div className="flex flex-col min-h-0 flex-1">
+          {/* Sidebar Brand Header */}
           <div
-            className="flex items-center space-x-2.5 cursor-pointer"
-            onClick={() => {
-              onTabChange('shipment');
-              setMobileDrawerOpen(false);
-            }}
+            className={`h-14 flex items-center border-b border-slate-200 shrink-0 transition-all duration-300 ${
+              isMini ? 'justify-center px-2' : 'justify-between px-4'
+            }`}
           >
-            <div className="w-7 h-7 rounded bg-blue-600 text-white flex items-center justify-center font-bold text-xs tracking-tight">
-              SD
+            <div
+              className="flex items-center space-x-3 cursor-pointer min-w-0"
+              onClick={() => {
+                onTabChange('shipment');
+                setMobileDrawerOpen(false);
+              }}
+            >
+              <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs tracking-tight shrink-0 shadow-xs">
+                SD
+              </div>
+              {!isMini && (
+                <div className="flex flex-col min-w-0">
+                  <span className="font-semibold text-sm tracking-tight text-slate-900 leading-tight">
+                    ShoeDocX
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-normal leading-tight truncate">
+                    Export Documentation
+                  </span>
+                </div>
+              )}
             </div>
-            <div className="flex flex-col">
-              <span className="font-semibold text-sm tracking-tight text-slate-900 leading-tight">
-                ShoeDocX
-              </span>
-              <span className="text-[11px] text-slate-500 font-normal leading-tight">
-                Export Documentation
-              </span>
-            </div>
+
+            {!isDrawer && !isMini && (
+              <Tooltip title="Thu gọn thanh menu (Ctrl + B)">
+                <button
+                  type="button"
+                  onClick={toggleCollapsed}
+                  className="hidden lg:flex items-center justify-center w-7 h-7 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer border-none bg-transparent transition-colors"
+                  aria-label="Collapse sidebar"
+                >
+                  <MenuFoldOutlined className="text-xs" />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+
+          {/* Navigation Menu */}
+          <div className={`space-y-4 flex-1 overflow-y-auto ${isMini ? 'p-2' : 'p-3'}`}>
+            {menuGroups.map((group) => (
+              <div key={group.title}>
+                {!isMini ? (
+                  <div className="px-2.5 mb-1.5 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+                    {group.title}
+                  </div>
+                ) : (
+                  <div className="my-2 border-t border-slate-100" />
+                )}
+                <div className="space-y-1">
+                  {group.items.map((item) => {
+                    const isActive = currentTab === item.key;
+                    const buttonContent = (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => {
+                          onTabChange(item.key);
+                          setMobileDrawerOpen(false);
+                        }}
+                        className={`w-full flex items-center rounded-lg text-xs transition-colors cursor-pointer border-none text-left ${
+                          isMini
+                            ? 'justify-center h-10 px-0'
+                            : 'justify-between px-3 h-10'
+                        } ${
+                          isActive
+                            ? 'bg-blue-50 text-blue-700 font-semibold'
+                            : 'bg-transparent text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-normal'
+                        }`}
+                      >
+                        <div
+                          className={`flex items-center min-w-0 ${
+                            isMini ? 'justify-center w-full' : 'space-x-2.5'
+                          }`}
+                        >
+                          <span
+                            className={`shrink-0 flex items-center text-sm ${
+                              isActive ? 'text-blue-600' : 'text-slate-400'
+                            }`}
+                          >
+                            {item.icon}
+                          </span>
+                          {!isMini && <span className="truncate">{item.label}</span>}
+                        </div>
+                        {!isMini && item.badge && (
+                          <span className="shrink-0 text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200 ml-1.5">
+                            {item.badge}
+                          </span>
+                        )}
+                      </button>
+                    );
+
+                    if (isMini) {
+                      return (
+                        <Tooltip
+                          key={item.key}
+                          placement="right"
+                          title={
+                            <div>
+                              <div className="font-semibold">{item.label}</div>
+                              {item.badge && (
+                                <div className="text-[11px] text-slate-300 mt-0.5">
+                                  Phân hệ: {item.badge}
+                                </div>
+                              )}
+                            </div>
+                          }
+                        >
+                          {buttonContent}
+                        </Tooltip>
+                      );
+                    }
+
+                    return buttonContent;
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Navigation Menu */}
-        <div className="p-3 space-y-5">
-          {menuGroups.map((group) => (
-            <div key={group.title}>
-              <div className="px-2.5 mb-1.5 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-                {group.title}
-              </div>
-              <div className="space-y-0.5">
-                {group.items.map((item) => {
-                  const isActive = currentTab === item.key;
-                  return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => {
-                        onTabChange(item.key);
-                        setMobileDrawerOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 h-10 rounded-md text-xs transition-colors cursor-pointer border-none text-left ${
-                        isActive
-                          ? 'bg-blue-50 text-blue-700 font-semibold'
-                          : 'bg-transparent text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-normal'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2.5">
-                        <span className={isActive ? 'text-blue-600' : 'text-slate-400'}>
-                          {item.icon}
-                        </span>
-                        <span>{item.label}</span>
-                      </div>
-                      {item.badge && (
-                        <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 border border-slate-200">
-                          {item.badge}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+        {/* Sidebar Footer Info */}
+        <div
+          className={`border-t border-slate-200 bg-slate-50/60 shrink-0 ${
+            isMini ? 'p-2 flex flex-col items-center' : 'p-3.5'
+          }`}
+        >
+          {isMini ? (
+            <Tooltip
+              placement="right"
+              title="Mở rộng thanh menu (Ctrl + B)"
+            >
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                className="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:text-blue-600 hover:bg-slate-200/60 cursor-pointer border-none bg-transparent transition-colors"
+                aria-label="Expand sidebar"
+              >
+                <MenuUnfoldOutlined className="text-sm" />
+              </button>
+            </Tooltip>
+          ) : (
+            <div className="flex items-center space-x-2.5 text-[11px] text-slate-600">
+              <SafetyCertificateOutlined className="text-slate-400 text-xs shrink-0" />
+              <div className="min-w-0 truncate">
+                <div className="font-medium text-slate-700 truncate">Kingmaker III</div>
+                <div className="text-[10px] text-slate-400 truncate">Nghiệp vụ xuất nhập khẩu</div>
               </div>
             </div>
-          ))}
+          )}
         </div>
       </div>
-
-      {/* Sidebar Footer Info */}
-      <div className="p-3.5 border-t border-slate-200 bg-slate-50/60">
-        <div className="flex items-center space-x-2 text-[11px] text-slate-600">
-          <SafetyCertificateOutlined className="text-slate-400 text-xs shrink-0" />
-          <div className="truncate">
-            <div className="font-medium text-slate-700 truncate">Kingmaker III</div>
-            <div className="text-[10px] text-slate-400 truncate">Nghiệp vụ xuất nhập khẩu</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900">
+    <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900 w-full max-w-full overflow-x-hidden">
       {/* Desktop Fixed Sidebar */}
-      <aside className="hidden lg:block w-[240px] shrink-0 border-r border-slate-200 bg-white sticky top-0 h-screen z-20">
-        {renderSidebarContent()}
+      <aside
+        className={`hidden lg:flex flex-col shrink-0 border-r border-slate-200 bg-white fixed left-0 top-0 h-screen z-30 transition-all duration-300 ease-in-out ${
+          collapsed ? 'w-[72px]' : 'w-64'
+        }`}
+      >
+        {renderSidebarContent(false)}
       </aside>
 
       {/* Mobile Drawer Sidebar */}
@@ -245,15 +368,19 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         onClose={() => setMobileDrawerOpen(false)}
         open={mobileDrawerOpen}
         styles={{ body: { padding: 0 } }}
-        width={240}
+        width={256}
       >
-        {renderSidebarContent()}
+        {renderSidebarContent(true)}
       </Drawer>
 
       {/* Main Layout Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div
+        className={`flex-1 flex flex-col min-w-0 w-full max-w-full overflow-x-hidden transition-all duration-300 ease-in-out ${
+          collapsed ? 'lg:pl-[72px]' : 'lg:pl-64'
+        }`}
+      >
         {/* Top Header */}
-        <header className="h-14 bg-white border-b border-slate-200 sticky top-0 z-10 px-4 sm:px-6 flex items-center justify-between">
+        <header className="h-14 bg-white border-b border-slate-200 sticky top-0 z-20 px-4 sm:px-6 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
             <button
               type="button"
@@ -263,6 +390,16 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             >
               <MenuOutlined />
             </button>
+            <Tooltip title={collapsed ? 'Mở rộng thanh menu (Ctrl + B)' : 'Thu gọn thanh menu (Ctrl + B)'}>
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                className="hidden lg:flex items-center justify-center w-8 h-8 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 cursor-pointer border border-transparent hover:border-slate-200 transition-colors"
+                aria-label="Toggle sidebar"
+              >
+                {collapsed ? <MenuUnfoldOutlined className="text-sm" /> : <MenuFoldOutlined className="text-sm" />}
+              </button>
+            </Tooltip>
             <Breadcrumb items={getBreadcrumbItems()} className="text-xs" />
           </div>
 
@@ -274,6 +411,43 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 <span>API Sẵn sàng</span>
               </div>
             </Tooltip>
+
+            {/* Quick Onboarding / Help Menu */}
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'interactive-tour',
+                    icon: <RocketOutlined className="text-blue-600" />,
+                    label: 'Chạy lại Tour hướng dẫn tương tác',
+                    onClick: () => {
+                      if (currentTab !== 'shipment') {
+                        onTabChange('shipment');
+                        setTimeout(() => startOnboardingTour(), 400);
+                      } else {
+                        startOnboardingTour();
+                      }
+                    },
+                  },
+                  {
+                    key: 'cheatsheet',
+                    icon: <FileTextOutlined className="text-emerald-600" />,
+                    label: 'Xem Sơ đồ 4 bước xuất chứng từ',
+                    onClick: () => setCheatsheetOpen(true),
+                  },
+                ],
+              }}
+              trigger={['click']}
+              placement="bottomRight"
+            >
+              <Button
+                size="small"
+                icon={<QuestionCircleOutlined className="text-amber-500" />}
+                className="flex items-center text-xs text-slate-700 hover:text-blue-600 border-slate-200 bg-slate-50/70 hover:bg-white h-7 px-2.5 font-medium cursor-pointer"
+              >
+                <span>Hướng dẫn nhanh</span>
+              </Button>
+            </Dropdown>
 
             {/* User Account / Organization Menu */}
             <Dropdown menu={{ items: userMenuItems }} trigger={['click']}>
@@ -310,6 +484,19 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           </div>
         </footer>
       </div>
+
+      <CheatsheetModal
+        open={cheatsheetOpen}
+        onClose={() => setCheatsheetOpen(false)}
+        onStartTour={() => {
+          if (currentTab !== 'shipment') {
+            onTabChange('shipment');
+            setTimeout(() => startOnboardingTour(), 400);
+          } else {
+            startOnboardingTour();
+          }
+        }}
+      />
     </div>
   );
 };

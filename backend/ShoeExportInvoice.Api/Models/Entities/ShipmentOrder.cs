@@ -64,6 +64,11 @@ public class ShipmentOrder
     [MaxLength(255)]
     public string? CustomsAttachmentFileName { get; set; } // Tên file .xls đính kèm
 
+    [MaxLength(500)]
+    public string? CustomsAttachmentFilePath { get; set; } // Đường dẫn lưu file trên máy chủ
+
+    public bool IsLocked { get; set; } = false; // Khóa chỉnh sửa hồ sơ sau khi thông quan
+
     public ShipmentStatus Status { get; set; } = ShipmentStatus.Exported; // Trạng thái đơn hàng
 
     public ICollection<ShipmentOrderItem> Items { get; set; } = new List<ShipmentOrderItem>();

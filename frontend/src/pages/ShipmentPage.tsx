@@ -36,14 +36,16 @@ import {
   SearchOutlined,
   CheckCircleFilled,
   AuditOutlined,
-  PaperClipOutlined,
+  FileExcelOutlined,
   ExclamationCircleOutlined,
   HistoryOutlined,
   RocketOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { shipmentApi, invoiceNoToFileName, extractSequenceNumber, toStandardFileName } from '../api/shipmentApi';
 import { productMasterApi } from '../api/productMasterApi';
+import { hasCompletedTour, startOnboardingTour } from '../services/tourService';
 import { customsApi } from '../api/customsApi';
 import type { NavTabKey } from '../layouts/AppLayout';
 import type {
@@ -142,6 +144,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     loadProducts();
     loadShipmentsHistory();
     loadSequence();
+
+    // Tự động kích hoạt tour hướng dẫn nếu là lần đầu người dùng vào trang
+    if (!hasCompletedTour()) {
+      const timer = setTimeout(() => {
+        startOnboardingTour();
+      }, 800);
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   useEffect(() => {
@@ -470,8 +480,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         ),
         duration: 8,
       });
-    } catch {
-      message.error('Lỗi khi lưu đơn hàng vào hệ thống.');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } }; message?: string };
+      message.error(error.response?.data?.message || error.message || 'Lỗi khi lưu đơn hàng vào hệ thống.');
     } finally {
       setSaving(false);
     }
@@ -569,7 +580,11 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       }
       setActiveTab('create');
       onTabChange?.('shipment');
-      message.success({ content: `Đã nạp lại đơn hàng ${order.invoiceNo} vào lưới nhập liệu!`, key: 'load-order' });
+      if (order.isLocked || order.status === ShipmentStatus.Cleared) {
+        message.warning({ content: `Đơn hàng ${order.invoiceNo} đã thông quan hải quan và bị khóa (Read-only). Không thể ghi đè!`, duration: 6, key: 'load-order' });
+      } else {
+        message.success({ content: `Đã nạp lại đơn hàng ${order.invoiceNo} vào lưới nhập liệu!`, key: 'load-order' });
+      }
     } catch {
       message.error({ content: 'Không thể tải chi tiết đơn hàng cũ.', key: 'load-order' });
     }
@@ -887,7 +902,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       ),
     },
     {
-      title: 'Quy trình công đoạn',
+      title: (
+        <div className="flex items-center space-x-1">
+          <span>Quy trình công đoạn</span>
+          <Tooltip title="Chọn 'Gò không may' đối với các mã bán thành phẩm (có hậu tố .G) để áp dụng đơn giá gò.">
+            <QuestionCircleOutlined className="text-slate-400 hover:text-blue-600 text-[11px] cursor-pointer" />
+          </Tooltip>
+        </div>
+      ),
       dataIndex: 'processType',
       key: 'processType',
       width: 150,
@@ -1081,62 +1103,100 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       ),
     },
     {
-      title: 'Trạng thái HQ',
-      key: 'customsStatus',
-      width: 160,
+      title: 'Trạng thái',
+      key: 'status',
+      width: 200,
       render: (_, record) => {
         if (record.status === ShipmentStatus.Cleared) {
+          if (record.customsChannel === 1) {
+            return (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                <CheckCircleFilled className="text-emerald-600 text-xs" />
+                ✔ Luồng 1 - Xanh (Đã thông quan)
+              </span>
+            );
+          }
+          if (record.customsChannel === 2) {
+            return (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-300">
+                <CheckCircleFilled className="text-amber-600 text-xs" />
+                ✔ Luồng 2 - Vàng (Đã thông quan)
+              </span>
+            );
+          }
+          if (record.customsChannel === 3) {
+            return (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-rose-50 text-rose-800 border border-rose-300">
+                <CheckCircleFilled className="text-rose-600 text-xs" />
+                ✔ Luồng 3 - Đỏ (Đã thông quan)
+              </span>
+            );
+          }
           return (
-            <div>
-              <Tag className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs py-0.5 px-2 m-0 flex items-center gap-1 w-fit">
-                <CheckCircleFilled className="text-[11px]" /> Đã thông quan
-              </Tag>
-              {record.declarationNo && (
-                <div className="text-[11px] font-mono text-slate-500 mt-1 flex items-center gap-1">
-                  <span>TK: {record.declarationNo}</span>
-                  {record.customsChannel && (
-                    <span
-                      className={`text-[10px] px-1 py-0.2 rounded font-medium ${
-                        record.customsChannel === 1
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : record.customsChannel === 2
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-rose-100 text-rose-800'
-                      }`}
-                    >
-                      L{record.customsChannel}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
+              <CheckCircleFilled className="text-emerald-600 text-xs" />
+              ✔ Đã thông quan
+            </span>
           );
         }
+
         if (record.status === ShipmentStatus.Discrepancy) {
           return (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+              <ExclamationCircleOutlined className="text-rose-500 text-xs" />
+              ⚠ Sai lệch số liệu
+            </span>
+          );
+        }
+
+        if (record.status === ShipmentStatus.Exported) {
+          return (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+              ⏳ Chờ thông quan
+            </span>
+          );
+        }
+
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-normal bg-slate-50 text-slate-600 border border-slate-200">
+            Bản nháp
+          </span>
+        );
+      },
+    },
+    {
+      title: 'Tờ khai Hải quan',
+      key: 'customsDeclaration',
+      width: 190,
+      render: (_, record) => {
+        if (!record.declarationNo) {
+          return <span className="text-slate-400 italic text-xs">Chưa có tờ khai</span>;
+        }
+
+        return (
+          <div className="flex items-start justify-between gap-1.5">
             <div>
-              <Tag className="bg-rose-50 text-rose-700 border-rose-200 text-xs py-0.5 px-2 m-0 flex items-center gap-1 w-fit">
-                <ExclamationCircleOutlined className="text-[11px]" /> Sai lệch số liệu
-              </Tag>
-              {record.declarationNo && (
-                <div className="text-[11px] font-mono text-slate-500 mt-1">
-                  TK: {record.declarationNo}
+              <div className="font-mono font-semibold text-slate-900 text-xs">
+                {record.declarationNo}
+              </div>
+              {record.clearanceDate && (
+                <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                  {dayjs(record.clearanceDate).format('DD/MM/YYYY HH:mm')}
                 </div>
               )}
             </div>
-          );
-        }
-        if (record.status === ShipmentStatus.Exported) {
-          return (
-            <Tag className="bg-amber-50 text-amber-700 border-amber-200 text-xs py-0.5 px-2 m-0">
-              Chờ thông quan
-            </Tag>
-          );
-        }
-        return (
-          <Tag className="bg-slate-50 text-slate-600 border-slate-200 text-xs py-0.5 px-2 m-0">
-            Bản nháp
-          </Tag>
+            {record.customsAttachmentFileName && (
+              <Tooltip title={`Tải về file tờ khai gốc (.xls): ${record.customsAttachmentFileName}`}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<FileExcelOutlined className="text-emerald-600 hover:text-emerald-700 text-sm" />}
+                  className="p-1 h-auto"
+                  onClick={() => handleDownloadCustomsAttachment(record.id)}
+                />
+              </Tooltip>
+            )}
+          </div>
         );
       },
     },
@@ -1144,45 +1204,58 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       title: 'Thao tác',
       key: 'action',
       align: 'center',
-      width: 280,
-      render: (_, record) => (
-        <Space size={4} wrap>
-          <Button
-            size="small"
-            icon={<AuditOutlined className="text-xs text-blue-600" />}
-            className="text-xs border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-50"
-            onClick={() => handleOpenCustomsSync(record)}
-          >
-            Đối soát TK
-          </Button>
-          {record.customsAttachmentFileName && (
-            <Tooltip title={`Tải file tờ khai đính kèm: ${record.customsAttachmentFileName}`}>
+      width: 320,
+      render: (_, record) => {
+        const isLocked = Boolean(record.isLocked || record.status === ShipmentStatus.Cleared);
+
+        return (
+          <Space size={4} wrap>
+            <Tooltip title="Xem chi tiết đối soát chéo và lịch sử xử lý hải quan">
               <Button
                 size="small"
-                icon={<PaperClipOutlined className="text-xs text-slate-600" />}
-                className="text-xs border-slate-300 text-slate-700 hover:text-blue-600"
-                onClick={() => handleDownloadCustomsAttachment(record.id)}
-              />
+                icon={<AuditOutlined className="text-xs text-blue-600" />}
+                className="text-xs border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-50 font-medium"
+                onClick={() => handleOpenCustomsSync(record)}
+              >
+                Xem chi tiết đối soát HQ
+              </Button>
             </Tooltip>
-          )}
-          <Button
-            size="small"
-            icon={<FolderOpenOutlined className="text-xs" />}
-            className="text-xs border-slate-300 text-slate-700 hover:text-blue-600"
-            onClick={() => handleLoadHistoricalOrder(record.id)}
-          >
-            Mở lại
-          </Button>
-          <Button
-            size="small"
-            icon={<DownloadOutlined className="text-xs" />}
-            className="text-xs border-slate-300 text-slate-700 hover:text-blue-600"
-            onClick={() => handleDownloadHistorical(record.id, record.invoiceNo)}
-          >
-            Tải Excel
-          </Button>
-        </Space>
-      ),
+
+            {isLocked ? (
+              <Tooltip title="Đơn hàng đã thông quan hải quan, hồ sơ đã bị khóa (Read-only)">
+                <span>
+                  <Button
+                    size="small"
+                    disabled
+                    icon={<FolderOpenOutlined className="text-xs" />}
+                    className="text-xs border-slate-200 text-slate-400 cursor-not-allowed"
+                  >
+                    Chỉnh sửa
+                  </Button>
+                </span>
+              </Tooltip>
+            ) : (
+              <Button
+                size="small"
+                icon={<FolderOpenOutlined className="text-xs" />}
+                className="text-xs border-slate-300 text-slate-700 hover:text-blue-600"
+                onClick={() => handleLoadHistoricalOrder(record.id)}
+              >
+                Mở lại
+              </Button>
+            )}
+
+            <Button
+              size="small"
+              icon={<DownloadOutlined className="text-xs" />}
+              className="text-xs border-slate-300 text-slate-700 hover:text-blue-600"
+              onClick={() => handleDownloadHistorical(record.id, record.invoiceNo)}
+            >
+              Tải Excel
+            </Button>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -1255,6 +1328,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               loading={loadingHistory}
               pagination={{ pageSize: 10 }}
               size="middle"
+              scroll={{ x: 950 }}
             />
           </div>
         </div>
@@ -1300,22 +1374,24 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               >
                 Lưu đơn hàng
               </Button>
-              <Tooltip title="Tự động lưu đơn hàng vào hệ thống và tải xuống file Excel (không cần bấm Lưu trước)">
-                <Button
-                  type="primary"
-                  icon={<DownloadOutlined />}
-                  loading={exporting}
-                  onClick={handleExportExcel}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4 font-medium"
-                >
-                  Xuất File Excel & Lưu đơn
-                </Button>
-              </Tooltip>
+              <div id="tour-export-button" className="inline-block">
+                <Tooltip title="Tự động lưu đơn hàng vào hệ thống và tải xuống file Excel (không cần bấm Lưu trước)">
+                  <Button
+                    type="primary"
+                    icon={<DownloadOutlined />}
+                    loading={exporting}
+                    onClick={handleExportExcel}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4 font-medium"
+                  >
+                    Xuất File Excel & Lưu đơn
+                  </Button>
+                </Tooltip>
+              </div>
             </div>
           </div>
 
           {/* Section 1: Thông tin Hóa đơn Xuất khẩu (Shipment Header) */}
-          <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
+          <div id="tour-invoice-header" className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="text-xs font-semibold text-slate-800 uppercase tracking-wider">
                 1. Thông tin Chứng từ (Shipment Header)
@@ -1370,7 +1446,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               <Row gutter={16}>
                 <Col xs={24} sm={12} md={6}>
                   <Form.Item
-                    label={<span className="text-xs font-medium text-slate-700">Số Hóa đơn (Invoice No)</span>}
+                    label={
+                      <div className="flex items-center space-x-1">
+                        <span className="text-xs font-medium text-slate-700">Số Hóa đơn (Invoice No)</span>
+                        <Tooltip title="Định dạng KMHD-NEW2026-0XXX. Tên file Excel tải về sẽ tự động đồng bộ theo số này.">
+                          <QuestionCircleOutlined className="text-slate-400 hover:text-blue-600 text-xs cursor-pointer" />
+                        </Tooltip>
+                      </div>
+                    }
                     name="invoiceNo"
                     rules={[{ required: true, message: 'Nhập số hóa đơn' }]}
                   >
@@ -1433,7 +1516,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
                 <Col xs={24} sm={12} md={6}>
                   <Form.Item
-                    label={<span className="text-xs font-medium text-slate-700">Đuôi PO (PoSuffix)</span>}
+                    label={
+                      <div className="flex items-center space-x-1">
+                        <span className="text-xs font-medium text-slate-700">Đuôi PO (PoSuffix)</span>
+                        <Tooltip title="Đuôi PO (ví dụ: (KM3.PO5.26)) sẽ được tự động gắn vào mã sản phẩm khi xuất hóa đơn và phiếu đóng gói.">
+                          <QuestionCircleOutlined className="text-slate-400 hover:text-blue-600 text-xs cursor-pointer" />
+                        </Tooltip>
+                      </div>
+                    }
                     name="poSuffix"
                     rules={[{ required: true, message: 'Nhập đuôi PO' }]}
                   >
@@ -1466,7 +1556,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           </div>
 
           {/* Section 2: Đối soát & Tổng hợp Số liệu (Reconciliation Summary) */}
-          <div className="bg-white border border-slate-200 rounded-lg p-4">
+          <div id="tour-reconciliation-bar" className="bg-white border border-slate-200 rounded-lg p-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-0 lg:divide-x divide-slate-200">
               <div className="lg:pr-5">
                 <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
@@ -1477,9 +1567,11 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                     {totalQuantity.toLocaleString()}
                   </span>
                   <span className="text-xs text-slate-500">đôi</span>
-                  <Tag className="text-[11px] border-emerald-200 bg-emerald-50 text-emerald-700 m-0">
-                    Khớp phiếu kho
-                  </Tag>
+                  <Tooltip title="Số lượng thực tế các dòng hàng đã khớp chuẩn với tổng số đôi của phiếu kho.">
+                    <Tag className="text-[11px] border-emerald-200 bg-emerald-50 text-emerald-700 m-0 cursor-help">
+                      Khớp phiếu kho
+                    </Tag>
+                  </Tooltip>
                 </div>
                 <div className="mt-1 text-xs text-slate-500">
                   {items.length} dòng hàng • {uniqueStyleCodesCount} mã hình thể
@@ -1533,7 +1625,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
           {/* Section 3: Lưới Nhập liệu Hàng hóa (Editable Table) */}
           <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
+            <div id="tour-data-import" className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
               <div className="text-xs font-semibold text-slate-800 uppercase tracking-wider">
                 2. Danh sách Hàng hóa ({items.length} dòng)
               </div>
@@ -1552,13 +1644,15 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 >
                   Quét OCR hàng loạt (Batch)
                 </Button>
-                <Button
-                  icon={<ThunderboltOutlined />}
-                  onClick={() => setQuickPasteVisible(true)}
-                  className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
-                >
-                  Dán nhanh (Clipboard)
-                </Button>
+                <Tooltip title="Hỗ trợ dán trực tiếp danh sách mã và số lượng copy từ bảng tính Excel.">
+                  <Button
+                    icon={<ThunderboltOutlined />}
+                    onClick={() => setQuickPasteVisible(true)}
+                    className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
+                  >
+                    Dán nhanh (Clipboard)
+                  </Button>
+                </Tooltip>
                 <Button
                   icon={<AppstoreOutlined />}
                   onClick={handlePopulateAllMasterProducts}
@@ -1595,13 +1689,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               </Space>
             </div>
 
-            <div ref={tableContainerRef}>
+            <div ref={tableContainerRef} className="w-full overflow-x-auto">
               <Table
                 dataSource={items}
                 columns={columns}
                 rowKey={(_, index) => `${index}`}
                 pagination={false}
                 size="middle"
+                scroll={{ x: 1050 }}
                 locale={{
                   emptyText: (
                     <Empty

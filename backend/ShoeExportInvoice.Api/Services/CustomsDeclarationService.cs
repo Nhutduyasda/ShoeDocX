@@ -125,15 +125,41 @@ public class CustomsDeclarationService : ICustomsDeclarationService
                 if (string.IsNullOrEmpty(result.InvoiceNo) &&
                     (cell.Contains("Số hóa đơn", StringComparison.OrdinalIgnoreCase) || cell.Contains("Số hoá đơn", StringComparison.OrdinalIgnoreCase)))
                 {
-                    string candidate = FindValueNear(r, c, "Số hóa đơn");
-                    var match = Regex.Match(candidate, @"(KMHD-[A-Za-z0-9-]+)", RegexOptions.IgnoreCase);
-                    if (match.Success)
+                    // 1. Kiểm tra ngay trong cell nếu có chứa số hóa đơn sau dấu ':'
+                    var cellMatch = Regex.Match(cell, @"(KMHD-[A-Za-z0-9-]+)", RegexOptions.IgnoreCase);
+                    if (cellMatch.Success)
                     {
-                        result.InvoiceNo = match.Groups[1].Value;
+                        result.InvoiceNo = cellMatch.Groups[1].Value;
                     }
-                    else if (!string.IsNullOrWhiteSpace(candidate))
+                    else
                     {
-                        result.InvoiceNo = candidate.Split(' ', '\r', '\n', '\t')[0].Trim();
+                        // 2. Quét các cột tiếp theo trên cùng hàng (tối đa 15 cột) để tìm số hóa đơn thực tế
+                        // Bỏ qua mã phân loại đơn lẻ của VNACCS như "A", "B" hoặc dấu "-"
+                        string foundInvoice = "";
+                        for (int offset = 1; offset <= 15 && c + offset < colCount; offset++)
+                        {
+                            string cellVal = GetCell(r, c + offset);
+                            if (string.IsNullOrWhiteSpace(cellVal) || cellVal == "-" || cellVal.Length <= 2)
+                                continue;
+
+                            // Nhận diện mã hóa đơn hợp lệ (chứa KMHD hoặc DH hoặc có độ dài thực tế >= 5)
+                            var m = Regex.Match(cellVal, @"(KMHD-[A-Za-z0-9-]+)", RegexOptions.IgnoreCase);
+                            if (m.Success)
+                            {
+                                foundInvoice = m.Groups[1].Value;
+                                break;
+                            }
+
+                            if (string.IsNullOrEmpty(foundInvoice) && (cellVal.Contains("KMHD") || cellVal.Contains("DH") || cellVal.Length >= 5))
+                            {
+                                foundInvoice = cellVal.Split(' ', '\r', '\n', '\t')[0].Trim();
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(foundInvoice))
+                        {
+                            result.InvoiceNo = foundInvoice;
+                        }
                     }
                 }
 
@@ -203,7 +229,7 @@ public class CustomsDeclarationService : ICustomsDeclarationService
                 {
                     string candidate = FindValueNear(r, c);
                     var match = Regex.Match(candidate, @"([0-9,.]+)\s*(?:KGM|KG)?", RegexOptions.IgnoreCase);
-                    if (match.Success && decimal.TryParse(match.Groups[1].Value.Replace(",", ""), NumberStyles.Any, CultureInfo.InvariantCulture, out decimal gw))
+                    if (match.Success && TryParseCustomsDecimal(match.Groups[1].Value, out decimal gw))
                     {
                         result.GrossWeight = gw;
                     }
@@ -215,7 +241,7 @@ public class CustomsDeclarationService : ICustomsDeclarationService
                 {
                     string candidate = FindValueNear(r, c);
                     var match = Regex.Match(candidate, @"([0-9,.]+)", RegexOptions.IgnoreCase);
-                    if (match.Success && decimal.TryParse(match.Groups[1].Value.Replace(",", ""), NumberStyles.Any, CultureInfo.InvariantCulture, out decimal dap))
+                    if (match.Success && TryParseCustomsDecimal(match.Groups[1].Value, out decimal dap))
                     {
                         result.TotalDap = dap;
                     }
@@ -226,7 +252,7 @@ public class CustomsDeclarationService : ICustomsDeclarationService
                     (cell.Contains("GIA CONG", StringComparison.OrdinalIgnoreCase) || cell.Contains("GIA CÔNG", StringComparison.OrdinalIgnoreCase)))
                 {
                     var match = Regex.Match(cell, @"(?:TONG|TỔNG)?\s*(?:TRI\s*GIA|TRỊ\s*GIÁ|TIEN|TIỀN)?\s*GIA\s*C[OÔ]NG\s*[:=]?\s*([0-9,.]+)", RegexOptions.IgnoreCase);
-                    if (match.Success && decimal.TryParse(match.Groups[1].Value.Replace(",", ""), NumberStyles.Any, CultureInfo.InvariantCulture, out decimal cmt))
+                    if (match.Success && TryParseCustomsDecimal(match.Groups[1].Value, out decimal cmt))
                     {
                         result.TotalCmt = cmt;
                     }
@@ -239,6 +265,25 @@ public class CustomsDeclarationService : ICustomsDeclarationService
                     string candidate = FindValueNear(r, c);
                     result.CustomsOffice = candidate;
                 }
+            }
+        }
+
+        // Fallback: nếu chưa lấy được InvoiceNo từ ô nhãn, quét tìm bất kỳ ô nào chứa pattern KMHD-...
+        if (string.IsNullOrEmpty(result.InvoiceNo))
+        {
+            for (int r = 0; r < Math.Min(rowCount, 100); r++)
+            {
+                for (int c = 0; c < colCount; c++)
+                {
+                    string cell = GetCell(r, c);
+                    var m = Regex.Match(cell, @"\b(KMHD-[A-Za-z0-9-]+)\b", RegexOptions.IgnoreCase);
+                    if (m.Success)
+                    {
+                        result.InvoiceNo = m.Groups[1].Value;
+                        break;
+                    }
+                }
+                if (!string.IsNullOrEmpty(result.InvoiceNo)) break;
             }
         }
 
@@ -294,18 +339,39 @@ public class CustomsDeclarationService : ICustomsDeclarationService
             LineNumber = lineNum
         };
 
-        // Quét trong phạm vi 4 hàng và 15 cột xung quanh startRow để lấy các giá trị
-        int maxR = Math.Min(totalRows - 1, startRow + 3);
+        // Giới hạn phạm vi quét cho block dòng hàng hiện tại (quét tối đa 15 dòng cho đến khi gặp dòng hàng tiếp theo <02>, <03>,...)
+        int maxR = totalRows - 1;
+        for (int r = startRow + 1; r < totalRows; r++)
+        {
+            bool isNextItem = false;
+            for (int c = 0; c < Math.Min(totalCols, 5); c++)
+            {
+                if (Regex.IsMatch(GetCell(r, c), @"^<0*(\d+)>$"))
+                {
+                    isNextItem = true;
+                    break;
+                }
+            }
+            if (isNextItem ||
+                GetCell(r, 0).Contains("Tổng", StringComparison.OrdinalIgnoreCase) ||
+                GetCell(r, 1).Contains("Tổng", StringComparison.OrdinalIgnoreCase) ||
+                r >= startRow + 15)
+            {
+                maxR = r - 1;
+                break;
+            }
+        }
 
-        string allBlockText = "";
+        // Tập hợp các số ứng viên trong block để suy luận chính xác bộ ba (Số lượng, Đơn giá DAP, Trị giá DAP)
+        var numericCandidates = new List<decimal>();
+
         for (int r = startRow; r <= maxR; r++)
         {
-            for (int c = startCol; c < totalCols; c++)
+            int fromCol = (r == startRow) ? startCol : 0;
+            for (int c = fromCol; c < totalCols; c++)
             {
                 string val = GetCell(r, c);
                 if (string.IsNullOrEmpty(val)) continue;
-
-                allBlockText += " | " + val;
 
                 // 1. Mã HS Code (8 số, thường bắt đầu bằng 64 cho giày dép)
                 if (string.IsNullOrEmpty(item.HsCode))
@@ -317,12 +383,52 @@ public class CustomsDeclarationService : ICustomsDeclarationService
                     }
                 }
 
-                // 2. Mô tả hàng hóa chứa format: StyleCode (PO)#&Giày... (Đơn giá gia công: X USD/đôi)
-                if (string.IsNullOrEmpty(item.StyleCode) &&
-                    (val.Contains("#&", StringComparison.Ordinal) || val.Contains("Đơn giá gia công", StringComparison.OrdinalIgnoreCase) || val.Contains("KM3.PO", StringComparison.OrdinalIgnoreCase)))
+                // 2. Mô tả hàng hóa: kiểm tra nhãn "Mô tả hàng" hoặc ô chứa ký tự phân tách #& hoặc mã StyleCode
+                if (string.IsNullOrEmpty(item.StyleCode))
                 {
-                    item.RawDescription = val;
-                    ExtractStyleCodeAndCmt(val, item);
+                    if (val.Contains("Mô tả hàng", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Quét các ô tiếp theo cùng hàng (Cột 5 trở đi)
+                        for (int offset = 1; offset <= 10 && c + offset < totalCols; offset++)
+                        {
+                            string descCand = GetCell(r, c + offset);
+                            if (!string.IsNullOrWhiteSpace(descCand) &&
+                                (descCand.Contains("#&") || Regex.IsMatch(descCand, @"\b([A-Za-z0-9]{4,6}-[A-Za-z0-9]{2,4})")))
+                            {
+                                item.RawDescription = descCand;
+                                ExtractStyleCodeAndCmt(descCand, item);
+                                break;
+                            }
+                        }
+
+                        // Nếu chưa thấy, thử ô ở hàng ngay phía dưới
+                        if (string.IsNullOrEmpty(item.StyleCode) && r + 1 <= maxR)
+                        {
+                            for (int offset = 0; offset <= 8 && c + offset < totalCols; offset++)
+                            {
+                                string belowCand = GetCell(r + 1, c + offset);
+                                if (!string.IsNullOrWhiteSpace(belowCand) &&
+                                    (belowCand.Contains("#&") || Regex.IsMatch(belowCand, @"\b([A-Za-z0-9]{4,6}-[A-Za-z0-9]{2,4})")))
+                                {
+                                    item.RawDescription = belowCand;
+                                    ExtractStyleCodeAndCmt(belowCand, item);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    else if (val.Contains("#&", StringComparison.Ordinal) ||
+                             val.Contains("Đơn giá gia công", StringComparison.OrdinalIgnoreCase) ||
+                             val.Contains("KM3.PO", StringComparison.OrdinalIgnoreCase) ||
+                             Regex.IsMatch(val, @"\b([A-Za-z0-9]{4,6}-[A-Za-z0-9]{2,4}(?:\.G)?)\b", RegexOptions.IgnoreCase))
+                    {
+                        if (!val.Contains("Số tờ khai", StringComparison.OrdinalIgnoreCase) &&
+                            !val.Contains("Số hóa đơn", StringComparison.OrdinalIgnoreCase))
+                        {
+                            item.RawDescription = val;
+                            ExtractStyleCodeAndCmt(val, item);
+                        }
+                    }
                 }
 
                 // 3. Đơn vị tính
@@ -332,60 +438,144 @@ public class CustomsDeclarationService : ICustomsDeclarationService
                 {
                     item.Unit = val;
                 }
+
+                // 4. Bóc tách trực tiếp theo nhãn "Số lượng (1)" (Cột 16 trong bảng VNACCS)
+                if (item.Quantity == 0 &&
+                    (val.Contains("Số lượng (1)", StringComparison.OrdinalIgnoreCase) ||
+                     val.Contains("Số lượng(1)", StringComparison.OrdinalIgnoreCase) ||
+                     (val.Trim().Equals("Số lượng", StringComparison.OrdinalIgnoreCase) && c > 0 && !GetCell(r, c - 1).Contains("kiện", StringComparison.OrdinalIgnoreCase))))
+                {
+                    for (int offset = 1; offset <= 12 && c + offset < totalCols; offset++)
+                    {
+                        string qVal = GetCell(r, c + offset);
+                        if (TryParseCustomsQuantity(qVal, out int q) && q > 0)
+                        {
+                            item.Quantity = q;
+                            break;
+                        }
+                    }
+                }
+
+                // 5. Bóc tách trực tiếp theo nhãn "Đơn giá hóa đơn" (Cột 17 trong bảng VNACCS, loại trừ "Đơn giá gia công")
+                if (item.UnitPriceDap == 0 &&
+                    !val.Contains("gia công", StringComparison.OrdinalIgnoreCase) &&
+                    !val.Contains("tính thuế", StringComparison.OrdinalIgnoreCase) &&
+                    (val.Contains("Đơn giá hóa đơn", StringComparison.OrdinalIgnoreCase) ||
+                     val.Contains("Đơn giá hoá đơn", StringComparison.OrdinalIgnoreCase) ||
+                     val.Trim().Equals("Đơn giá", StringComparison.OrdinalIgnoreCase)))
+                {
+                    for (int offset = 1; offset <= 12 && c + offset < totalCols; offset++)
+                    {
+                        string pVal = GetCell(r, c + offset);
+                        if (TryParseCustomsDecimal(pVal, out decimal p) && p >= 0.1m && p <= 500m)
+                        {
+                            item.UnitPriceDap = p;
+                            break;
+                        }
+                    }
+                }
+
+                // 6. Bóc tách trực tiếp theo nhãn "Trị giá hóa đơn" (loại trừ "Trị giá tính thuế" và "Trị giá gia công")
+                if (item.AmountDap == 0 &&
+                    !val.Contains("gia công", StringComparison.OrdinalIgnoreCase) &&
+                    !val.Contains("tính thuế", StringComparison.OrdinalIgnoreCase) &&
+                    (val.Contains("Trị giá hóa đơn", StringComparison.OrdinalIgnoreCase) ||
+                     val.Contains("Trị giá hoá đơn", StringComparison.OrdinalIgnoreCase) ||
+                     val.Trim().Equals("Trị giá", StringComparison.OrdinalIgnoreCase)))
+                {
+                    for (int offset = 1; offset <= 12 && c + offset < totalCols; offset++)
+                    {
+                        string aVal = GetCell(r, c + offset);
+                        if (TryParseCustomsDecimal(aVal, out decimal a) && a >= 1m)
+                        {
+                            item.AmountDap = a;
+                            break;
+                        }
+                    }
+                }
+
+                // Thu thập các số ứng viên cho thuật toán suy luận / đối soát trio
+                if (!Regex.IsMatch(val, @"^<0*\d+>$") &&
+                    val != item.HsCode &&
+                    TryParseCustomsDecimal(val, out decimal num) &&
+                    num > 0 &&
+                    num < 100_000_000m)
+                {
+                    numericCandidates.Add(num);
+                }
             }
         }
 
-        // Quét số lượng, đơn giá DAP, trị giá DAP
-        for (int r = startRow; r <= maxR; r++)
+        // Tự động đối soát và khớp bộ ba toán học: Quantity * UnitPriceDap ≈ AmountDap nếu chưa có đủ
+        if (item.Quantity == 0 || item.UnitPriceDap == 0 || item.AmountDap == 0)
         {
-            for (int c = startCol; c < totalCols; c++)
+            bool trioFound = false;
+            for (int i = 0; i < numericCandidates.Count; i++)
             {
-                string val = GetCell(r, c);
-                if (string.IsNullOrEmpty(val)) continue;
-
-                // Nếu chưa tách được mô tả thì thử tìm lại
-                if (string.IsNullOrEmpty(item.StyleCode) && val.Length >= 5)
+                decimal n1 = numericCandidates[i];
+                for (int j = 0; j < numericCandidates.Count; j++)
                 {
-                    var styleMatch = Regex.Match(val, @"^([A-Z0-9]{4,6}-[A-Z0-9]{2,4}(?:\.G)?)", RegexOptions.IgnoreCase);
-                    if (styleMatch.Success)
+                    if (i == j) continue;
+                    decimal n2 = numericCandidates[j];
+
+                    // Giả định n1 là Quantity (nguyên dương), n2 là UnitPrice (0.1 đến 500)
+                    if (n1 == Math.Floor(n1) && n1 >= 1 && n1 <= 1_000_000 && n2 >= 0.1m && n2 <= 500m)
                     {
-                        item.RawDescription = val;
-                        ExtractStyleCodeAndCmt(val, item);
+                        for (int k = 0; k < numericCandidates.Count; k++)
+                        {
+                            if (k == i || k == j) continue;
+                            decimal n3 = numericCandidates[k];
+
+                            // Kiểm tra n1 * n2 ≈ n3
+                            if (Math.Abs((n1 * n2) - n3) <= Math.Max(0.1m, n3 * 0.01m))
+                            {
+                                item.Quantity = (int)n1;
+                                item.UnitPriceDap = n2;
+                                item.AmountDap = n3;
+                                trioFound = true;
+                                break;
+                            }
+                        }
                     }
+                    if (trioFound) break;
+                }
+                if (trioFound) break;
+            }
+
+            // Nếu không tìm được trọn bộ 3 số theo quan hệ nhân, suy luận từng số theo biên độ giá trị
+            if (!trioFound)
+            {
+                // Số lượng: số nguyên và không nằm trong dải đơn giá thông thường
+                if (item.Quantity == 0)
+                {
+                    var qCand = numericCandidates.FirstOrDefault(n => n == Math.Floor(n) && n >= 1 && (n > 500m || n != item.UnitPriceDap));
+                    if (qCand > 0) item.Quantity = (int)qCand;
                 }
 
-                // Số lượng
-                if (item.Quantity == 0 && int.TryParse(val.Replace(",", "").Replace(".", ""), out int q) && q > 0 && q < 1000000)
+                // Đơn giá DAP: số lẻ hoặc số trong khoảng 0.5 đến 500
+                if (item.UnitPriceDap == 0)
                 {
-                    // Đảm bảo không nhầm với HS Code
-                    if (val.Length != 8 && val.Length != 10 && val.Length != 12)
-                    {
-                        // Kiểm tra xem hàng/cột có nhãn số lượng không
-                        item.Quantity = q;
-                    }
+                    var pCand = numericCandidates.FirstOrDefault(n => n >= 0.5m && n <= 500m && n != item.Quantity);
+                    if (pCand > 0) item.UnitPriceDap = pCand;
                 }
 
-                // Đơn giá DAP
-                if (item.UnitPriceDap == 0 && decimal.TryParse(val.Replace(",", ""), NumberStyles.Any, CultureInfo.InvariantCulture, out decimal price) && price > 0.5m && price < 500m)
+                // Trị giá DAP: số lớn nhất hoặc tính từ Qty * Price
+                if (item.AmountDap == 0)
                 {
-                    if (price != item.Quantity && price != item.AmountDap)
+                    if (item.Quantity > 0 && item.UnitPriceDap > 0)
                     {
-                        item.UnitPriceDap = price;
+                        item.AmountDap = Math.Round(item.Quantity * item.UnitPriceDap, 2);
                     }
-                }
-
-                // Trị giá DAP (Amount)
-                if (item.AmountDap == 0 && decimal.TryParse(val.Replace(",", ""), NumberStyles.Any, CultureInfo.InvariantCulture, out decimal amt) && amt >= 10m)
-                {
-                    if (amt != item.Quantity && amt != item.UnitPriceDap)
+                    else
                     {
-                        item.AmountDap = amt;
+                        var aCand = numericCandidates.FirstOrDefault(n => n > 500m && n != item.Quantity);
+                        if (aCand > 0) item.AmountDap = aCand;
                     }
                 }
             }
         }
 
-        // Tự động suy luận: nếu có AmountDap và Quantity thì tính ra UnitPriceDap nếu thiếu
+        // Tự tính giá trị còn thiếu nếu đã có 2 trong 3
         if (item.UnitPriceDap == 0 && item.Quantity > 0 && item.AmountDap > 0)
         {
             item.UnitPriceDap = Math.Round(item.AmountDap / item.Quantity, 4);
@@ -400,31 +590,129 @@ public class CustomsDeclarationService : ICustomsDeclarationService
 
     private void ExtractStyleCodeAndCmt(string text, CustomsDeclarationItemDto item)
     {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        string trimmed = text.Trim();
+
         // 1. Tách StyleCode:
-        // Format: "40700-007 (KM3.PO5.26)#&Giày..." hoặc "45428-2LX.G #&Giày..."
-        var matchStyle = Regex.Match(text, @"^([A-Za-z0-9_.-]+)");
-        if (matchStyle.Success)
+        // Format: "40700-007 (KM3.PO5.26)#&Giày..." hoặc "45428-2LX.G #&Giày..." hoặc "40700-007(KM3.PO5.26)#&..."
+        // Hoặc có tiền tố "Mô tả hàng hóa: 40700-007 (KM3.PO5.26)#&..."
+        string codeCandidate = "";
+
+        // Ưu tiên khớp regex mã StyleCode chuẩn (vd: 40700-007, 45187-1WQ, 45428-2LX.G)
+        var matchPattern = Regex.Match(trimmed, @"\b([A-Za-z0-9]{4,6}-[A-Za-z0-9]{2,4}(?:\.G)?)\b", RegexOptions.IgnoreCase);
+        if (matchPattern.Success)
         {
-            string code = matchStyle.Groups[1].Value.Trim();
-            if (code.EndsWith(".G", StringComparison.OrdinalIgnoreCase))
+            codeCandidate = matchPattern.Groups[1].Value.Trim();
+        }
+        else
+        {
+            // Fallback: cắt bỏ tiền tố nhãn nếu có dấu hai chấm
+            string cleaned = trimmed;
+            int colonIdx = cleaned.IndexOf(':');
+            if (colonIdx >= 0 && colonIdx < cleaned.Length - 1)
             {
-                item.StyleCode = code[..^2].Trim();
+                cleaned = cleaned[(colonIdx + 1)..].Trim();
+            }
+            var firstPart = cleaned.Split(new[] { "#&" }, StringSplitOptions.None)[0].Trim();
+            var matchStyle = Regex.Match(firstPart, @"^([^\(\s]+)");
+            if (matchStyle.Success)
+            {
+                codeCandidate = matchStyle.Groups[1].Value.Trim();
+            }
+        }
+
+        if (!string.IsNullOrEmpty(codeCandidate))
+        {
+            string upper = codeCandidate.ToUpperInvariant();
+            if (upper.EndsWith(".G"))
+            {
+                item.StyleCode = upper[..^2].Trim();
                 item.ProcessType = ProcessType.GoKhongMay;
             }
             else
             {
-                item.StyleCode = code;
+                item.StyleCode = upper;
                 item.ProcessType = ProcessType.Standard;
             }
         }
 
         // 2. Tách Đơn giá CMT:
-        // Format: "(Đơn giá gia công: 3.00 USD/đôi)" hoặc "Don gia gia cong: 3.50 USD"
-        var matchCmt = Regex.Match(text, @"(?:gia|giá)?\s*c[oô]ng\s*[:=]?\s*([0-9,.]+)", RegexOptions.IgnoreCase);
-        if (matchCmt.Success && decimal.TryParse(matchCmt.Groups[1].Value.Replace(",", ""), NumberStyles.Any, CultureInfo.InvariantCulture, out decimal cmt))
+        // Format: "(Đơn giá gia công: 3.00 USD/đôi)" hoặc "Đơn giá gia công: 3,00 USD/đôi"
+        var matchCmt = Regex.Match(trimmed, @"(?:gia|giá)?\s*c[oô]ng\s*[:=]?\s*([0-9,.]+)", RegexOptions.IgnoreCase);
+        if (matchCmt.Success && TryParseCustomsDecimal(matchCmt.Groups[1].Value, out decimal cmt))
         {
             item.UnitPriceCmt = cmt;
         }
+    }
+
+    /// <summary>
+    /// Chuyển đổi chuỗi số từ tờ khai VNACCS (hỗ trợ cả định dạng phẩy Việt Nam/Châu Âu 8,1 và chấm 8.1, nghìn 13.585,2 hoặc 1,652.40)
+    /// </summary>
+    public static bool TryParseCustomsDecimal(string? input, out decimal result)
+    {
+        result = 0m;
+        if (string.IsNullOrWhiteSpace(input)) return false;
+
+        string s = input.Trim().Replace("$", "").Replace("USD", "", StringComparison.OrdinalIgnoreCase).Trim();
+
+        int lastDot = s.LastIndexOf('.');
+        int lastComma = s.LastIndexOf(',');
+
+        if (lastDot >= 0 && lastComma >= 0)
+        {
+            if (lastComma > lastDot)
+            {
+                // Format: 1.652,40 hoặc 13.585,2 -> Dấu chấm là phân cách hàng nghìn, dấu phẩy là thập phân
+                s = s.Replace(".", "").Replace(",", ".");
+            }
+            else
+            {
+                // Format: 1,652.40 hoặc 13,585.20 -> Dấu phẩy là phân cách hàng nghìn, dấu chấm là thập phân
+                s = s.Replace(",", "");
+            }
+        }
+        else if (lastComma >= 0)
+        {
+            int commaCount = s.Count(c => c == ',');
+            if (commaCount == 1)
+            {
+                // Format: 8,1 hoặc 8,2 hoặc 1652,40 hoặc 204,00
+                s = s.Replace(",", ".");
+            }
+            else
+            {
+                // Nhiều dấu phẩy -> phân cách hàng nghìn: 1,000,000
+                s = s.Replace(",", "");
+            }
+        }
+        else if (lastDot >= 0)
+        {
+            int dotCount = s.Count(c => c == '.');
+            if (dotCount > 1)
+            {
+                // Format: 1.000.000 -> phân cách hàng nghìn
+                s = s.Replace(".", "");
+            }
+        }
+
+        return decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out result);
+    }
+
+    /// <summary>
+    /// Chuyển đổi chuỗi số lượng từ tờ khai VNACCS (hỗ trợ 204, 204,00, 1.200, v.v.)
+    /// </summary>
+    public static bool TryParseCustomsQuantity(string? input, out int quantity)
+    {
+        quantity = 0;
+        if (string.IsNullOrWhiteSpace(input)) return false;
+
+        string s = Regex.Replace(input.Trim(), @"[^\d,.]", "");
+        if (TryParseCustomsDecimal(s, out decimal d) && d >= 0 && d < 10_000_000m)
+        {
+            quantity = (int)Math.Round(d);
+            return true;
+        }
+        return false;
     }
 
     private static bool TryParseCustomsDate(string input, out DateTime date)
@@ -544,6 +832,21 @@ public class CustomsDeclarationService : ICustomsDeclarationService
 
         var comparisonRows = new List<CustomsComparisonRowDto>();
         var discrepancies = new List<string>();
+
+        // KIỂM TRA LỆCH SỐ HÓA ĐƠN:
+        // Nếu mở đối soát từ một đơn hàng cụ thể nhưng số hóa đơn trên tờ khai khác với đơn hàng này
+        if (specificOrderId.HasValue && specificOrderId.Value > 0 && !string.IsNullOrWhiteSpace(declaration.InvoiceNo))
+        {
+            string decInv = declaration.InvoiceNo.Trim();
+            string ordInv = order.InvoiceNo.Trim();
+            if (!string.Equals(decInv, ordInv, StringComparison.OrdinalIgnoreCase))
+            {
+                result.IsInvoiceMismatch = true;
+                result.InvoiceMismatchWarning = $"Số hóa đơn trên tờ khai ({declaration.InvoiceNo}) không trùng với hóa đơn hiện tại ({order.InvoiceNo}).";
+                discrepancies.Add(result.InvoiceMismatchWarning);
+            }
+        }
+
         int idx = 1;
 
         foreach (var key in allStyleCodes)
@@ -610,22 +913,28 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         int customsTotalQty = declaration.TotalItemQuantity > 0 ? declaration.TotalItemQuantity : declaration.Items.Sum(i => i.Quantity);
         result.TotalQuantityMatched = invoiceTotalQty == customsTotalQty;
 
+        bool itemsMatched = comparisonRows.Count > 0 && comparisonRows.All(r => r.IsMatched) && result.TotalQuantityMatched;
+
         decimal invoiceTotalDap = order.Items.Sum(i => i.Quantity * i.UnitPriceDAP);
         decimal customsTotalDap = declaration.TotalDap > 0 ? declaration.TotalDap : declaration.Items.Sum(i => i.Quantity * i.UnitPriceDap);
-        result.TotalDapMatched = Math.Abs(invoiceTotalDap - customsTotalDap) <= 0.05m;
+        result.TotalDapMatched = itemsMatched || Math.Abs(invoiceTotalDap - customsTotalDap) <= Math.Max(1.0m, invoiceTotalDap * 0.002m);
 
         decimal invoiceTotalCmt = order.Items.Sum(i => i.Quantity * i.UnitPriceCMT);
         decimal customsTotalCmt = declaration.TotalCmt > 0 ? declaration.TotalCmt : declaration.Items.Sum(i => i.Quantity * i.UnitPriceCmt);
         result.TotalCmtMatched = customsTotalCmt == 0 || Math.Abs(invoiceTotalCmt - customsTotalCmt) <= 0.05m;
 
         // Đơn hàng được coi là khớp 100% khi:
-        // Tất cả các dòng so sánh đều khớp (không có dòng thiếu/thừa/lệch) và tổng số lượng khớp
-        result.IsFullyMatched = comparisonRows.All(r => r.IsMatched) && result.TotalQuantityMatched && result.TotalDapMatched;
+        // Không bị lệch số hóa đơn, không có điểm sai lệch nào và toàn bộ các dòng hàng đối soát đều khớp
+        result.IsFullyMatched = !result.IsInvoiceMismatch && itemsMatched && discrepancies.Count == 0;
         result.Discrepancies = discrepancies;
 
-        if (result.IsFullyMatched)
+        if (result.IsInvoiceMismatch)
         {
-            result.Message = $"✔ Đối soát hoàn tất: Dữ liệu Tờ khai hải quan và Hóa đơn {order.InvoiceNo} khớp 100% ({invoiceTotalQty:N0} đôi, {comparisonRows.Count} dòng hàng).";
+            result.Message = $"⚠ Cảnh báo sai lệch hóa đơn: {result.InvoiceMismatchWarning}";
+        }
+        else if (result.IsFullyMatched)
+        {
+            result.Message = $"✔ Đối soát hoàn tất: Dữ liệu Tờ khai hải quan và Hóa đơn {order.InvoiceNo} khớp 100% ({invoiceTotalQty:N0} đôi, {comparisonRows.Count} dòng hàng). Đủ điều kiện chuyển trạng thái sang Đã thông quan.";
         }
         else
         {
@@ -635,10 +944,13 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         return result;
     }
 
-    private static string NormalizeStyleCode(string code)
+    public static string NormalizeStyleCode(string? code)
     {
         if (string.IsNullOrWhiteSpace(code)) return string.Empty;
-        string clean = code.Trim().ToUpperInvariant();
+        var firstPart = code.Split(new[] { "#&" }, StringSplitOptions.None)[0].Trim();
+        var match = Regex.Match(firstPart, @"^([^\(\s]+)");
+        string extracted = match.Success ? match.Groups[1].Value.Trim() : firstPart.Trim();
+        string clean = extracted.ToUpperInvariant();
         if (clean.EndsWith(".G"))
         {
             clean = clean[..^2].Trim();
@@ -660,28 +972,37 @@ public class CustomsDeclarationService : ICustomsDeclarationService
             .FirstOrDefaultAsync(s => s.Id == orderId)
             ?? throw new KeyNotFoundException($"Không tìm thấy đơn hàng #{orderId} trong cơ sở dữ liệu.");
 
-        // Lưu file đính kèm vào thư mục data/customs nếu có
+        // Lưu file đính kèm vào thư mục uploads/customs theo yêu cầu lưu trữ điện tử
         string? savedFileName = null;
-        if (fileStream != null && !string.IsNullOrWhiteSpace(originalFileName))
+        string? relativeSavedPath = null;
+        if (fileStream != null)
         {
-            string storageDir = Path.Combine(_environment.ContentRootPath, "data", "customs");
+            string storageDir = Path.Combine(_environment.ContentRootPath, "Uploads", "Customs");
             if (!Directory.Exists(storageDir))
             {
                 Directory.CreateDirectory(storageDir);
             }
 
-            string safeOriginal = Path.GetFileName(originalFileName).Replace(" ", "_");
-            savedFileName = $"TK_{request.DeclarationNo}_{orderId}_{DateTime.UtcNow:yyyyMMddHHmmss}_{safeOriginal}";
+            string ext = !string.IsNullOrWhiteSpace(originalFileName) 
+                ? Path.GetExtension(originalFileName) 
+                : ".xls";
+            if (string.IsNullOrEmpty(ext)) ext = ".xls";
+
+            string declPart = string.IsNullOrWhiteSpace(request.DeclarationNo) ? "TK" : request.DeclarationNo.Trim();
+            savedFileName = $"{declPart}_{DateTime.Now:yyyyMMddHHmmss}{ext}";
             string fullPath = Path.Combine(storageDir, savedFileName);
+            relativeSavedPath = Path.Combine("Uploads", "Customs", savedFileName).Replace("\\", "/");
 
             using var targetStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write);
             await fileStream.CopyToAsync(targetStream);
         }
 
-        // Cập nhật thông tin hải quan vào ShipmentOrder
+        // Cập nhật thông tin pháp lý hải quan vào ShipmentOrder
         order.DeclarationNo = request.DeclarationNo;
         order.ClearanceDate = request.ClearanceDate ?? DateTime.UtcNow;
-        order.CustomsDeclarationType = request.CustomsDeclarationType;
+        order.CustomsDeclarationType = !string.IsNullOrWhiteSpace(request.CustomsDeclarationType)
+            ? request.CustomsDeclarationType
+            : "E52";
         order.CustomsChannel = request.CustomsChannel;
         order.CustomsOffice = request.CustomsOffice;
         order.CustomsPackageQty = request.CustomsPackageQty;
@@ -692,15 +1013,22 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         if (!string.IsNullOrEmpty(savedFileName))
         {
             order.CustomsAttachmentFileName = savedFileName;
+            order.CustomsAttachmentFilePath = relativeSavedPath;
         }
 
-        // Cập nhật trạng thái
-        order.Status = request.IsFullyMatched
-            ? ShipmentStatus.Cleared
-            : ShipmentStatus.Discrepancy;
+        // Cập nhật trạng thái và khóa hồ sơ điện tử
+        if (request.IsFullyMatched)
+        {
+            order.Status = ShipmentStatus.Cleared;
+            order.IsLocked = true; // Khóa chỉnh sửa hồ sơ sau khi thông quan
+        }
+        else
+        {
+            order.Status = ShipmentStatus.Discrepancy;
+        }
 
         await _context.SaveChangesAsync();
-        _logger.LogInformation("Đã đồng bộ thông tin hải quan cho đơn hàng #{OrderId} (Status: {Status})", orderId, order.Status);
+        _logger.LogInformation("Đã xác nhận đồng bộ thông tin hải quan cho đơn hàng #{OrderId} (Status: {Status}, IsLocked: {IsLocked})", orderId, order.Status, order.IsLocked);
 
         return order;
     }
@@ -711,22 +1039,39 @@ public class CustomsDeclarationService : ICustomsDeclarationService
     public async Task<(byte[] Bytes, string ContentType, string FileName)?> GetAttachmentAsync(int orderId)
     {
         var order = await _context.ShipmentOrders.FindAsync(orderId);
-        if (order == null || string.IsNullOrEmpty(order.CustomsAttachmentFileName))
+        if (order == null || (string.IsNullOrEmpty(order.CustomsAttachmentFileName) && string.IsNullOrEmpty(order.CustomsAttachmentFilePath)))
         {
             return null;
         }
 
-        string filePath = Path.Combine(_environment.ContentRootPath, "data", "customs", order.CustomsAttachmentFileName);
-        if (!File.Exists(filePath))
+        string? filePath = null;
+        if (!string.IsNullOrEmpty(order.CustomsAttachmentFilePath))
+        {
+            string candidate = Path.IsPathRooted(order.CustomsAttachmentFilePath)
+                ? order.CustomsAttachmentFilePath
+                : Path.Combine(_environment.ContentRootPath, order.CustomsAttachmentFilePath);
+            if (File.Exists(candidate)) filePath = candidate;
+        }
+
+        if (filePath == null && !string.IsNullOrEmpty(order.CustomsAttachmentFileName))
+        {
+            string candidate1 = Path.Combine(_environment.ContentRootPath, "Uploads", "Customs", order.CustomsAttachmentFileName);
+            string candidate2 = Path.Combine(_environment.ContentRootPath, "data", "customs", order.CustomsAttachmentFileName);
+            if (File.Exists(candidate1)) filePath = candidate1;
+            else if (File.Exists(candidate2)) filePath = candidate2;
+        }
+
+        if (filePath == null || !File.Exists(filePath))
         {
             return null;
         }
 
         byte[] bytes = await File.ReadAllBytesAsync(filePath);
-        string contentType = order.CustomsAttachmentFileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
+        string fileName = Path.GetFileName(filePath);
+        string contentType = fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
             ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             : "application/vnd.ms-excel";
 
-        return (bytes, contentType, order.CustomsAttachmentFileName);
+        return (bytes, contentType, fileName);
     }
 }

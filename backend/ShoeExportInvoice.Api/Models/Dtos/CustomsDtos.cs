@@ -74,6 +74,8 @@ public class CustomsReconciliationResultDto
 {
     public bool IsOrderFound { get; set; }
     public bool IsFullyMatched { get; set; }
+    public bool IsInvoiceMismatch { get; set; }
+    public string? InvoiceMismatchWarning { get; set; }
     public string Message { get; set; } = string.Empty;
 
     public CustomsDeclarationParsedDto Declaration { get; set; } = new();
@@ -104,15 +106,21 @@ public class MatchedOrderSummaryDto
 
 public class ConfirmCustomsSyncRequestDto
 {
+    public int OrderId { get; set; }
     public string DeclarationNo { get; set; } = string.Empty;
     public DateTime? ClearanceDate { get; set; }
     public string? CustomsDeclarationType { get; set; }
     public int? CustomsChannel { get; set; }
     public string? CustomsOffice { get; set; }
     public int? CustomsPackageQty { get; set; }
+    public int? PackageQty { get => CustomsPackageQty; set => CustomsPackageQty = value; }
     public decimal? CustomsGrossWeight { get; set; }
+    public decimal? GrossWeight { get => CustomsGrossWeight; set => CustomsGrossWeight = value; }
     public decimal? CustomsTotalDap { get; set; }
+    public decimal? TotalDap { get => CustomsTotalDap; set => CustomsTotalDap = value; }
     public decimal? CustomsTotalCmt { get; set; }
+    public decimal? TotalCmt { get => CustomsTotalCmt; set => CustomsTotalCmt = value; }
     public string? TempAttachmentFileName { get; set; }
     public bool IsFullyMatched { get; set; }
+    public Microsoft.AspNetCore.Http.IFormFile? CustomsFile { get; set; }
 }

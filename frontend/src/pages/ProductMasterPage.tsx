@@ -458,6 +458,7 @@ export const ProductMasterPage: React.FC = () => {
           dataSource={products}
           rowKey="id"
           loading={loading}
+          scroll={{ x: 950 }}
           pagination={{
             current: page,
             pageSize: pageSize,

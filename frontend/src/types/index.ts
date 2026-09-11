@@ -109,6 +109,8 @@ export interface ShipmentOrder {
   customsTotalDap?: number;
   customsTotalCmt?: number;
   customsAttachmentFileName?: string;
+  customsAttachmentFilePath?: string;
+  isLocked?: boolean;
   status: ShipmentStatus;
   statusName?: string;
   items?: ShipmentOrderItem[];
@@ -204,6 +206,8 @@ export interface SavedShipmentSummary {
   customsTotalDap?: number;
   customsTotalCmt?: number;
   customsAttachmentFileName?: string;
+  customsAttachmentFilePath?: string;
+  isLocked?: boolean;
   status: ShipmentStatus;
   statusName?: string;
 }
@@ -323,6 +327,8 @@ export interface MatchedOrderSummary {
 export interface CustomsReconciliationResult {
   isOrderFound: boolean;
   isFullyMatched: boolean;
+  isInvoiceMismatch?: boolean;
+  invoiceMismatchWarning?: string;
   totalQuantityMatched: boolean;
   totalDapMatched: boolean;
   totalCmtMatched: boolean;

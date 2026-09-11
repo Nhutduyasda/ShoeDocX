@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ShoeExportInvoice.Api.Models.Entities;
@@ -23,6 +23,9 @@ public class CustomsSettlementItem
 
     [MaxLength(50)]
     public string Unit { get; set; } = "đôi";               // ĐVT
+ 
+    [MaxLength(50)]
+    public string HsCode { get; set; } = "64041990";       // Mã HS (vd: 64041990)
 
     [Column(TypeName = "decimal(18, 2)")]
     public decimal OpeningBalance { get; set; } = 0;        // Tồn đầu kỳ
@@ -38,6 +41,12 @@ public class CustomsSettlementItem
 
     [Column(TypeName = "decimal(18, 2)")]
     public decimal ClosingBalance { get; set; } = 0;        // Tồn cuối kỳ = (OpeningBalance + InPeriodProduction) - (InPeriodExport + OtherExport)
+
+    [NotMapped]
+    public bool IsNegative => ClosingBalance < 0;          // Cờ cảnh báo âm tồn
+
+    [NotMapped]
+    public decimal Discrepancy => IsNegative ? Math.Abs(ClosingBalance) : 0; // Chênh lệch thiếu hụt
 
     [MaxLength(500)]
     public string? Note { get; set; }

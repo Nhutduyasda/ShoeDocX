@@ -15,18 +15,16 @@ body {
   margin: 0;
   padding: 0;
   width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
-  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
   background-color: #F8FAFC;
   color: #111827;
 }
 
 #root {
-  min-height: 100vh;
+  height: 100%;
   width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -228,5 +226,15 @@ body {
 
 .driver-popover.shoedocx-tour-popover .driver-popover-close-btn:hover {
   color: #334155 !important;
+}
+
+/* Row Missing Master Data Validation Style */
+.ant-table-tbody > tr.row-missing-master > td {
+  background-color: #FFF1F0 !important;
+  border-bottom: 1px solid #FFA39E !important;
+}
+
+.ant-table-tbody > tr.row-missing-master:hover > td {
+  background-color: #FFEBE9 !important;
 }
 

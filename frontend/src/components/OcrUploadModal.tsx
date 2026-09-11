@@ -26,10 +26,27 @@ import { ocrApi } from '../api/ocrApi';
 import type { CreateShipmentItem, OcrItem, ProductMaster } from '../types';
 import { ProcessType } from '../types';
 
+export const normalizeOcrStyleCode = (rawCode?: string): string => {
+  if (!rawCode) return '';
+  let trimmed = rawCode.trim();
+  let hasGo = false;
+  if (trimmed.toUpperCase().endsWith('.G')) {
+    hasGo = true;
+    trimmed = trimmed.slice(0, -2).trim();
+  }
+  // Xóa bỏ phần trong ngoặc đơn ở cuối mã: vd "BM5879-464(KM3)" -> "BM5879-464"
+  let cleaned = trimmed.replace(/\s*\([^\)]*\)$/, '').trim();
+  if (hasGo && !cleaned.toUpperCase().endsWith('.G')) {
+    cleaned += '.G';
+  }
+  return cleaned;
+};
+
 interface OcrUploadModalProps {
   visible: boolean;
   onClose: () => void;
   products: ProductMaster[];
+  selectedPartnerId?: number | null;
   onApply: (items: CreateShipmentItem[], mode: 'replace' | 'append') => void;
 }
 
@@ -37,6 +54,7 @@ export const OcrUploadModal: React.FC<OcrUploadModalProps> = ({
   visible,
   onClose,
   products,
+  selectedPartnerId,
   onApply,
 }) => {
   const [file, setFile] = useState<File | null>(null);
@@ -54,10 +72,12 @@ export const OcrUploadModal: React.FC<OcrUploadModalProps> = ({
   const productMap = React.useMemo(() => {
     const map = new Map<string, ProductMaster>();
     products.forEach((p) => {
-      map.set(p.styleCode.trim().toUpperCase(), p);
+      if (!selectedPartnerId || !p.folderId || p.folderId === selectedPartnerId) {
+        map.set(p.styleCode.trim().toUpperCase(), p);
+      }
     });
     return map;
-  }, [products]);
+  }, [products, selectedPartnerId]);
 
   const calculatedTotal = React.useMemo(() => {
     return extractedItems.reduce((acc, item) => acc + (item.quantity || 0), 0);
@@ -84,13 +104,15 @@ export const OcrUploadModal: React.FC<OcrUploadModalProps> = ({
       setSimulationMessage(res.message || '');
 
       const enrichedItems: OcrItem[] = res.items.map((item) => {
-        const cleanCode = item.styleCode.toUpperCase().endsWith('.G')
-          ? item.styleCode.toUpperCase().slice(0, -2).trim()
-          : item.styleCode.toUpperCase().trim();
+        const normalizedCode = normalizeOcrStyleCode(item.styleCode);
+        const cleanCode = normalizedCode.toUpperCase().endsWith('.G')
+          ? normalizedCode.toUpperCase().slice(0, -2).trim()
+          : normalizedCode.toUpperCase().trim();
         const pm = productMap.get(cleanCode);
 
         return {
           ...item,
+          styleCode: normalizedCode,
           unitPriceCMT: pm?.unitPriceCMT ?? item.unitPriceCMT,
           unitPriceDAP: pm?.unitPriceDAP ?? item.unitPriceDAP,
           pairPerCarton: (pm?.pairPerCarton && pm.pairPerCarton > 0) ? pm.pairPerCarton : item.pairPerCarton || 12,

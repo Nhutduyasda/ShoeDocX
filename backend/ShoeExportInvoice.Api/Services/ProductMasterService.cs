@@ -14,13 +14,23 @@ public class ProductMasterService : IProductMasterService
         _context = context;
     }
 
-    public async Task<PagedResultDto<ProductMasterDto>> GetPagedAsync(string? search, int page = 1, int pageSize = 10)
+    public async Task<PagedResultDto<ProductMasterDto>> GetPagedAsync(string? search, int page = 1, int pageSize = 10, int? folderId = null)
     {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 10;
         if (pageSize > 200) pageSize = 200;
 
-        var query = _context.ProductMasters.AsNoTracking().AsQueryable();
+        var query = _context.ProductMasters
+            .AsNoTracking()
+            .Include(p => p.Folder)
+            .AsQueryable();
+
+        if (folderId.HasValue)
+        {
+            var folderIds = await GetAllDescendantFolderIdsAsync(folderId.Value);
+            folderIds.Add(folderId.Value);
+            query = query.Where(p => p.FolderId.HasValue && folderIds.Contains(p.FolderId.Value));
+        }
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -31,6 +41,14 @@ public class ProductMasterService : IProductMasterService
         }
 
         var totalCount = await query.CountAsync();
+
+        decimal avgCmt = 0m;
+        decimal avgDap = 0m;
+        if (totalCount > 0)
+        {
+            avgCmt = await query.Where(x => x.UnitPriceCMT > 0).Select(x => (decimal?)x.UnitPriceCMT).AverageAsync() ?? 0m;
+            avgDap = await query.Where(x => x.UnitPriceDAP > 0).Select(x => (decimal?)x.UnitPriceDAP).AverageAsync() ?? 0m;
+        }
 
         var items = await query
             .OrderByDescending(p => p.UpdatedAt ?? p.CreatedAt)
@@ -44,7 +62,9 @@ public class ProductMasterService : IProductMasterService
             Items = items,
             TotalCount = totalCount,
             Page = page,
-            PageSize = pageSize
+            PageSize = pageSize,
+            AvgUnitPriceCMT = avgCmt,
+            AvgUnitPriceDAP = avgDap
         };
     }
 
@@ -52,6 +72,7 @@ public class ProductMasterService : IProductMasterService
     {
         return await _context.ProductMasters
             .AsNoTracking()
+            .Include(p => p.Folder)
             .OrderBy(p => p.StyleCode)
             .Select(p => MapToDto(p))
             .ToListAsync();
@@ -59,7 +80,10 @@ public class ProductMasterService : IProductMasterService
 
     public async Task<ProductMasterDto?> GetByIdAsync(int id)
     {
-        var entity = await _context.ProductMasters.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id);
+        var entity = await _context.ProductMasters
+            .AsNoTracking()
+            .Include(p => p.Folder)
+            .FirstOrDefaultAsync(p => p.Id == id);
         return entity != null ? MapToDto(entity) : null;
     }
 
@@ -72,6 +96,20 @@ public class ProductMasterService : IProductMasterService
             throw new InvalidOperationException($"Mã hình thể '{cleanStyleCode}' đã tồn tại trong hệ thống.");
         }
 
+        int pairPerCarton = dto.PairPerCarton;
+        if (pairPerCarton <= 0)
+        {
+            if (dto.FolderId.HasValue)
+            {
+                var folder = await _context.MasterDataFolders.FindAsync(dto.FolderId.Value);
+                pairPerCarton = folder?.DefaultPairsPerCarton ?? 12;
+            }
+            else
+            {
+                pairPerCarton = 12;
+            }
+        }
+
         var entity = new ProductMaster
         {
             StyleCode = cleanStyleCode,
@@ -82,7 +120,8 @@ public class ProductMasterService : IProductMasterService
             UnitPriceDAP_Go = (dto.UnitPriceDAP_Go.HasValue && dto.UnitPriceDAP_Go.Value > 0) ? dto.UnitPriceDAP_Go : null,
             HsCode = string.IsNullOrWhiteSpace(dto.HsCode) ? "64041990" : dto.HsCode.Trim(),
             Unit = string.IsNullOrWhiteSpace(dto.Unit) ? "đôi" : dto.Unit.Trim(),
-            PairPerCarton = dto.PairPerCarton <= 0 ? 12 : dto.PairPerCarton,
+            PairPerCarton = pairPerCarton,
+            FolderId = dto.FolderId,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -113,6 +152,10 @@ public class ProductMasterService : IProductMasterService
         entity.HsCode = string.IsNullOrWhiteSpace(dto.HsCode) ? "64041990" : dto.HsCode.Trim();
         entity.Unit = string.IsNullOrWhiteSpace(dto.Unit) ? "đôi" : dto.Unit.Trim();
         entity.PairPerCarton = dto.PairPerCarton <= 0 ? 12 : dto.PairPerCarton;
+        if (dto.FolderId.HasValue)
+        {
+            entity.FolderId = dto.FolderId;
+        }
         entity.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -130,9 +173,21 @@ public class ProductMasterService : IProductMasterService
         return true;
     }
 
-    public async Task<int> DeleteAllAsync()
+    public async Task<int> DeleteAllAsync(int? folderId = null)
     {
-        var count = await _context.ProductMasters.ExecuteDeleteAsync();
+        if (folderId.HasValue)
+        {
+            var folderIds = await GetAllDescendantFolderIdsAsync(folderId.Value);
+            folderIds.Add(folderId.Value);
+
+            var count = await _context.ProductMasters
+                .Where(p => p.FolderId.HasValue && folderIds.Contains(p.FolderId.Value))
+                .ExecuteDeleteAsync();
+
+            return count;
+        }
+
+        var totalCount = await _context.ProductMasters.ExecuteDeleteAsync();
         try
         {
             await _context.Database.ExecuteSqlRawAsync("DELETE FROM sqlite_sequence WHERE name = 'ProductMasters';");
@@ -141,7 +196,7 @@ public class ProductMasterService : IProductMasterService
         {
             // Bỏ qua nếu SQLite không có bảng sqlite_sequence
         }
-        return count;
+        return totalCount;
     }
 
     public async Task<int> BulkUpdateUnitAsync(string newUnit)
@@ -158,6 +213,24 @@ public class ProductMasterService : IProductMasterService
         return count;
     }
 
+    public async Task<int> BulkMoveProductsAsync(List<int> productIds, int? targetFolderId)
+    {
+        if (productIds == null || productIds.Count == 0) return 0;
+
+        var products = await _context.ProductMasters
+            .Where(p => productIds.Contains(p.Id))
+            .ToListAsync();
+
+        foreach (var p in products)
+        {
+            p.FolderId = targetFolderId;
+            p.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _context.SaveChangesAsync();
+        return products.Count;
+    }
+
     public async Task<bool> ExistsStyleCodeAsync(string styleCode, int? excludeId = null)
     {
         var query = _context.ProductMasters.AsNoTracking().Where(p => p.StyleCode.ToLower() == styleCode.Trim().ToLower());
@@ -166,6 +239,235 @@ public class ProductMasterService : IProductMasterService
             query = query.Where(p => p.Id != excludeId.Value);
         }
         return await query.AnyAsync();
+    }
+
+    private async Task<List<int>> GetAllDescendantFolderIdsAsync(int folderId)
+    {
+        var result = new List<int>();
+        var queue = new Queue<int>();
+        queue.Enqueue(folderId);
+
+        var allChildPairs = await _context.MasterDataFolders
+            .AsNoTracking()
+            .Where(f => f.ParentId != null)
+            .Select(f => new { f.Id, ParentId = f.ParentId!.Value })
+            .ToListAsync();
+
+        var lookup = allChildPairs.ToLookup(x => x.ParentId, x => x.Id);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            foreach (var childId in lookup[current])
+            {
+                result.Add(childId);
+                queue.Enqueue(childId);
+            }
+        }
+
+        return result;
+    }
+
+    public async Task<ValidateItemsResult> ValidateItemsAsync(ValidateItemsRequest request)
+    {
+        var result = new ValidateItemsResult();
+        if (request?.StyleCodes == null || request.StyleCodes.Count == 0)
+        {
+            return result;
+        }
+
+        var nonNullCodes = request.StyleCodes
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c.Trim())
+            .ToList();
+
+        if (nonNullCodes.Count == 0)
+        {
+            return result;
+        }
+
+        result.TotalCodes = nonNullCodes.Count;
+
+        // 1. Lấy toàn bộ cây thư mục để tra cứu đối tác gốc (Root Partner Folder)
+        var allFolders = await _context.MasterDataFolders.AsNoTracking().ToListAsync();
+        var folderMap = allFolders.ToDictionary(f => f.Id);
+
+        MasterDataFolder? GetRootPartnerFolder(int? folderId)
+        {
+            if (!folderId.HasValue || !folderMap.TryGetValue(folderId.Value, out var current))
+                return null;
+
+            while (current.ParentId.HasValue && folderMap.TryGetValue(current.ParentId.Value, out var parent))
+            {
+                current = parent;
+            }
+            return current;
+        }
+
+        // 2. Xác định danh sách folderId của đối tác hiện tại (bao gồm các thư mục con)
+        var currentFolderIds = new HashSet<int>();
+        if (request.CurrentPartnerFolderId > 0)
+        {
+            currentFolderIds.Add(request.CurrentPartnerFolderId);
+            var descendants = await GetAllDescendantFolderIdsAsync(request.CurrentPartnerFolderId);
+            foreach (var id in descendants)
+            {
+                currentFolderIds.Add(id);
+            }
+        }
+
+        // 3. Lấy toàn bộ sản phẩm Master Data để kiểm tra chéo
+        var allProducts = await _context.ProductMasters
+            .AsNoTracking()
+            .Include(p => p.Folder)
+            .ToListAsync();
+
+        // 4. Kiểm tra từng mã trong danh sách
+        var details = new List<ItemValidationDetail>();
+        foreach (var raw in nonNullCodes)
+        {
+            var cleaned = CleanStyleCode(raw);
+            var baseCode = cleaned.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? cleaned[..^2].Trim() : cleaned;
+
+            var matching = allProducts.Where(p =>
+                p.StyleCode.Equals(cleaned, StringComparison.OrdinalIgnoreCase) ||
+                p.StyleCode.Equals(baseCode, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+
+            var currentMatch = matching.FirstOrDefault(p => p.FolderId.HasValue && currentFolderIds.Contains(p.FolderId.Value));
+
+            if (currentMatch != null)
+            {
+                details.Add(new ItemValidationDetail
+                {
+                    RawCode = raw,
+                    NormalizedCode = cleaned,
+                    IsMatchedInCurrent = true,
+                    MatchedFolderId = currentMatch.FolderId,
+                    MatchedFolderName = currentMatch.Folder?.Name,
+                    MatchedProduct = MapToDto(currentMatch)
+                });
+            }
+            else
+            {
+                var otherMatches = matching.Where(p => p.FolderId.HasValue && !currentFolderIds.Contains(p.FolderId.Value)).ToList();
+                var otherMatch = otherMatches.FirstOrDefault();
+                var otherRoot = otherMatch != null ? GetRootPartnerFolder(otherMatch.FolderId) : null;
+
+                details.Add(new ItemValidationDetail
+                {
+                    RawCode = raw,
+                    NormalizedCode = cleaned,
+                    IsMatchedInCurrent = false,
+                    MatchedFolderId = otherMatch?.FolderId,
+                    MatchedFolderName = otherRoot?.Name ?? otherMatch?.Folder?.Name,
+                    MatchedProduct = otherMatch != null ? MapToDto(otherMatch) : null
+                });
+            }
+        }
+
+        result.Details = details;
+
+        // 5. Thuật toán gợi ý Heuristic: Nếu có mã không khớp đối tác hiện tại,
+        // kiểm tra xem có đối tác nào khác chiếm ưu thế (>= 50% số mã không khớp)
+        var unmatchedCodes = details.Where(d => !d.IsMatchedInCurrent).ToList();
+        if (unmatchedCodes.Count > 0)
+        {
+            var otherPartnerCounts = new Dictionary<int, (MasterDataFolder Partner, int Count)>();
+
+            foreach (var detail in unmatchedCodes)
+            {
+                var baseCode = detail.NormalizedCode.EndsWith(".G", StringComparison.OrdinalIgnoreCase)
+                    ? detail.NormalizedCode[..^2].Trim()
+                    : detail.NormalizedCode;
+
+                var matchingForCode = allProducts.Where(p =>
+                    p.StyleCode.Equals(detail.NormalizedCode, StringComparison.OrdinalIgnoreCase) ||
+                    p.StyleCode.Equals(baseCode, StringComparison.OrdinalIgnoreCase)
+                ).Where(p => p.FolderId.HasValue && !currentFolderIds.Contains(p.FolderId.Value)).ToList();
+
+                var candidatePartnerRoots = matchingForCode
+                    .Select(p => GetRootPartnerFolder(p.FolderId))
+                    .Where(r => r != null)
+                    .Select(r => r!)
+                    .GroupBy(r => r.Id)
+                    .Select(g => g.First())
+                    .ToList();
+
+                foreach (var partnerRoot in candidatePartnerRoots)
+                {
+                    if (!otherPartnerCounts.ContainsKey(partnerRoot.Id))
+                    {
+                        otherPartnerCounts[partnerRoot.Id] = (partnerRoot, 1);
+                    }
+                    else
+                    {
+                        var cur = otherPartnerCounts[partnerRoot.Id];
+                        otherPartnerCounts[partnerRoot.Id] = (cur.Partner, cur.Count + 1);
+                    }
+                }
+            }
+
+            if (otherPartnerCounts.Count > 0)
+            {
+                var best = otherPartnerCounts.Values.OrderByDescending(x => x.Count).First();
+                if (best.Count > 0 && ((double)best.Count / unmatchedCodes.Count) >= 0.5)
+                {
+                    result.HasMismatch = true;
+                    result.SuggestedPartnerFolderId = best.Partner.Id;
+                    result.SuggestedPartnerName = best.Partner.Name;
+                    result.MatchedCountInSuggested = best.Count;
+
+                    // Cập nhật MatchedProduct cho các dòng chưa khớp bằng sản phẩm từ đối tác gợi ý
+                    var suggestedFolderIds = await GetAllDescendantFolderIdsAsync(best.Partner.Id);
+                    suggestedFolderIds.Add(best.Partner.Id);
+
+                    foreach (var detail in details.Where(d => !d.IsMatchedInCurrent))
+                    {
+                        var baseCode = detail.NormalizedCode.EndsWith(".G", StringComparison.OrdinalIgnoreCase)
+                            ? detail.NormalizedCode[..^2].Trim()
+                            : detail.NormalizedCode;
+
+                        var prodInSuggested = allProducts.FirstOrDefault(p =>
+                            p.FolderId.HasValue && suggestedFolderIds.Contains(p.FolderId.Value) &&
+                            (p.StyleCode.Equals(detail.NormalizedCode, StringComparison.OrdinalIgnoreCase) ||
+                             p.StyleCode.Equals(baseCode, StringComparison.OrdinalIgnoreCase)));
+
+                        if (prodInSuggested != null)
+                        {
+                            detail.MatchedFolderId = prodInSuggested.FolderId;
+                            detail.MatchedFolderName = best.Partner.Name;
+                            detail.MatchedProduct = MapToDto(prodInSuggested);
+                        }
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    public static string CleanStyleCode(string rawCode)
+    {
+        if (string.IsNullOrWhiteSpace(rawCode)) return string.Empty;
+        var trimmed = rawCode.Trim();
+        bool hasGo = false;
+        if (trimmed.EndsWith(".G", StringComparison.OrdinalIgnoreCase))
+        {
+            hasGo = true;
+            trimmed = trimmed[..^2].Trim();
+        }
+        var cleaned = System.Text.RegularExpressions.Regex.Replace(trimmed, @"\s*\([^\)]*\)", "").Trim();
+        if (cleaned.EndsWith(".G", StringComparison.OrdinalIgnoreCase))
+        {
+            hasGo = true;
+            cleaned = cleaned[..^2].Trim();
+        }
+        if (hasGo)
+        {
+            cleaned += ".G";
+        }
+        return cleaned.ToUpperInvariant();
     }
 
     private static ProductMasterDto MapToDto(ProductMaster p) => new()
@@ -180,6 +482,8 @@ public class ProductMasterService : IProductMasterService
         HsCode = p.HsCode,
         Unit = p.Unit,
         PairPerCarton = p.PairPerCarton,
+        FolderId = p.FolderId,
+        FolderName = p.Folder != null ? p.Folder.Name : null,
         CreatedAt = p.CreatedAt,
         UpdatedAt = p.UpdatedAt
     };

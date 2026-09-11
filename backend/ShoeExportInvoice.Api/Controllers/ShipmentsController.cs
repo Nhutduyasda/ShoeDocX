@@ -67,6 +67,43 @@ public class ShipmentsController : ControllerBase
             return BadRequest(new { message = "Đơn hàng phải có ít nhất 1 mặt hàng." });
         }
 
+        // Chốt chặn nghiệp vụ (Business Rule Validation Guard):
+        // Tuyệt đối không cho xuất file nếu còn bất kỳ mã nào chưa tồn tại trong Master Data (ProductMaster).
+        var distinctCodes = request.Items
+            .Select(i => (i.StyleCode ?? string.Empty).Trim())
+            .Where(c => !string.IsNullOrEmpty(c))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var lookupCodes = distinctCodes
+            .Select(c => c.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? c[..^2].Trim() : c)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var existingCodes = await _context.ProductMasters
+            .AsNoTracking()
+            .Where(p => lookupCodes.Contains(p.StyleCode) || distinctCodes.Contains(p.StyleCode))
+            .Select(p => p.StyleCode.ToUpper())
+            .ToListAsync();
+
+        var existingSet = new HashSet<string>(existingCodes, StringComparer.OrdinalIgnoreCase);
+
+        var missingCodes = distinctCodes.Where(code =>
+        {
+            var clean = code.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? code[..^2].Trim() : code;
+            return !existingSet.Contains(code) && !existingSet.Contains(clean);
+        }).ToList();
+
+        if (missingCodes.Count > 0)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                message = $"Không thể xuất file! Các mã sau chưa được đăng ký trong Master Data: [{string.Join(", ", missingCodes)}]",
+                missingCodes
+            });
+        }
+
         try
         {
             // Phân loại items theo loại công đoạn
@@ -580,10 +617,42 @@ public class ShipmentsController : ControllerBase
             return NotFound(new { message = $"Không tìm thấy đơn hàng #{id}" });
         }
 
-        var styleCodes = shipment.Items.Select(x => x.StyleCode.Trim().ToUpperInvariant()).Distinct().ToList();
-        var dbProducts = await _context.ProductMasters
-            .Where(p => styleCodes.Contains(p.StyleCode.ToUpper()))
-            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p);
+        var distinctCodes = shipment.Items
+            .Select(x => x.StyleCode.Trim())
+            .Where(c => !string.IsNullOrEmpty(c))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var lookupCodes = distinctCodes
+            .Select(c => c.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? c[..^2].Trim() : c)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var dbProductList = await _context.ProductMasters
+            .Where(p => lookupCodes.Contains(p.StyleCode) || distinctCodes.Contains(p.StyleCode))
+            .ToListAsync();
+
+        var dbProducts = new Dictionary<string, ProductMaster>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in dbProductList)
+        {
+            dbProducts[p.StyleCode] = p;
+        }
+
+        var missingCodes = distinctCodes.Where(code =>
+        {
+            var clean = code.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? code[..^2].Trim() : code;
+            return !dbProducts.ContainsKey(code) && !dbProducts.ContainsKey(clean);
+        }).ToList();
+
+        if (missingCodes.Count > 0)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                message = $"Không thể xuất file! Các mã sau chưa được đăng ký trong Master Data: [{string.Join(", ", missingCodes)}]",
+                missingCodes
+            });
+        }
 
         var request = new CreateShipmentRequestDto
         {

@@ -82,7 +82,7 @@ public class OcrExtractionService : IOcrExtractionService
 1. Tiêu đề: Đọc chính xác dòng text màu đỏ/đen ở trên cùng của bảng (Ví dụ: ""LẦN 20 08/9 5BUY HD THÀNH HÌNH"").
 2. Bảng dữ liệu:
    - Chỉ đọc các dòng CÓ DỮ LIỆU. Bỏ qua hoàn toàn các dòng kẻ trống.
-   - Cột 1 (Hình thể/Mã giày): Giữ nguyên format mã (vd: ""42072-410"", ""42073-030"").
+   - Cột 1 (Hình thể/Mã giày): Giữ nguyên format mã (vd: ""42072-410"", ""42073-030""). Chỉ trích xuất mã hình thể gốc (ví dụ: 'BM5879-464'), loại bỏ các ký hiệu ghi chú đối tác hoặc phân xưởng nằm trong dấu ngoặc đơn ở đuôi như '(KM3)', '(X3)'.
    - Cột 2 (Số lượng đi hàng): Đọc đúng số nguyên tương ứng trên cùng dòng đó.
    - Cột 3 (Ghi chú/Màu sắc nếu có): Nếu có ghi chú bên cạnh (vd: ""GÒ KHÔNG MAY"") thì trích xuất, nếu không thì để chuỗi rỗng """".
 3. Tổng cộng: Đọc chính xác con số nằm trong ô màu vàng ở dòng ""TỔNG CỘNG"" cuối bảng.
@@ -219,7 +219,8 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
         {
             foreach (var itemElem in itemsProp.EnumerateArray())
             {
-                var code = itemElem.TryGetProperty("styleCode", out var sProp) ? sProp.GetString() ?? "" : "";
+                var rawCode = itemElem.TryGetProperty("styleCode", out var sProp) ? sProp.GetString() ?? "" : "";
+                var code = NormalizeStyleCode(rawCode);
                 var qty = itemElem.TryGetProperty("quantity", out var qProp) && qProp.TryGetInt32(out var qVal) ? qVal : 0;
                 var note = itemElem.TryGetProperty("note", out var nProp) ? nProp.GetString() ?? "" : "";
 
@@ -287,6 +288,25 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
             CalculatedTotal = calculatedTotal,
             IsTotalMatched = (calculatedTotal == reportedTotal)
         };
+    }
+
+    public static string NormalizeStyleCode(string rawCode)
+    {
+        if (string.IsNullOrWhiteSpace(rawCode)) return string.Empty;
+        var trimmed = rawCode.Trim();
+        bool hasGo = false;
+        if (trimmed.EndsWith(".G", StringComparison.OrdinalIgnoreCase))
+        {
+            hasGo = true;
+            trimmed = trimmed[..^2].Trim();
+        }
+        // Xóa bỏ phần trong ngoặc đơn ở cuối mã: vd "BM5879-464(KM3)" -> "BM5879-464"
+        var cleaned = System.Text.RegularExpressions.Regex.Replace(trimmed, @"\s*\([^\)]*\)$", "").Trim();
+        if (hasGo && !cleaned.EndsWith(".G", StringComparison.OrdinalIgnoreCase))
+        {
+            cleaned += ".G";
+        }
+        return cleaned;
     }
 
     private record ExtractedRawItem(string StyleCode, int Quantity, string Note);

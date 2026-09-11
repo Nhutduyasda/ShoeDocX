@@ -4,6 +4,9 @@ import type {
   SaveSettlementPeriodRequest,
   SettlementPeriodSummary,
   SettlementReport,
+  SettlementItem,
+  WarehouseDataRow,
+  WarehouseImportResult,
 } from '../types';
 
 export const settlementApi = {
@@ -98,5 +101,57 @@ export const settlementApi = {
     );
     return response.data;
   },
+
+  /**
+   * Lấy dữ liệu thống kê phân tích kim ngạch, sản lượng, doanh thu CMT và phân luồng thông quan
+   */
+  getExportAnalytics: async (year: number): Promise<import('../types').AnalyticsExportStats> => {
+    const response = await apiClient.get<import('../types').AnalyticsExportStats>(
+      '/analytics/export-stats',
+      { params: { year } }
+    );
+    return response.data;
+  },
+
+  /**
+   * Nạp file Excel số liệu kho định kỳ và tự động đối soát với danh sách thực xuất
+   */
+  importWarehouseData: async (
+    file: File,
+    currentItems: SettlementItem[]
+  ): Promise<WarehouseImportResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('currentItems', JSON.stringify(currentItems));
+
+    const response = await apiClient.post<WarehouseImportResult>(
+      '/customs-settlement/import-warehouse-data',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return response.data;
+  },
+
+  /**
+   * Khớp dữ liệu kho từ danh sách dòng (nhập tay hoặc dán từ clipboard)
+   */
+  matchWarehouseData: async (
+    rows: WarehouseDataRow[],
+    currentItems: SettlementItem[]
+  ): Promise<WarehouseImportResult> => {
+    const response = await apiClient.post<WarehouseImportResult>(
+      '/customs-settlement/match-warehouse-data',
+      {
+        rows,
+        currentItems,
+      }
+    );
+    return response.data;
+  },
 };
+
 

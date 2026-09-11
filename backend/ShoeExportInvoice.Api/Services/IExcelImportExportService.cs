@@ -4,7 +4,8 @@ namespace ShoeExportInvoice.Api.Services;
 
 public interface IExcelImportExportService
 {
-    Task<ImportResultDto> ImportProductMastersFromExcelAsync(Stream fileStream, bool updateExisting = true);
+    Task<ImportPreviewResponseDto> PreviewProductMastersFromExcelAsync(Stream fileStream, int? folderId = null);
+    Task<ImportResultDto> ImportProductMastersFromExcelAsync(Stream fileStream, bool updateExisting = true, int? folderId = null, ColumnMappingOverrideDto? mappingOverride = null);
     byte[] GenerateProductMasterTemplate();
     Task<byte[]> ExportProductMastersToExcelAsync();
     Task<byte[]> ExportShipmentToExcelAsync(ShipmentExportModel model);

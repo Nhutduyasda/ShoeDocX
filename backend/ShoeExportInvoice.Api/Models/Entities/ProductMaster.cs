@@ -60,6 +60,11 @@ public class ProductMaster
     [Range(1, 1000)]
     public int PairPerCarton { get; set; } = 12;
 
+    public int? FolderId { get; set; }
+
+    [ForeignKey(nameof(FolderId))]
+    public MasterDataFolder? Folder { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAt { get; set; }

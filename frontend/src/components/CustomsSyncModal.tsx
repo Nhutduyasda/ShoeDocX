@@ -219,6 +219,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
       key: 'index',
       width: 50,
       align: 'center',
+      fixed: 'left',
       render: (val: number) => <span className="text-slate-400 font-mono text-xs">{val}</span>,
     },
     {
@@ -226,6 +227,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
       dataIndex: 'styleCode',
       key: 'styleCode',
       width: 140,
+      fixed: 'left',
       render: (code: string, record) => (
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-semibold text-slate-800">{code}</span>
@@ -314,6 +316,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
       title: 'Trạng thái đối soát',
       key: 'status',
       width: 140,
+      fixed: 'right',
       render: (_, record) => {
         if (record.isMatched) {
           return (
@@ -351,7 +354,8 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
     <Modal
       open={open}
       onCancel={handleClose}
-      width={980}
+      width="min(1100px, 96vw)"
+      style={{ top: 20 }}
       title={
         <div className="flex items-center gap-2.5 py-1">
           <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-base">
@@ -665,7 +669,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
 
             {/* Bảng so sánh chi tiết từng dòng hàng */}
             {reconciliation.comparisonRows.length > 0 && (
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <div className="border border-slate-200 rounded-lg overflow-hidden w-full overflow-x-auto min-w-0">
                 <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-700">
                     Bảng đối soát chi tiết dòng hàng ({reconciliation.comparisonRows.length} mặt hàng)
@@ -680,7 +684,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
                   rowKey="index"
                   size="small"
                   pagination={false}
-                  scroll={{ y: 280 }}
+                  scroll={{ x: 'max-content', y: 320 }}
                 />
               </div>
             )}

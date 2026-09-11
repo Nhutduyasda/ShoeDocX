@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
+import { useState, useEffect, useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
 import {
   Form,
   Input,
@@ -16,8 +16,8 @@ import {
   Modal,
   Tag,
   Radio,
-  Popconfirm,
   Empty,
+  Dropdown,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -41,10 +41,13 @@ import {
   HistoryOutlined,
   RocketOutlined,
   QuestionCircleOutlined,
+  ShopOutlined,
+  EllipsisOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { shipmentApi, invoiceNoToFileName, extractSequenceNumber, toStandardFileName } from '../api/shipmentApi';
 import { productMasterApi } from '../api/productMasterApi';
+import { masterDataFolderApi } from '../api/masterDataFolderApi';
 import { hasCompletedTour, startOnboardingTour } from '../services/tourService';
 import { customsApi } from '../api/customsApi';
 import type { NavTabKey } from '../layouts/AppLayout';
@@ -55,6 +58,8 @@ import type {
   PklPreviewResponse,
   SavedShipmentSummary,
   SequenceInfo,
+  MasterDataFolder,
+  ValidateItemsResult,
 } from '../types';
 import { ProcessType, ShipmentStatus, ExportSequencePriority } from '../types';
 import { PklPreviewModal } from '../components/PklPreviewModal';
@@ -62,6 +67,7 @@ import { QuickPasteModal } from '../components/QuickPasteModal';
 import { OcrUploadModal } from '../components/OcrUploadModal';
 import { BatchOcrModal } from '../components/BatchOcrModal';
 import { CustomsSyncModal } from '../components/CustomsSyncModal';
+import { QuickAddMasterDataModal } from '../components/QuickAddMasterDataModal';
 
 export interface ShipmentPageRef {
   loadHistoricalOrder: (id: number) => void;
@@ -89,6 +95,188 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [items, setItems] = useState<CreateShipmentItem[]>([]);
 
   const [products, setProducts] = useState<ProductMaster[]>([]);
+
+  // Quản lý Đối tác / Hồ sơ Khách hàng (Partner Workspace Presets)
+  const [partnerFolders, setPartnerFolders] = useState<MasterDataFolder[]>([]);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
+
+  const selectedPartner = useMemo(() => {
+    if (!selectedPartnerId) return null;
+    return partnerFolders.find((f) => f.id === selectedPartnerId) || null;
+  }, [partnerFolders, selectedPartnerId]);
+
+  // Sắp xếp mã Master Data: ưu tiên mã thuộc Thư mục đối tác đang chọn lên trước
+  const sortedProducts = useMemo(() => {
+    if (!selectedPartnerId) return products;
+    return [...products].sort((a, b) => {
+      const aIn = a.folderId === selectedPartnerId ? 1 : 0;
+      const bIn = b.folderId === selectedPartnerId ? 1 : 0;
+      return bIn - aIn;
+    });
+  }, [products, selectedPartnerId]);
+
+  // Validation Guard Master Data: Kiểm tra mã có tồn tại trong Master Data của Đối tác hiện tại hay không
+  const isStyleCodeInMaster = (rawCode?: string): boolean => {
+    if (!rawCode || !rawCode.trim()) return false;
+    const code = rawCode.trim().toUpperCase();
+    const clean = code.endsWith('.G') ? code.slice(0, -2).trim() : code;
+    return products.some((p) => {
+      if (selectedPartnerId && p.folderId && p.folderId !== selectedPartnerId) {
+        return false;
+      }
+      const pmCode = (p.styleCode || '').trim().toUpperCase();
+      return pmCode === code || pmCode === clean;
+    });
+  };
+
+  const missingMasterCodes = items
+    .filter((it) => it.styleCode && it.styleCode.trim() && !isStyleCodeInMaster(it.styleCode))
+    .map((it) => it.styleCode.trim());
+  const hasMissingMasterData = missingMasterCodes.length > 0;
+
+  // Cảnh báo & Gợi ý chuyển đổi Đối tác thông minh (Smart Partner Mismatch Detection)
+  const [suggestionBannerData, setSuggestionBannerData] = useState<ValidateItemsResult | null>(null);
+  const [isDismissedMismatch, setIsDismissedMismatch] = useState<boolean>(false);
+
+  const checkPartnerMismatch = async (itemsToCheck: CreateShipmentItem[], currentPartnerId?: number | null) => {
+    const partnerId = currentPartnerId ?? selectedPartnerId;
+    if (!partnerId) return;
+
+    const styleCodes = itemsToCheck
+      .map((it) => (it.styleCode || '').trim())
+      .filter(Boolean);
+
+    if (styleCodes.length === 0) {
+      setSuggestionBannerData(null);
+      return;
+    }
+
+    try {
+      const res = await productMasterApi.validateItems({
+        currentPartnerFolderId: partnerId,
+        styleCodes,
+      });
+
+      if (res.hasMismatch && res.suggestedPartnerFolderId) {
+        setSuggestionBannerData(res);
+      } else {
+        setSuggestionBannerData(null);
+      }
+    } catch {
+      // Ignored
+    }
+  };
+
+  const handleAutoSwitchPartner = () => {
+    if (!suggestionBannerData || !suggestionBannerData.suggestedPartnerFolderId) return;
+    const targetId = suggestionBannerData.suggestedPartnerFolderId;
+    const targetPartner = partnerFolders.find((f) => f.id === targetId);
+    if (!targetPartner) return;
+
+    // 1. Cập nhật Đối tác & Header
+    setSelectedPartnerId(targetPartner.id);
+    form.setFieldsValue({
+      customerName: targetPartner.customerName || targetPartner.name,
+      address: targetPartner.deliveryAddress || '',
+      contractNo: targetPartner.contractNo || '',
+      poSuffix: targetPartner.poSuffix || '',
+    });
+
+    // 2. Tự động ráp đúng đơn giá CMT, DAP, Mô tả của đối tác mới vào bảng hàng hóa (giữ nguyên Số lượng đôi)
+    setItems((prev) => {
+      return prev.map((item) => {
+        const raw = (item.styleCode || '').trim();
+        const upper = raw.toUpperCase();
+        const base = upper.endsWith('.G') ? upper.slice(0, -2).trim() : upper;
+        const isGo = item.processType === ProcessType.GoKhongMay;
+
+        const detail = suggestionBannerData.details?.find(
+          (d) => d.rawCode.trim().toUpperCase() === upper ||
+                 d.normalizedCode === upper ||
+                 d.normalizedCode === base
+        );
+
+        const prod = detail?.matchedProduct || products.find(
+          (p) => p.folderId === targetPartner.id &&
+                 (p.styleCode.trim().toUpperCase() === upper || p.styleCode.trim().toUpperCase() === base)
+        );
+
+        if (prod) {
+          const cmt = (isGo && prod.unitPriceCMT_Go && prod.unitPriceCMT_Go > 0)
+            ? prod.unitPriceCMT_Go
+            : prod.unitPriceCMT;
+          const dap = (isGo && prod.unitPriceDAP_Go && prod.unitPriceDAP_Go > 0)
+            ? prod.unitPriceDAP_Go
+            : prod.unitPriceDAP;
+
+          return {
+            ...item,
+            description: prod.description || item.description,
+            unitPriceCMT: cmt,
+            unitPriceDAP: dap,
+            pairPerCarton: prod.pairPerCarton || targetPartner.defaultPairsPerCarton || 12,
+            unit: prod.unit || targetPartner.defaultUnit || 'đôi',
+          };
+        }
+        return item;
+      });
+    });
+
+    // 3. Tắt banner và thông báo thành công
+    setSuggestionBannerData(null);
+    setIsDismissedMismatch(false);
+    message.success(`Đã chuyển sang hồ sơ ${targetPartner.name} và tự động ráp giá thành công!`);
+  };
+
+  const handleKeepCurrentPartner = () => {
+    setSuggestionBannerData(null);
+    setIsDismissedMismatch(true);
+  };
+
+  const handleOpenQuickAdd = (index: number, item: CreateShipmentItem) => {
+    setQuickAddRowIndex(index);
+    setQuickAddStyleCode(item.styleCode);
+    setQuickAddDescription(item.description || '');
+    setQuickAddIsGo(item.processType === ProcessType.GoKhongMay);
+    setQuickAddVisible(true);
+  };
+
+  const handleQuickAddSuccess = async (created: ProductMaster) => {
+    // 1. Reload Master Data
+    await loadProducts();
+    setProducts((prev) => {
+      const exists = prev.some((p) => p.styleCode.toUpperCase() === created.styleCode.toUpperCase());
+      return exists ? prev : [created, ...prev];
+    });
+
+    // 2. Cập nhật ngay dòng hàng bị lỗi trên bảng với đơn giá và thông tin vừa thêm
+    if (quickAddRowIndex !== null && quickAddRowIndex < items.length) {
+      setItems((prev) => {
+        const next = [...prev];
+        const current = next[quickAddRowIndex];
+        const isGo = current.processType === ProcessType.GoKhongMay;
+        const cmt = (isGo && created.unitPriceCMT_Go && created.unitPriceCMT_Go > 0)
+          ? created.unitPriceCMT_Go
+          : created.unitPriceCMT;
+        const dap = (isGo && created.unitPriceDAP_Go && created.unitPriceDAP_Go > 0)
+          ? created.unitPriceDAP_Go
+          : created.unitPriceDAP;
+
+        next[quickAddRowIndex] = {
+          ...current,
+          description: created.description,
+          unitPriceCMT: cmt,
+          unitPriceDAP: dap,
+          pairPerCarton: created.pairPerCarton || 12,
+          unit: created.unit || 'đôi',
+        };
+        return next;
+      });
+    }
+
+    setQuickAddVisible(false);
+    setQuickAddRowIndex(null);
+  };
   const [previewData, setPreviewData] = useState<PklPreviewResponse | null>(null);
   const [previewVisible, setPreviewVisible] = useState<boolean>(false);
   const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
@@ -116,6 +304,13 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [customsModalOpen, setCustomsModalOpen] = useState<boolean>(false);
   const [selectedOrderForCustoms, setSelectedOrderForCustoms] = useState<SavedShipmentSummary | null>(null);
 
+  // Thêm nhanh vào Master Data (Quick Add Modal)
+  const [quickAddVisible, setQuickAddVisible] = useState<boolean>(false);
+  const [quickAddRowIndex, setQuickAddRowIndex] = useState<number | null>(null);
+  const [quickAddStyleCode, setQuickAddStyleCode] = useState<string>('');
+  const [quickAddDescription, setQuickAddDescription] = useState<string>('');
+  const [quickAddIsGo, setQuickAddIsGo] = useState<boolean>(false);
+
   useImperativeHandle(ref, () => ({
     loadHistoricalOrder: (id: number) => {
       handleLoadHistoricalOrder(id);
@@ -141,6 +336,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   }, [activeNavTab]);
 
   useEffect(() => {
+    loadPartnerFolders();
     loadProducts();
     loadShipmentsHistory();
     loadSequence();
@@ -201,6 +397,79 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       setProducts(res);
     } catch {
       // Ignored
+    }
+  };
+
+  const loadPartnerFolders = async () => {
+    try {
+      const tree = await masterDataFolderApi.getTree();
+      const roots = tree.filter((f) => !f.parentId);
+      setPartnerFolders(roots);
+
+      if (roots.length > 0 && !selectedPartnerId) {
+        const km3 = roots.find((r) => r.name.toLowerCase().includes('kingmaker')) || roots[0];
+        setSelectedPartnerId(km3.id);
+        const curCustomer = form.getFieldValue('customerName');
+        if (!curCustomer || curCustomer === 'CÔNG TY TNHH KINGMAKER III (VIỆT NAM) FOOTWEAR') {
+          form.setFieldsValue({
+            customerName: km3.customerName || km3.name,
+            address: km3.deliveryAddress || form.getFieldValue('address'),
+            contractNo: km3.contractNo || form.getFieldValue('contractNo'),
+            poSuffix: km3.poSuffix || form.getFieldValue('poSuffix'),
+          });
+        }
+      }
+    } catch {
+      // Ignored
+    }
+  };
+
+  const applyPartnerPreset = (partner: MasterDataFolder, clearItems = false) => {
+    setSelectedPartnerId(partner.id);
+    form.setFieldsValue({
+      customerName: partner.customerName || partner.name,
+      address: partner.deliveryAddress || '',
+      contractNo: partner.contractNo || '',
+      poSuffix: partner.poSuffix || '',
+    });
+
+    setSuggestionBannerData(null);
+    setIsDismissedMismatch(false);
+
+    if (clearItems) {
+      setItems([]);
+    }
+    message.success(`Đã áp dụng cấu hình đối tác: ${partner.name} (${partner.defaultPairsPerCarton} đôi/thùng)`);
+  };
+
+  const handlePartnerSelect = (targetId: number) => {
+    if (targetId === selectedPartnerId) return;
+    const targetPartner = partnerFolders.find((f) => f.id === targetId);
+    if (!targetPartner) return;
+
+    if (items.length > 0) {
+      Modal.confirm({
+        title: 'Xác nhận chuyển đổi Đối tác / Hồ sơ khách hàng',
+        icon: <ExclamationCircleOutlined className="text-amber-500" />,
+        content: (
+          <div className="text-xs text-slate-600 space-y-2 mt-2">
+            <p>
+              Đổi sang đối tác <strong>{targetPartner.name}</strong> sẽ xóa toàn bộ {items.length} dòng hàng hiện tại để tránh lẫn lộn mã hàng, đơn giá và quy cách đóng thùng.
+            </p>
+            <p className="text-rose-600 font-medium">
+              Bạn có chắc chắn muốn chuyển đổi không?
+            </p>
+          </div>
+        ),
+        okText: 'Đồng ý chuyển đổi & Xóa hàng cũ',
+        okButtonProps: { danger: true },
+        cancelText: 'Hủy bỏ',
+        onOk: () => {
+          applyPartnerPreset(targetPartner, true);
+        },
+      });
+    } else {
+      applyPartnerPreset(targetPartner, false);
     }
   };
 
@@ -402,14 +671,33 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           duration: 8,
         });
       }
-    } catch {
-      message.error('Lỗi khi xuất file Excel.');
+    } catch (err: unknown) {
+      let errMsg = 'Lỗi khi xuất file Excel.';
+      const error = err as { response?: { data?: unknown } };
+      if (error?.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const json = JSON.parse(text);
+          if (json?.message) errMsg = json.message;
+        } catch {
+          // Ignored
+        }
+      } else if (typeof error?.response?.data === 'object' && error?.response?.data !== null) {
+        const data = error.response.data as { message?: string };
+        if (data.message) errMsg = data.message;
+      }
+      message.error({ content: errMsg, duration: 8 });
     } finally {
       setExporting(false);
     }
   };
 
   const handleExportExcel = async () => {
+    if (hasMissingMasterData) {
+      message.error('Vui lòng cập nhật thông tin Master Data cho các mã còn thiếu trước khi xuất file!');
+      return;
+    }
+
     const req = await buildRequestData();
     if (!req) return;
 
@@ -591,8 +879,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleApplyOcr = (ocrItems: CreateShipmentItem[], mode: 'replace' | 'append') => {
+    let combined: CreateShipmentItem[] = [];
     if (mode === 'replace') {
-      setItems(ocrItems.length > 0 ? ocrItems : [
+      combined = ocrItems.length > 0 ? ocrItems : [
         {
           styleCode: '',
           description: '',
@@ -603,29 +892,36 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           unit: 'đôi',
           pairPerCarton: 12,
         },
-      ]);
+      ];
+      setItems(combined);
       message.success(`Đã thay thế toàn bộ bằng ${ocrItems.length} mặt hàng từ OCR.`);
     } else {
       setItems((prev) => {
         const validPrev = prev.filter((p) => p.styleCode.trim() || p.quantity > 0);
-        return [...validPrev, ...ocrItems];
+        combined = [...validPrev, ...ocrItems];
+        return combined;
       });
       message.success(`Đã thêm nối tiếp ${ocrItems.length} mặt hàng từ OCR.`);
     }
+    setIsDismissedMismatch(false);
+    checkPartnerMismatch(combined.length > 0 ? combined : ocrItems);
   };
 
   const handleAddItem = () => {
+    const defaultPairs = selectedPartner?.defaultPairsPerCarton || 12;
+    const defaultUnit = selectedPartner?.defaultUnit || 'đôi';
+
     setItems((prev) => [
       ...prev,
       {
         styleCode: '',
         description: '',
-        quantity: 12,
+        quantity: defaultPairs,
         processType: ProcessType.Standard,
         unitPriceCMT: 0,
         unitPriceDAP: 0,
-        unit: 'đôi',
-        pairPerCarton: 12,
+        unit: defaultUnit,
+        pairPerCarton: defaultPairs,
       },
     ]);
 
@@ -650,8 +946,20 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
   const handleProductSelect = (index: number, styleCode: string) => {
     const cleanCode = styleCode.trim().toUpperCase();
-    const p = products.find((x) => x.styleCode.trim().toUpperCase() === cleanCode);
+    // Ưu tiên tra cứu trong thư mục đối tác đang chọn
+    let p = selectedPartnerId
+      ? products.find((x) => x.folderId === selectedPartnerId && x.styleCode.trim().toUpperCase() === cleanCode)
+      : undefined;
+    if (!p) {
+      p = products.find((x) => x.styleCode.trim().toUpperCase() === cleanCode);
+    }
+
     const next = [...items];
+    const defaultPairs = p?.pairPerCarton && p.pairPerCarton > 0
+      ? p.pairPerCarton
+      : (selectedPartner?.defaultPairsPerCarton || 12);
+    const defaultUnit = p?.unit || selectedPartner?.defaultUnit || 'đôi';
+
     if (p) {
       const currentItem = next[index];
       const isGo = currentItem.processType === ProcessType.GoKhongMay;
@@ -669,11 +977,11 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         description: p.description,
         unitPriceCMT: cmt,
         unitPriceDAP: dap,
-        unit: p.unit || 'đôi',
-        pairPerCarton: p.pairPerCarton || 12,
+        unit: defaultUnit,
+        pairPerCarton: defaultPairs,
       };
     } else {
-      next[index] = { ...next[index], styleCode };
+      next[index] = { ...next[index], styleCode, pairPerCarton: defaultPairs, unit: defaultUnit };
     }
     setItems(next);
   };
@@ -745,6 +1053,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleApplyQuickPaste = (newItems: CreateShipmentItem[], mode: 'replace' | 'append') => {
+    const combined = mode === 'replace' ? newItems : [...items, ...newItems];
     if (mode === 'replace') {
       setItems(newItems);
       message.success(`Đã thay thế toàn bộ bằng ${newItems.length} mặt hàng.`);
@@ -752,7 +1061,23 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       setItems((prev) => [...prev, ...newItems]);
       message.success(`Đã thêm nối tiếp ${newItems.length} mặt hàng.`);
     }
+    setIsDismissedMismatch(false);
+    checkPartnerMismatch(combined);
   };
+
+  // Tự động kích hoạt kiểm tra chéo khi bảng có từ 2 dòng báo đỏ "Mã chưa có trong Master Data"
+  useEffect(() => {
+    if (items.length === 0) {
+      setSuggestionBannerData(null);
+      return;
+    }
+    if (missingMasterCodes.length >= 2 && !isDismissedMismatch && !suggestionBannerData) {
+      const timer = setTimeout(() => {
+        checkPartnerMismatch(items);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [items, missingMasterCodes.length, isDismissedMismatch, suggestionBannerData]);
 
   // KPIs
   const totalQuantity = items.reduce((sum, it) => sum + (it.quantity || 0), 0);
@@ -817,6 +1142,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       key: 'stt',
       width: 44,
       align: 'center',
+      fixed: 'left',
       render: (_, __, index) => <span className="font-mono text-xs text-slate-400">{index + 1}</span>,
     },
     {
@@ -824,24 +1150,39 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       dataIndex: 'styleCode',
       key: 'styleCode',
       width: 200,
+      fixed: 'left',
       render: (val: string, _, index) => {
-        const matchingProduct = products.find(
-          (p) => p.styleCode.trim().toUpperCase() === (val || '').trim().toUpperCase()
-        );
+        const rawCode = (val || '').trim().toUpperCase();
+        const cleanBase = rawCode.endsWith('.G') ? rawCode.slice(0, -2).trim() : rawCode;
+        const matchingProduct = products.find((p) => {
+          if (selectedPartnerId && p.folderId && p.folderId !== selectedPartnerId) return false;
+          const pm = (p.styleCode || '').trim().toUpperCase();
+          return pm === rawCode || pm === cleanBase;
+        });
 
         return (
           <div className="space-y-1">
             <AutoComplete
               value={val}
-              options={products.map((p) => ({
-                value: p.styleCode,
-                label: (
-                  <div className="flex items-center justify-between py-0.5">
-                    <span className="font-mono font-semibold text-slate-900">{p.styleCode}</span>
-                    <span className="text-[11px] text-slate-400 truncate max-w-[150px]">{p.description}</span>
-                  </div>
-                ),
-              }))}
+              options={sortedProducts.map((p) => {
+                const isCurrentPartner = selectedPartnerId && p.folderId === selectedPartnerId;
+                return {
+                  value: p.styleCode,
+                  label: (
+                    <div className="flex items-center justify-between py-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-semibold text-slate-900">{p.styleCode}</span>
+                        {isCurrentPartner && (
+                          <span className="text-[10px] px-1 py-0 rounded bg-blue-50 text-blue-700 border border-blue-200 font-sans">
+                            {selectedPartner?.name || 'Đối tác'}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-slate-400 truncate max-w-[150px]">{p.description}</span>
+                    </div>
+                  ),
+                };
+              })}
               filterOption={(inputValue, option) =>
                 (option?.value as string)?.toLowerCase().includes(inputValue.toLowerCase())
               }
@@ -850,14 +1191,19 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               placeholder="Chọn hoặc nhập mã..."
               className="w-full font-mono text-xs style-code-input"
             />
-            {matchingProduct && (
+            {matchingProduct ? (
               <div className="flex items-center space-x-1 text-[11px] text-emerald-700 truncate">
                 <CheckCircleFilled className="text-[10px] text-emerald-600 shrink-0" />
                 <span className="truncate max-w-[180px]" title={matchingProduct.description}>
                   {matchingProduct.description}
                 </span>
               </div>
-            )}
+            ) : (val || '').trim() ? (
+              <div className="flex items-center space-x-1 text-[11px] text-rose-600 truncate font-medium">
+                <ExclamationCircleOutlined className="text-[10px] text-rose-500 shrink-0" />
+                <span className="truncate max-w-[180px]">Mã chưa có trong Master Data</span>
+              </div>
+            ) : null}
           </div>
         );
       },
@@ -993,39 +1339,62 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       },
     },
     {
-      title: 'Master',
+      title: 'Master Data',
       key: 'masterStatus',
-      width: 90,
+      width: 175,
       align: 'center',
-      render: (_, record) => {
-        const isMatched = products.some(
-          (p) => p.styleCode.trim().toUpperCase() === (record.styleCode || '').trim().toUpperCase()
-        );
-        return isMatched ? (
-          <Tag className="text-[11px] px-1.5 py-0 m-0 border-emerald-200 bg-emerald-50 text-emerald-700">
-            Khớp
-          </Tag>
-        ) : (
-          <Tag className="text-[11px] px-1.5 py-0 m-0 text-slate-500 border-slate-200 bg-slate-50">
-            Mới
-          </Tag>
+      render: (_, record, index) => {
+        const code = (record.styleCode || '').trim();
+        if (!code) {
+          return <span className="text-slate-300 text-xs">-</span>;
+        }
+
+        const isMatched = isStyleCodeInMaster(code);
+
+        if (isMatched) {
+          return (
+            <Tag className="text-[11px] px-2 py-0.5 m-0 border-emerald-300 bg-emerald-50 text-emerald-700 font-medium inline-flex items-center">
+              <CheckCircleFilled className="mr-1 text-[10px] text-emerald-600" />
+              Khớp dữ liệu
+            </Tag>
+          );
+        }
+
+        return (
+          <div className="flex flex-col items-center gap-1.5 py-1">
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 leading-tight text-center">
+              ⚠ Mã mới chưa có trong Master Data
+            </span>
+            <Button
+              type="primary"
+              size="small"
+              icon={<PlusOutlined className="text-[10px]" />}
+              onClick={() => handleOpenQuickAdd(index, record)}
+              className="bg-rose-600 hover:bg-rose-700 text-white text-[11px] h-6 px-2 font-medium shadow-none inline-flex items-center"
+            >
+              Thêm vào Master Data
+            </Button>
+          </div>
         );
       },
     },
     {
-      title: '',
+      title: 'Thao tác',
       key: 'actions',
-      width: 40,
+      width: 65,
       align: 'center',
+      fixed: 'right',
       render: (_, __, index) => (
-        <Button
-          type="text"
-          danger
-          size="small"
-          icon={<DeleteOutlined className="text-xs" />}
-          onClick={() => handleRemoveItem(index)}
-          title="Xóa dòng này"
-        />
+        <Tooltip title="Xóa dòng này">
+          <Button
+            type="text"
+            danger
+            size="small"
+            className="hover:bg-rose-50"
+            icon={<DeleteOutlined className="text-xs" />}
+            onClick={() => handleRemoveItem(index)}
+          />
+        </Tooltip>
       ),
     },
   ];
@@ -1042,9 +1411,19 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
   const historyColumns: ColumnsType<SavedShipmentSummary> = [
     {
+      title: 'STT',
+      key: 'stt',
+      width: 50,
+      align: 'center',
+      fixed: 'left',
+      render: (_, __, index) => <span className="font-mono text-xs text-slate-400">{index + 1}</span>,
+    },
+    {
       title: 'Số Hóa đơn (Invoice No)',
       dataIndex: 'invoiceNo',
       key: 'invoiceNo',
+      width: 170,
+      fixed: 'left',
       render: (no: string, record) => (
         <div>
           <span className="font-mono font-semibold text-slate-900 text-xs">{no}</span>
@@ -1056,21 +1435,31 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       title: 'Ngày lập',
       dataIndex: 'invoiceDate',
       key: 'invoiceDate',
-      width: 100,
+      width: 105,
+      align: 'center',
       render: (d: string) => <span className="text-xs font-mono text-slate-600">{dayjs(d).format('DD/MM/YYYY')}</span>,
     },
     {
       title: 'Số Hợp đồng',
       dataIndex: 'contractNo',
       key: 'contractNo',
-      render: (c: string) => <span className="text-xs font-mono text-slate-600">{c}</span>,
+      width: 140,
+      render: (c: string) => (
+        <Tooltip title={c}>
+          <span className="text-xs font-mono text-slate-700 block max-w-[130px] truncate">{c}</span>
+        </Tooltip>
+      ),
     },
     {
       title: 'Khách hàng',
       dataIndex: 'customerName',
       key: 'customerName',
-      ellipsis: true,
-      render: (cust: string) => <span className="text-xs text-slate-700">{cust}</span>,
+      width: 220,
+      render: (cust: string) => (
+        <Tooltip title={cust}>
+          <span className="text-xs text-slate-700 block max-w-[210px] truncate font-medium">{cust}</span>
+        </Tooltip>
+      ),
     },
     {
       title: 'Số dòng',
@@ -1205,6 +1594,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       key: 'action',
       align: 'center',
       width: 320,
+      fixed: 'right',
       render: (_, record) => {
         const isLocked = Boolean(record.isLocked || record.status === ShipmentStatus.Cleared);
 
@@ -1265,17 +1655,17 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         /* ================= MÀN HÌNH LỊCH SỬ CHỨNG TỪ ================= */
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200">
+          <div className="flex justify-between items-start flex-wrap gap-4 pb-4 border-b border-slate-200">
             <div>
-              <h1 className="text-xl font-semibold text-slate-900 tracking-tight m-0">
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
                 Lịch sử chứng từ xuất hàng
               </h1>
-              <p className="text-xs text-slate-500 mt-1 m-0">
+              <p className="text-sm text-slate-500 mt-1 m-0">
                 Danh sách hóa đơn Commercial Invoice & Packing List đã lập ({savedShipments.length} chứng từ)
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
               <Button
                 icon={<AuditOutlined className="text-blue-600" />}
                 onClick={() => handleOpenCustomsSync()}
@@ -1287,7 +1677,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 icon={<ReloadOutlined />}
                 onClick={loadShipmentsHistory}
                 loading={loadingHistory}
-                className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50"
+                className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
               >
                 Làm mới
               </Button>
@@ -1298,9 +1688,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                   setActiveTab('create');
                   onTabChange?.('shipment');
                 }}
-                className="bg-blue-600 hover:bg-blue-700 text-xs h-9 px-4"
+                className="bg-blue-600 hover:bg-blue-700 text-xs h-9 px-4 font-medium shadow-sm"
               >
-                + Lập Hóa đơn Mới
+                Lập hóa đơn mới
               </Button>
             </div>
           </div>
@@ -1321,32 +1711,43 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               </div>
             </div>
 
-            <Table
-              dataSource={filteredHistory}
-              columns={historyColumns}
-              rowKey="id"
-              loading={loadingHistory}
-              pagination={{ pageSize: 10 }}
-              size="middle"
-              scroll={{ x: 950 }}
-            />
+            <div className="w-full overflow-x-auto min-w-0">
+              <Table
+                dataSource={filteredHistory}
+                columns={historyColumns}
+                rowKey="id"
+                loading={loadingHistory}
+                pagination={{
+                  pageSize: 15,
+                  showSizeChanger: true,
+                  pageSizeOptions: ['15', '30', '50', '100'],
+                  showTotal: (total, range) => (
+                    <span className="text-xs text-slate-500">
+                      {range[0]}-{range[1]} / {total} chứng từ
+                    </span>
+                  ),
+                }}
+                size="middle"
+                scroll={{ x: 'max-content' }}
+              />
+            </div>
           </div>
         </div>
       ) : (
         /* ================= MÀN HÌNH LẬP HÓA ĐƠN & PACKING LIST ================= */
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200">
+          <div className="flex justify-between items-start flex-wrap gap-4 pb-4 border-b border-slate-200">
             <div>
-              <h1 className="text-xl font-semibold text-slate-900 tracking-tight m-0">
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
                 Lập Invoice & Packing List (INV & PKL)
               </h1>
-              <p className="text-xs text-slate-500 mt-1 m-0">
+              <p className="text-sm text-slate-500 mt-1 m-0">
                 Nhập số liệu phiếu kho, đối soát tổng số đôi và xuất file Excel đa sheet chuẩn mẫu nhà máy
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
               <Button
                 icon={<HistoryOutlined />}
                 onClick={() => {
@@ -1354,7 +1755,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                   onTabChange?.('history');
                   loadShipmentsHistory();
                 }}
-                className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50"
+                className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
               >
                 Lịch sử ({savedShipments.length})
               </Button>
@@ -1362,7 +1763,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 icon={<EyeOutlined />}
                 loading={loadingPreview}
                 onClick={handlePreviewPkl}
-                className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50"
+                className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
               >
                 Xem trước PKL
               </Button>
@@ -1370,21 +1771,34 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 icon={<SaveOutlined />}
                 loading={saving}
                 onClick={handleSaveShipment}
-                className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50"
+                className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
               >
                 Lưu đơn hàng
               </Button>
               <div id="tour-export-button" className="inline-block">
-                <Tooltip title="Tự động lưu đơn hàng vào hệ thống và tải xuống file Excel (không cần bấm Lưu trước)">
-                  <Button
-                    type="primary"
-                    icon={<DownloadOutlined />}
-                    loading={exporting}
-                    onClick={handleExportExcel}
-                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4 font-medium"
-                  >
-                    Xuất File Excel & Lưu đơn
-                  </Button>
+                <Tooltip
+                  title={
+                    hasMissingMasterData
+                      ? 'Vui lòng cập nhật thông tin Master Data cho các mã còn thiếu trước khi xuất file!'
+                      : 'Tự động lưu đơn hàng vào hệ thống và tải xuống file Excel (không cần bấm Lưu trước)'
+                  }
+                >
+                  <span>
+                    <Button
+                      type="primary"
+                      icon={<DownloadOutlined />}
+                      loading={exporting}
+                      disabled={items.length === 0 || hasMissingMasterData}
+                      onClick={handleExportExcel}
+                      className={
+                        hasMissingMasterData
+                          ? 'bg-slate-300 text-slate-500 border-slate-300 cursor-not-allowed text-xs h-9 px-4 font-medium'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4 font-medium shadow-sm'
+                      }
+                    >
+                      Xuất File Excel & Lưu đơn
+                    </Button>
+                  </span>
                 </Tooltip>
               </div>
             </div>
@@ -1421,6 +1835,52 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                     Ghi đè số
                   </Button>
                 </Tooltip>
+              </div>
+            </div>
+
+            {/* Bộ Chuyển Đổi Không Gian Làm Việc Theo Đối Tác (Partner Profile Presets) */}
+            <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/40 to-slate-50 border border-blue-200 rounded-lg p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-lg shadow-sm shrink-0">
+                  <ShopOutlined />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                      Hồ sơ Đối tác / Khách hàng (Partner Workspace)
+                    </span>
+                    {selectedPartner && (
+                      <Tag className="text-[11px] border-blue-300 bg-blue-100/70 text-blue-800 font-semibold m-0">
+                        {selectedPartner.defaultPairsPerCarton} đôi / thùng
+                      </Tag>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    Tự động điền thông tin hợp đồng, địa chỉ giao hàng và áp dụng quy cách đóng thùng chuẩn của đối tác
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 md:w-80 shrink-0">
+                <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">Chọn Đối tác:</span>
+                <Select
+                  value={selectedPartnerId}
+                  onChange={handlePartnerSelect}
+                  className="w-full text-xs font-medium"
+                  size="middle"
+                  placeholder="-- Chọn Đối tác / Khách hàng --"
+                  options={partnerFolders.map((pf) => ({
+                    value: pf.id,
+                    label: (
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-800">{pf.name}</span>
+                        <span className="text-[11px] text-slate-400 font-mono ml-2">
+                          ({pf.defaultPairsPerCarton} đôi/thùng)
+                        </span>
+                      </div>
+                    ),
+                  }))}
+                />
               </div>
             </div>
 
@@ -1625,78 +2085,158 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
           {/* Section 3: Lưới Nhập liệu Hàng hóa (Editable Table) */}
           <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
-            <div id="tour-data-import" className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
+            <div id="tour-data-import" className="flex justify-between items-center flex-wrap gap-3 pb-3 border-b border-slate-100">
               <div className="text-xs font-semibold text-slate-800 uppercase tracking-wider">
                 2. Danh sách Hàng hóa ({items.length} dòng)
               </div>
-              <Space wrap size="small">
+              <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
                 <Button
                   icon={<CameraOutlined />}
                   onClick={() => setOcrModalVisible(true)}
-                  className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
+                  className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
                 >
                   Quét OCR Phiếu kho
-                </Button>
-                <Button
-                  icon={<RocketOutlined />}
-                  onClick={() => setBatchOcrModalVisible(true)}
-                  className="text-xs h-8 border-blue-300 text-blue-700 bg-blue-50/50 hover:bg-blue-100/50 font-medium"
-                >
-                  Quét OCR hàng loạt (Batch)
                 </Button>
                 <Tooltip title="Hỗ trợ dán trực tiếp danh sách mã và số lượng copy từ bảng tính Excel.">
                   <Button
                     icon={<ThunderboltOutlined />}
                     onClick={() => setQuickPasteVisible(true)}
-                    className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
+                    className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
                   >
                     Dán nhanh (Clipboard)
                   </Button>
                 </Tooltip>
                 <Button
-                  icon={<AppstoreOutlined />}
-                  onClick={handlePopulateAllMasterProducts}
-                  className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
+                  icon={<RocketOutlined />}
+                  onClick={() => setBatchOcrModalVisible(true)}
+                  className="text-xs h-8 px-3 border-blue-300 text-blue-700 bg-blue-50/50 hover:bg-blue-100/50 font-medium"
                 >
-                  Nạp từ Master Data
+                  Quét OCR hàng loạt (Batch)
                 </Button>
-                <Popconfirm
-                  title="Xóa toàn bộ danh sách mặt hàng?"
-                  description="Bạn có chắc chắn muốn xóa tất cả các dòng hiện tại không?"
-                  okText="Xóa tất cả"
-                  cancelText="Hủy"
-                  okButtonProps={{ danger: true }}
-                  onConfirm={handleClearAllItems}
-                  disabled={items.length === 0}
+
+                {/* Dropdown "Thao tác khác" gom các chức năng phụ */}
+                <Dropdown
+                  menu={{
+                    items: [
+                      {
+                        key: 'populate-master',
+                        icon: <AppstoreOutlined />,
+                        label: 'Nạp toàn bộ từ Master Data',
+                        onClick: handlePopulateAllMasterProducts,
+                      },
+                      {
+                        type: 'divider',
+                      },
+                      {
+                        key: 'clear-all',
+                        danger: true,
+                        icon: <DeleteOutlined />,
+                        label: 'Xóa tất cả các dòng',
+                        disabled: items.length === 0,
+                        onClick: () => {
+                          Modal.confirm({
+                            title: 'Xóa toàn bộ danh sách mặt hàng?',
+                            content: 'Bạn có chắc chắn muốn xóa tất cả các dòng hiện tại không? Thao tác này không thể hoàn tác.',
+                            okText: 'Xóa tất cả',
+                            okType: 'danger',
+                            cancelText: 'Hủy',
+                            onOk: handleClearAllItems,
+                          });
+                        },
+                      },
+                    ],
+                  }}
+                  trigger={['click']}
                 >
                   <Button
-                    danger
-                    icon={<DeleteOutlined />}
-                    disabled={items.length === 0}
-                    className="text-xs h-8"
+                    icon={<EllipsisOutlined />}
+                    className="text-xs h-8 px-2.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
                   >
-                    Xóa tất cả
+                    Thao tác khác
                   </Button>
-                </Popconfirm>
+                </Dropdown>
+
                 <Button
                   type="primary"
                   icon={<PlusOutlined />}
                   onClick={handleAddItem}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-medium"
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 px-3.5 font-medium shadow-sm"
                 >
-                  + Thêm dòng
+                  Thêm dòng
                 </Button>
-              </Space>
+              </div>
             </div>
 
-            <div ref={tableContainerRef} className="w-full overflow-x-auto">
+            {/* Thanh Cảnh báo Thông minh (Smart Suggestion Banner - Amber/Orange Alert Bar) */}
+            {suggestionBannerData && suggestionBannerData.hasMismatch && suggestionBannerData.suggestedPartnerFolderId && (
+              <div className="p-4 rounded-lg border-2 border-amber-400 bg-amber-50 text-amber-950 text-xs shadow-sm transition-all animate-fadeIn">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl shrink-0 leading-none mt-0.5">💡</span>
+                    <div className="space-y-1">
+                      <div className="font-semibold text-amber-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                        <span>Phát hiện có thể nhầm lẫn Đối tác:</span>
+                        <Tag color="orange" className="font-mono text-[10px] m-0 border-amber-300">
+                          {suggestionBannerData.matchedCountInSuggested}/{suggestionBannerData.totalCodes} mã trùng khớp
+                        </Tag>
+                      </div>
+                      <div className="text-amber-900 leading-relaxed text-xs">
+                        Hệ thống nhận thấy <strong className="text-amber-950 font-semibold">{suggestionBannerData.matchedCountInSuggested}/{suggestionBannerData.totalCodes}</strong> mã bạn vừa nhập thuộc danh mục của [<strong>{suggestionBannerData.suggestedPartnerName}</strong>].
+                        <br />
+                        Bạn đang chọn: [<strong>{selectedPartner?.name || 'Chưa chọn'}</strong>].
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                    <Button
+                      type="primary"
+                      icon={<ThunderboltOutlined />}
+                      onClick={handleAutoSwitchPartner}
+                      className="bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-medium text-xs h-8 px-3 shadow-sm border-0"
+                    >
+                      Chuyển sang {suggestionBannerData.suggestedPartnerName} & Áp dụng mẫu
+                    </Button>
+                    <Button
+                      onClick={handleKeepCurrentPartner}
+                      className="text-xs h-8 px-3 text-slate-700 hover:text-slate-900 border-slate-300 bg-white hover:bg-slate-50"
+                    >
+                      Giữ nguyên
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {hasMissingMasterData && (
+              <div className="flex items-center justify-between p-3 rounded-lg border border-rose-200 bg-rose-50/80 text-rose-800 text-xs shadow-sm">
+                <div className="flex items-center gap-2.5">
+                  <ExclamationCircleOutlined className="text-rose-600 text-base shrink-0" />
+                  <span>
+                    <strong>Chốt chặn nghiệp vụ (Business Rule Validation Guard):</strong> Phát hiện{' '}
+                    <strong className="text-rose-900">{missingMasterCodes.length}</strong> dòng hàng chứa mã chưa có
+                    trong Master Data (<span className="font-mono font-semibold text-rose-900">{missingMasterCodes.join(', ')}</span>
+                    ). Nút xuất file Excel đang bị khóa. Vui lòng bấm <strong>[+ Thêm nhanh vào Master Data]</strong> ngay
+                    tại dòng vi phạm để cập nhật thông tin và mở khóa xuất file.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div ref={tableContainerRef} className="w-full overflow-x-auto min-w-0">
               <Table
                 dataSource={items}
                 columns={columns}
                 rowKey={(_, index) => `${index}`}
+                rowClassName={(record) => {
+                  const code = (record.styleCode || '').trim();
+                  if (code && !isStyleCodeInMaster(code)) {
+                    return 'row-missing-master bg-rose-50/60 border-l-4 border-l-rose-500 hover:bg-rose-50 transition-colors';
+                  }
+                  return '';
+                }}
                 pagination={false}
                 size="middle"
-                scroll={{ x: 1050 }}
+                scroll={{ x: 'max-content' }}
                 locale={{
                   emptyText: (
                     <Empty
@@ -1717,9 +2257,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                           type="primary"
                           icon={<PlusOutlined />}
                           onClick={handleAddItem}
-                          className="bg-blue-600 hover:bg-blue-700 text-xs h-8 font-medium"
+                          className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-medium shadow-sm"
                         >
-                          + Thêm dòng mới
+                          Thêm dòng mới
                         </Button>
                         <Button
                           icon={<ThunderboltOutlined />}
@@ -1794,6 +2334,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         visible={quickPasteVisible}
         onClose={() => setQuickPasteVisible(false)}
         products={products}
+        selectedPartnerId={selectedPartnerId}
+        defaultPairsPerCarton={selectedPartner?.defaultPairsPerCarton || 12}
         onApply={handleApplyQuickPaste}
       />
 
@@ -1804,6 +2346,20 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         data={previewData}
         onExportExcel={handleExportExcel}
         exporting={exporting}
+        disableExport={hasMissingMasterData}
+      />
+
+      {/* Modal Thêm nhanh vào Master Data */}
+      <QuickAddMasterDataModal
+        visible={quickAddVisible}
+        styleCode={quickAddStyleCode}
+        initialDescription={quickAddDescription}
+        isGoProcess={quickAddIsGo}
+        onCancel={() => {
+          setQuickAddVisible(false);
+          setQuickAddRowIndex(null);
+        }}
+        onSuccess={handleQuickAddSuccess}
       />
 
       {/* Modal OCR Phiếu kho */}
@@ -1811,6 +2367,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         visible={ocrModalVisible}
         onClose={() => setOcrModalVisible(false)}
         products={products}
+        selectedPartnerId={selectedPartnerId}
         onApply={handleApplyOcr}
       />
 

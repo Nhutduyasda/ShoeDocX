@@ -159,7 +159,8 @@ public class OcrController : ControllerBase
                 var enrichedItems = new List<OcrItemDto>();
                 foreach (var item in ocrRes.Items)
                 {
-                    string cleanCode = item.StyleCode.Trim().ToUpperInvariant();
+                    string normalizedStyleCode = OcrExtractionService.NormalizeStyleCode(item.StyleCode);
+                    string cleanCode = normalizedStyleCode.Trim().ToUpperInvariant();
                     if (cleanCode.EndsWith(".G"))
                     {
                         cleanCode = cleanCode[..^2].Trim();
@@ -169,7 +170,7 @@ public class OcrController : ControllerBase
 
                     enrichedItems.Add(new OcrItemDto
                     {
-                        StyleCode = item.StyleCode.Trim(),
+                        StyleCode = normalizedStyleCode,
                         Quantity = item.Quantity,
                         Note = item.Note ?? string.Empty,
                         ProcessType = item.ProcessType,

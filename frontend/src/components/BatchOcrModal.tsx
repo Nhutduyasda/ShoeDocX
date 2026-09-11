@@ -36,6 +36,7 @@ import type {
   CreateShipmentItem,
 } from '../types';
 import { ProcessType, ExportSequencePriority } from '../types';
+import { normalizeOcrStyleCode } from './OcrUploadModal';
 
 interface BatchOcrModalProps {
   visible: boolean;
@@ -281,7 +282,11 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const handleSaveEditCard = () => {
     if (!editingCard || !editingCard.result) return;
 
-    const newCalculatedTotal = editItems.reduce((acc, i) => acc + (i.quantity || 0), 0);
+    const cleanedItems = editItems.map((i) => ({
+      ...i,
+      styleCode: normalizeOcrStyleCode(i.styleCode),
+    }));
+    const newCalculatedTotal = cleanedItems.reduce((acc, i) => acc + (i.quantity || 0), 0);
     const updatedResult: BatchOcrScanResult = {
       ...editingCard.result,
       title: editTitle.trim() || editingCard.result.title,
@@ -289,9 +294,9 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       calculatedTotal: newCalculatedTotal,
       isMatched: editReportedTotal > 0 && editReportedTotal === newCalculatedTotal,
       discrepancy: newCalculatedTotal - editReportedTotal,
-      items: editItems,
-      hasStandardItems: editItems.some((i) => i.processType === ProcessType.Standard),
-      hasGoItems: editItems.some((i) => i.processType === ProcessType.GoKhongMay),
+      items: cleanedItems,
+      hasStandardItems: cleanedItems.some((i) => i.processType === ProcessType.Standard),
+      hasGoItems: cleanedItems.some((i) => i.processType === ProcessType.GoKhongMay),
     };
 
     setImageQueue((prev) =>

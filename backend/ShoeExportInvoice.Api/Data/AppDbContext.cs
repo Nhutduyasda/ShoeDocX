@@ -10,6 +10,7 @@ public class AppDbContext : DbContext
     }
 
     public DbSet<ProductMaster> ProductMasters => Set<ProductMaster>();
+    public DbSet<MasterDataFolder> MasterDataFolders => Set<MasterDataFolder>();
     public DbSet<ShipmentOrder> ShipmentOrders => Set<ShipmentOrder>();
     public DbSet<ShipmentOrderItem> ShipmentOrderItems => Set<ShipmentOrderItem>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
@@ -20,12 +21,25 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        // MasterDataFolder configuration
+        modelBuilder.Entity<MasterDataFolder>(entity =>
+        {
+            entity.HasOne(f => f.Parent)
+                  .WithMany(f => f.Children)
+                  .HasForeignKey(f => f.ParentId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
         // ProductMaster configuration
         modelBuilder.Entity<ProductMaster>(entity =>
         {
             entity.HasIndex(e => e.StyleCode).IsUnique();
             entity.Property(e => e.UnitPriceCMT).HasPrecision(18, 4);
             entity.Property(e => e.UnitPriceDAP).HasPrecision(18, 4);
+            entity.HasOne(e => e.Folder)
+                  .WithMany(f => f.Products)
+                  .HasForeignKey(e => e.FolderId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
 
         // ShipmentOrder configuration

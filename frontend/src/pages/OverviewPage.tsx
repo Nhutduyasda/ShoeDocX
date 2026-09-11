@@ -73,9 +73,19 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
 
   const recentColumns: ColumnsType<SavedShipmentSummary> = [
     {
+      title: 'STT',
+      key: 'stt',
+      width: 50,
+      align: 'center',
+      fixed: 'left',
+      render: (_, __, idx) => <span className="text-xs text-slate-500">{idx + 1}</span>,
+    },
+    {
       title: 'Số Hóa đơn (Invoice No)',
       dataIndex: 'invoiceNo',
       key: 'invoiceNo',
+      width: 180,
+      fixed: 'left',
       render: (no: string, record) => (
         <div>
           <span className="font-mono font-semibold text-slate-900 text-xs">{no}</span>
@@ -140,6 +150,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
       key: 'action',
       align: 'center',
       width: 160,
+      fixed: 'right',
       render: (_, record) => (
         <Space size={4}>
           <Button
@@ -166,17 +177,17 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200">
+      <div className="flex justify-between items-start flex-wrap gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 tracking-tight m-0">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
             Tổng quan nghiệp vụ xuất khẩu
           </h1>
-          <p className="text-xs text-slate-500 mt-1 m-0">
+          <p className="text-sm text-slate-500 mt-1 m-0">
             Hệ thống quản lý Commercial Invoice, Packing List và dữ liệu xuất hàng nhà máy Kingmaker III
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
           <Button
             icon={<AuditOutlined />}
             onClick={() => onNavigate('settlement')}
@@ -287,14 +298,17 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
           </Button>
         </div>
 
-        <Table
-          dataSource={shipments.slice(0, 5)}
-          columns={recentColumns}
-          rowKey="id"
-          loading={loading}
-          pagination={false}
-          size="middle"
-        />
+        <div className="w-full overflow-x-auto min-w-0">
+          <Table
+            dataSource={shipments.slice(0, 5)}
+            columns={recentColumns}
+            rowKey="id"
+            loading={loading}
+            pagination={false}
+            size="middle"
+            scroll={{ x: 'max-content' }}
+          />
+        </div>
       </div>
 
       {/* Quick Access Business Workflows */}

@@ -235,4 +235,78 @@ public class ProductMasterExcelImportTests : IDisposable
         Assert.True(sampleProduct.HasGoOption);
         Assert.Equal("PR", sampleProduct.Unit);
     }
+
+    [Fact]
+    public async Task Import_ActualBook1File_AdaptiveParser_ShouldDetectColumnsAndSucceed()
+    {
+        var path = @"C:\Users\nhutd\Documents\antigravity\clever-faraday\backend\ShoeExportInvoice.Api\Templates\Book1.xlsx";
+        Assert.True(File.Exists(path), $"File Book1.xlsx must exist at {path}");
+
+        using var context = new AppDbContext(_dbOptions);
+        var service = new ExcelImportExportService(context, NullLogger<ExcelImportExportService>.Instance);
+
+        // 1. Kiểm tra Preview & Tự động phát hiện cột
+        using (var previewStream = File.OpenRead(path))
+        {
+            var preview = await service.PreviewProductMastersFromExcelAsync(previewStream);
+            Assert.NotNull(preview);
+            Assert.Equal(2, preview.StartRowIndex); // Bỏ qua header rác dòng 1, bắt đầu từ dòng 2
+            Assert.Equal(1, preview.DetectedMapping.StyleCodeCol); // Cột 1 là StyleCode
+            Assert.Equal(4, preview.DetectedMapping.CmtPriceCol);  // Cột 4 là CMT (phát hiện từ header 'CMT')
+            Assert.Equal(5, preview.DetectedMapping.DapPriceCol);  // Cột 5 là FOB/DAP (phát hiện từ header 'FOB')
+            Assert.Equal(8, preview.DetectedMapping.DescriptionCol); // Cột 8 là Mô tả (văn bản dài nhất chứa từ khóa giày)
+            Assert.NotEmpty(preview.PreviewRows);
+            Assert.Equal("YL3564-100", preview.PreviewRows[0].StyleCode);
+            Assert.Equal(2.32m, preview.PreviewRows[0].UnitPriceCMT);
+            Assert.Equal(5.0m, preview.PreviewRows[0].UnitPriceDAP);
+        }
+
+        // 2. Kiểm tra Import thực tế
+        using (var fileStream = File.OpenRead(path))
+        {
+            var result = await service.ImportProductMastersFromExcelAsync(fileStream, updateExisting: true);
+            Assert.True(result.Success);
+            Assert.True(result.ImportedCount > 0);
+            Assert.Empty(result.Errors);
+
+            var sample = await context.ProductMasters.FirstOrDefaultAsync(p => p.StyleCode == "YL3564-100");
+            Assert.NotNull(sample);
+            Assert.Equal(2.32m, sample!.UnitPriceCMT);
+            Assert.Equal(5.0m, sample.UnitPriceDAP);
+            Assert.Contains("vật liệu dệt", sample.Description.ToLower());
+        }
+    }
+
+    [Fact]
+    public async Task Import_ActualWorkbook1File_AdaptiveParser_ShouldDetectColumnsAndSucceed()
+    {
+        var path = @"C:\Users\nhutd\Documents\antigravity\clever-faraday\backend\ShoeExportInvoice.Api\Templates\Workbook1.xlsx";
+        Assert.True(File.Exists(path), $"File Workbook1.xlsx must exist at {path}");
+
+        using var context = new AppDbContext(_dbOptions);
+        var service = new ExcelImportExportService(context, NullLogger<ExcelImportExportService>.Instance);
+
+        // 1. Kiểm tra Preview & Tự động phát hiện cột cho file 8 cột không header
+        using (var previewStream = File.OpenRead(path))
+        {
+            var preview = await service.PreviewProductMastersFromExcelAsync(previewStream);
+            Assert.NotNull(preview);
+            Assert.Equal(1, preview.StartRowIndex); // Dữ liệu bắt đầu ngay dòng 1
+            Assert.Equal(1, preview.DetectedMapping.StyleCodeCol);
+            Assert.Equal(4, preview.DetectedMapping.CmtPriceCol);
+            Assert.Equal(5, preview.DetectedMapping.DapPriceCol);
+            Assert.Equal(6, preview.DetectedMapping.DescriptionCol); // File cũ mô tả ở cột 6
+            Assert.Equal(7, preview.DetectedMapping.UnitCol);
+            Assert.Equal(8, preview.DetectedMapping.HsCodeCol);
+        }
+
+        // 2. Kiểm tra Import
+        using (var fileStream = File.OpenRead(path))
+        {
+            var result = await service.ImportProductMastersFromExcelAsync(fileStream, updateExisting: true);
+            Assert.True(result.Success);
+            Assert.Equal(28, result.ImportedCount);
+            Assert.Empty(result.Errors);
+        }
+    }
 }

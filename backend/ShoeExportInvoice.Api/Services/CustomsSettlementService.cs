@@ -130,6 +130,7 @@ public class CustomsSettlementService : ICustomsSettlementService
                 ProductCode = code,
                 ProductName = pm?.Description ?? (hasExport ? exp.ProductName : code),
                 Unit = !string.IsNullOrWhiteSpace(pm?.Unit) ? pm.Unit : "đôi",
+                HsCode = pm?.HsCode ?? "64041990",
                 OpeningBalance = openingBalance,
                 InPeriodProduction = inPeriodProduction,
                 InPeriodExport = inPeriodExport,
@@ -149,7 +150,9 @@ public class CustomsSettlementService : ICustomsSettlementService
             FromDate = fromDate,
             ToDate = request.ToDate.Date,
             ContractNo = request.ContractNo ?? latestOrder?.ContractNo ?? "KM-HANEW/01-2025",
-            CompanyName = "CÔNG TY TNHH KINGMAKER III (VIỆT NAM) FOOTWEAR",
+            CustomsOffice = latestOrder?.CustomsOffice ?? "Chi cục Hải quan Quản lý Hàng gia công",
+            Status = "Draft",
+            CompanyName = "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG",
             TaxCode = "4300326888",
             Address = latestOrder?.Address ?? "KCN VSIP Quảng Ngãi, Xã Tịnh Phong, Huyện Sơn Tịnh, Tỉnh Quảng Ngãi",
             Items = items,
@@ -179,7 +182,9 @@ public class CustomsSettlementService : ICustomsSettlementService
                 FromDate = request.FromDate.Date,
                 ToDate = request.ToDate.Date,
                 ContractNo = request.ContractNo?.Trim(),
-                CompanyName = request.CompanyName?.Trim(),
+                CustomsOffice = string.IsNullOrWhiteSpace(request.CustomsOffice) ? "Chi cục Hải quan Quản lý Hàng gia công" : request.CustomsOffice.Trim(),
+                Status = string.IsNullOrWhiteSpace(request.Status) ? "Draft" : request.Status.Trim(),
+                CompanyName = string.IsNullOrWhiteSpace(request.CompanyName) ? "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG" : request.CompanyName.Trim(),
                 TaxCode = request.TaxCode?.Trim(),
                 Address = request.Address?.Trim(),
                 Note = request.Note?.Trim(),
@@ -193,6 +198,8 @@ public class CustomsSettlementService : ICustomsSettlementService
             period.FromDate = request.FromDate.Date;
             period.ToDate = request.ToDate.Date;
             period.ContractNo = request.ContractNo?.Trim();
+            period.CustomsOffice = string.IsNullOrWhiteSpace(request.CustomsOffice) ? period.CustomsOffice : request.CustomsOffice.Trim();
+            period.Status = string.IsNullOrWhiteSpace(request.Status) ? period.Status : request.Status.Trim();
             period.CompanyName = request.CompanyName?.Trim();
             period.TaxCode = request.TaxCode?.Trim();
             period.Address = request.Address?.Trim();
@@ -212,6 +219,7 @@ public class CustomsSettlementService : ICustomsSettlementService
                 ProductCode = item.ProductCode.Trim(),
                 ProductName = item.ProductName?.Trim() ?? string.Empty,
                 Unit = !string.IsNullOrWhiteSpace(item.Unit) ? item.Unit.Trim() : "đôi",
+                HsCode = !string.IsNullOrWhiteSpace(item.HsCode) ? item.HsCode.Trim() : "64041990",
                 OpeningBalance = item.OpeningBalance,
                 InPeriodProduction = item.InPeriodProduction,
                 InPeriodExport = item.InPeriodExport,
@@ -243,6 +251,8 @@ public class CustomsSettlementService : ICustomsSettlementService
             FromDate = p.FromDate,
             ToDate = p.ToDate,
             ContractNo = p.ContractNo,
+            CustomsOffice = p.CustomsOffice,
+            Status = p.Status,
             CreatedAt = p.CreatedAt,
             ItemCount = p.Items.Count,
             TotalExportQuantity = p.Items.Sum(i => i.InPeriodExport),
@@ -270,7 +280,9 @@ public class CustomsSettlementService : ICustomsSettlementService
             FromDate = period.FromDate,
             ToDate = period.ToDate,
             ContractNo = period.ContractNo,
-            CompanyName = period.CompanyName ?? "CÔNG TY TNHH KINGMAKER III (VIỆT NAM) FOOTWEAR",
+            CustomsOffice = period.CustomsOffice,
+            Status = period.Status,
+            CompanyName = period.CompanyName ?? "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG",
             TaxCode = period.TaxCode ?? "4300326888",
             Address = period.Address ?? string.Empty,
             Note = period.Note,
@@ -280,6 +292,7 @@ public class CustomsSettlementService : ICustomsSettlementService
                 ProductCode = i.ProductCode,
                 ProductName = i.ProductName,
                 Unit = i.Unit,
+                HsCode = i.HsCode,
                 OpeningBalance = i.OpeningBalance,
                 InPeriodProduction = i.InPeriodProduction,
                 InPeriodExport = i.InPeriodExport,
@@ -296,7 +309,7 @@ public class CustomsSettlementService : ICustomsSettlementService
     public async Task<byte[]> ExportSettlementExcelAsync(SettlementReportDto report)
     {
         using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("Mẫu 16-BCQT");
+        var ws = workbook.Worksheets.Add("Mau_16_BCQT_SP");
 
         // Thiết lập trang in: khổ ngang A4
         ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
@@ -306,11 +319,12 @@ public class CustomsSettlementService : ICustomsSettlementService
         ws.Style.Font.FontName = "Times New Roman";
         ws.Style.Font.FontSize = 11;
 
-        // 1. Header cơ quan & Doanh nghiệp (Rows 1-3)
-        ws.Cell("A1").Value = "Tên tổ chức, cá nhân: " + report.CompanyName;
+        // 1. Header cơ quan & Doanh nghiệp (Rows 1-4)
+        ws.Cell("A1").Value = "Tên tổ chức, cá nhân: " + (report.CompanyName ?? "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG");
         ws.Cell("A1").Style.Font.Bold = true;
         ws.Cell("A2").Value = "Mã số thuế: " + report.TaxCode;
-        ws.Cell("A3").Value = "Địa chỉ: " + report.Address;
+        ws.Cell("A3").Value = "Chi cục Hải quan tiếp nhận: " + (report.CustomsOffice ?? "Chi cục Hải quan Quản lý Hàng gia công");
+        ws.Cell("A4").Value = "Số hợp đồng gia công: " + (report.ContractNo ?? "KM-HANEW/01-2025");
 
         ws.Cell("G1").Value = "Mẫu số: 16/BCQT-SP-GSQL";
         ws.Cell("G1").Style.Font.Bold = true;
@@ -327,16 +341,21 @@ public class CustomsSettlementService : ICustomsSettlementService
         ws.Cell("G3").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
         ws.Range("G3:J3").Merge();
 
+        ws.Cell("G4").Value = $"Báo cáo cho năm tài chính: {report.Year}";
+        ws.Cell("G4").Style.Font.Bold = true;
+        ws.Cell("G4").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+        ws.Range("G4:J4").Merge();
+
         // 2. Tiêu đề báo cáo (Rows 5-7)
-        ws.Cell("A5").Value = "BÁO CÁO QUYẾT TOÁN TÌNH HÌNH XUẤT - NHẬP - TỒN KHO SẢN PHẨM XUẤT KHẨU";
+        ws.Cell("A5").Value = "BÁO CÁO QUYẾT TOÁN TÌNH HÌNH SỬ DỤNG NGUYÊN LIỆU, VẬT TƯ NHẬP KHẨU, HÀNG HÓA XUẤT KHẨU";
         ws.Cell("A5").Style.Font.FontSize = 14;
         ws.Cell("A5").Style.Font.Bold = true;
         ws.Cell("A5").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         ws.Range("A5:J5").Merge();
 
-        ws.Cell("A6").Value = "ĐƯỢC SẢN XUẤT TỪ NGUYÊN LIỆU, VẬT TƯ NHẬP KHẨU";
-        ws.Cell("A6").Style.Font.FontSize = 13;
-        ws.Cell("A6").Style.Font.Bold = true;
+        ws.Cell("A6").Value = "Mẫu số 16/BCQT-SP-GSQL - Phụ lục II Thông tư số 39/2018/TT-BTC";
+        ws.Cell("A6").Style.Font.FontSize = 12;
+        ws.Cell("A6").Style.Font.Italic = true;
         ws.Cell("A6").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         ws.Range("A6:J6").Merge();
 
@@ -543,16 +562,16 @@ public class CustomsSettlementService : ICustomsSettlementService
         // ==========================================
         // SHEET 2: BẢNG KÊ CHI TIẾT TỜ KHAI (DRILL-DOWN)
         // ==========================================
-        var ws2 = workbook.Worksheets.Add("Bảng kê chi tiết tờ khai");
+        var ws2 = workbook.Worksheets.Add("Bang_Ke_Chi_Tiet_E52");
         ws2.PageSetup.PageOrientation = XLPageOrientation.Landscape;
         ws2.PageSetup.PaperSize = XLPaperSize.A4Paper;
         ws2.Style.Font.FontName = "Times New Roman";
         ws2.Style.Font.FontSize = 11;
 
-        ws2.Cell("A1").Value = "Tên tổ chức, cá nhân: " + report.CompanyName;
+        ws2.Cell("A1").Value = "Tên tổ chức, cá nhân: " + (report.CompanyName ?? "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG");
         ws2.Cell("A1").Style.Font.Bold = true;
         ws2.Cell("A2").Value = "Mã số thuế: " + report.TaxCode;
-        ws2.Cell("A3").Value = "Địa chỉ: " + report.Address;
+        ws2.Cell("A3").Value = "Chi cục HQ: " + (report.CustomsOffice ?? "Chi cục Hải quan Quản lý Hàng gia công");
 
         ws2.Cell("A5").Value = "BẢNG KÊ CHI TIẾT TỜ KHAI HẢI QUAN XUẤT KHẨU GIA CÔNG (E52) ĐÃ THÔNG QUAN";
         ws2.Cell("A5").Style.Font.FontSize = 13;
@@ -584,6 +603,9 @@ public class CustomsSettlementService : ICustomsSettlementService
         s2HeaderRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#F1F5F9");
         s2HeaderRange.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
         s2HeaderRange.Style.Border.SetInsideBorder(XLBorderStyleValues.Thin);
+
+        // Đóng băng dòng tiêu đề Sheet 2 (Freeze Panes)
+        ws2.SheetView.FreezeRows(s2HeaderRow);
 
         var fromDate = report.FromDate.Date;
         var toDate = report.ToDate.Date.AddDays(1).AddTicks(-1);
@@ -749,27 +771,366 @@ public class CustomsSettlementService : ICustomsSettlementService
         return result.OrderByDescending(r => r.ClearanceDate).ToList();
     }
 
-    private static string NormalizeProductCode(string code)
+    public static string NormalizeProductCode(string code)
     {
         if (string.IsNullOrWhiteSpace(code)) return string.Empty;
         string clean = code.Trim().ToUpperInvariant();
+
+        // 1. Loại bỏ hậu tố .G
         if (clean.EndsWith(".G"))
         {
             clean = clean[..^2].Trim();
         }
-        int poIdx = clean.IndexOf("-PO", StringComparison.OrdinalIgnoreCase);
-        if (poIdx > 0)
+
+        // 2. Loại bỏ các hậu tố PO: -PO..., /PO..., .PO..., KM3.PO5.26, v.v.
+        var poRegex = new System.Text.RegularExpressions.Regex(@"([\.\-\/\s]+(KM3[\.\-\/])?PO[\w\.\-]+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        clean = poRegex.Replace(clean, "").Trim();
+
+        int km3PoIdx = clean.IndexOf("KM3.PO", StringComparison.OrdinalIgnoreCase);
+        if (km3PoIdx > 0)
         {
-            clean = clean[..poIdx].Trim();
+            clean = clean[..km3PoIdx].TrimEnd('.', '-', '/', ' ');
         }
-        else
+
+        // 3. Sau khi bỏ PO, nếu còn sót .G thì bỏ tiếp
+        if (clean.EndsWith(".G"))
         {
-            int poSlashIdx = clean.IndexOf("/PO", StringComparison.OrdinalIgnoreCase);
-            if (poSlashIdx > 0)
+            clean = clean[..^2].Trim();
+        }
+
+        return clean;
+    }
+
+    /// <summary>
+    /// Thống kê phân tích kim ngạch, sản lượng, doanh thu CMT và phân bổ luồng tờ khai theo 12 tháng
+    /// </summary>
+    public async Task<AnalyticsExportStatsDto> GetExportAnalyticsAsync(int year)
+    {
+        var fromDate = new DateTime(year, 1, 1);
+        var toDate = new DateTime(year, 12, 31, 23, 59, 59);
+
+        var clearedOrders = await _context.ShipmentOrders
+            .AsNoTracking()
+            .Include(s => s.Items)
+            .Where(s => s.Status == ShipmentStatus.Cleared)
+            .Where(s => (s.ClearanceDate ?? s.InvoiceDate) >= fromDate && (s.ClearanceDate ?? s.InvoiceDate) <= toDate)
+            .ToListAsync();
+
+        var productMasters = await _context.ProductMasters
+            .AsNoTracking()
+            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p);
+
+        // Thống kê 12 tháng
+        var monthlyList = new List<MonthlyExportStatDto>();
+        for (int m = 1; m <= 12; m++)
+        {
+            var monthOrders = clearedOrders
+                .Where(o => (o.ClearanceDate ?? o.InvoiceDate).Month == m)
+                .ToList();
+
+            int mQty = monthOrders.SelectMany(o => o.Items).Sum(i => i.Quantity);
+            decimal mDap = monthOrders.Sum(o => o.CustomsTotalDap ?? o.Items.Sum(i => i.Quantity * i.UnitPriceDAP));
+            decimal mCmt = monthOrders.Sum(o => o.CustomsTotalCmt ?? o.Items.Sum(i => i.Quantity * i.UnitPriceCMT));
+
+            monthlyList.Add(new MonthlyExportStatDto
             {
-                clean = clean[..poSlashIdx].Trim();
+                Month = m,
+                MonthName = $"Tháng {m}",
+                Quantity = mQty,
+                TotalDap = mDap,
+                TotalCmt = mCmt,
+                OrderCount = monthOrders.Count
+            });
+        }
+
+        int totalQty = clearedOrders.SelectMany(o => o.Items).Sum(i => i.Quantity);
+        decimal totalDap = clearedOrders.Sum(o => o.CustomsTotalDap ?? o.Items.Sum(i => i.Quantity * i.UnitPriceDAP));
+        decimal totalCmt = clearedOrders.Sum(o => o.CustomsTotalCmt ?? o.Items.Sum(i => i.Quantity * i.UnitPriceCMT));
+
+        // Top 5 mã giày xuất khẩu nhiều nhất
+        var styleGroup = clearedOrders
+            .SelectMany(o => o.Items)
+            .GroupBy(i => NormalizeProductCode(i.StyleCode))
+            .Select(g =>
+            {
+                string code = g.Key;
+                productMasters.TryGetValue(code.ToUpper(), out var pm);
+                int qty = g.Sum(x => x.Quantity);
+                decimal dap = g.Sum(x => x.Quantity * x.UnitPriceDAP);
+                decimal cmt = g.Sum(x => x.Quantity * x.UnitPriceCMT);
+                return new
+                {
+                    StyleCode = code,
+                    ProductName = pm?.Description ?? code,
+                    Quantity = qty,
+                    TotalDap = dap,
+                    TotalCmt = cmt
+                };
+            })
+            .OrderByDescending(s => s.Quantity)
+            .Take(5)
+            .ToList();
+
+        var topStyles = new List<TopExportStyleDto>();
+        int rank = 1;
+        foreach (var s in styleGroup)
+        {
+            decimal pct = totalQty > 0 ? Math.Round((decimal)s.Quantity * 100 / totalQty, 1) : 0;
+            topStyles.Add(new TopExportStyleDto
+            {
+                Rank = rank++,
+                StyleCode = s.StyleCode,
+                ProductName = s.ProductName,
+                Quantity = s.Quantity,
+                TotalDap = s.TotalDap,
+                TotalCmt = s.TotalCmt,
+                Percentage = pct
+            });
+        }
+
+        // Tỷ lệ luồng thông quan: 1: Xanh, 2: Vàng, 3: Đỏ
+        int green = clearedOrders.Count(o => o.CustomsChannel == 1);
+        int yellow = clearedOrders.Count(o => o.CustomsChannel == 2);
+        int red = clearedOrders.Count(o => o.CustomsChannel == 3);
+        int totalDeclarations = clearedOrders.Count;
+        if (green == 0 && yellow == 0 && red == 0 && totalDeclarations > 0)
+        {
+            // Mặc định phân bổ nếu chưa có phân luồng cụ thể
+            green = totalDeclarations;
+        }
+
+        return new AnalyticsExportStatsDto
+        {
+            Year = year,
+            TotalQuantity = totalQty,
+            TotalDap = totalDap,
+            TotalCmt = totalCmt,
+            ClearedOrderCount = clearedOrders.Count,
+            MonthlyStats = monthlyList,
+            TopStyles = topStyles,
+            ChannelStats = new CustomsChannelStatDto
+            {
+                GreenCount = green,
+                YellowCount = yellow,
+                RedCount = red,
+                TotalDeclarations = totalDeclarations
+            }
+        };
+    }
+
+    /// <summary>
+    /// Nạp và đọc file Excel số liệu kho định kỳ (Tồn đầu kỳ & Nhập sản xuất trong kỳ),
+    /// tự động tìm cột theo tiêu đề hoặc vị trí và ghép với danh sách xuất khẩu đã tổng hợp.
+    /// </summary>
+    public async Task<WarehouseImportResultDto> ImportWarehouseExcelAsync(Stream stream, List<SettlementItemDto> currentItems)
+    {
+        using var workbook = new XLWorkbook(stream);
+        var ws = workbook.Worksheets.FirstOrDefault();
+        if (ws == null)
+        {
+            throw new ArgumentException("File Excel không có trang tính (worksheet) nào.");
+        }
+
+        var rows = new List<WarehouseDataRowDto>();
+        int lastRow = ws.LastRowUsed()?.RowNumber() ?? 0;
+        int lastCol = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
+
+        if (lastRow == 0)
+        {
+            return new WarehouseImportResultDto { Items = currentItems };
+        }
+
+        // 1. Tìm dòng header thông minh
+        int headerRow = 1;
+        int codeCol = 1;
+        int openingCol = 2;
+        int productionCol = 3;
+        bool foundHeader = false;
+
+        for (int r = 1; r <= Math.Min(15, lastRow); r++)
+        {
+            for (int c = 1; c <= lastCol; c++)
+            {
+                string text = ws.Cell(r, c).GetString().Trim().ToLowerInvariant();
+                if (text.Contains("mã") || text.Contains("style") || text.Contains("product") || text.Contains("mặt hàng"))
+                {
+                    codeCol = c;
+                    headerRow = r;
+                    foundHeader = true;
+                }
+                else if (text.Contains("tồn đầu") || text.Contains("đầu kỳ") || text.Contains("opening") || (text.Contains("tồn") && !text.Contains("cuối")))
+                {
+                    openingCol = c;
+                }
+                else if (text.Contains("nhập sx") || text.Contains("nhập kho") || text.Contains("sản xuất") || text.Contains("nhập trong") || text.Contains("production"))
+                {
+                    productionCol = c;
+                }
+            }
+
+            if (foundHeader) break;
+        }
+
+        // 2. Đọc các dòng dữ liệu
+        int startDataRow = foundHeader ? headerRow + 1 : 1;
+        for (int r = startDataRow; r <= lastRow; r++)
+        {
+            string rawCode = ws.Cell(r, codeCol).GetString().Trim();
+            if (string.IsNullOrWhiteSpace(rawCode)) continue;
+
+            // Bỏ qua nếu dòng này là dòng tổng cộng
+            if (rawCode.Equals("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase) ||
+                rawCode.Equals("TOTAL", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            decimal opening = 0;
+            decimal production = 0;
+
+            if (openingCol > 0 && openingCol <= lastCol)
+            {
+                var cellVal = ws.Cell(r, openingCol);
+                if (cellVal.DataType == XLDataType.Number)
+                    opening = Convert.ToDecimal(cellVal.GetDouble());
+                else
+                    decimal.TryParse(cellVal.GetString().Replace(",", "").Trim(), out opening);
+            }
+
+            if (productionCol > 0 && productionCol <= lastCol)
+            {
+                var cellVal = ws.Cell(r, productionCol);
+                if (cellVal.DataType == XLDataType.Number)
+                    production = Convert.ToDecimal(cellVal.GetDouble());
+                else
+                    decimal.TryParse(cellVal.GetString().Replace(",", "").Trim(), out production);
+            }
+
+            rows.Add(new WarehouseDataRowDto
+            {
+                ProductCode = rawCode,
+                OpeningBalance = Math.Max(0, opening),
+                InPeriodProduction = Math.Max(0, production)
+            });
+        }
+
+        return await MatchWarehouseRowsAsync(rows, currentItems);
+    }
+
+    /// <summary>
+    /// Đối soát và ghép dữ liệu kho vào danh sách quyết toán:
+    /// - Khớp mã: cập nhật Tồn đầu & Nhập SX
+    /// - Mã có ở kho nhưng XNK chưa xuất: thêm mới với InPeriodExport = 0
+    /// - Tự động tính toán lại Tồn cuối và phát hiện âm tồn
+    /// </summary>
+    public async Task<WarehouseImportResultDto> MatchWarehouseRowsAsync(List<WarehouseDataRowDto> rows, List<SettlementItemDto> currentItems)
+    {
+        var productMasters = await _context.ProductMasters
+            .AsNoTracking()
+            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p);
+
+        // Gom nhóm các dòng kho theo mã chuẩn hóa
+        var warehouseMap = new Dictionary<string, (decimal Opening, decimal Production)>();
+        foreach (var r in rows)
+        {
+            string norm = NormalizeProductCode(r.ProductCode);
+            if (string.IsNullOrWhiteSpace(norm)) continue;
+
+            if (!warehouseMap.TryGetValue(norm, out var existing))
+            {
+                existing = (0, 0);
+            }
+            existing.Opening += r.OpeningBalance;
+            existing.Production += r.InPeriodProduction;
+            warehouseMap[norm] = existing;
+        }
+
+        var resultItems = currentItems.Select(i => new SettlementItemDto
+        {
+            Id = i.Id,
+            ProductCode = i.ProductCode,
+            ProductName = i.ProductName,
+            Unit = i.Unit,
+            HsCode = i.HsCode,
+            OpeningBalance = i.OpeningBalance,
+            InPeriodProduction = i.InPeriodProduction,
+            InPeriodExport = i.InPeriodExport,
+            OtherExport = i.OtherExport,
+            ClosingBalance = i.ClosingBalance,
+            Note = i.Note,
+            ExportedOrderCount = i.ExportedOrderCount,
+            RelatedDeclarationNos = i.RelatedDeclarationNos
+        }).ToList();
+
+        var existingMap = resultItems.ToDictionary(i => NormalizeProductCode(i.ProductCode), i => i);
+        int matchedCount = 0;
+        int addedFromWarehouse = 0;
+        var warnings = new List<string>();
+
+        foreach (var kvp in warehouseMap)
+        {
+            string code = kvp.Key;
+            var (whOpening, whProd) = kvp.Value;
+
+            if (existingMap.TryGetValue(code, out var item))
+            {
+                item.OpeningBalance = whOpening;
+                item.InPeriodProduction = whProd;
+                matchedCount++;
+            }
+            else
+            {
+                // Mã kho có nhưng chưa có xuất khẩu trong kỳ -> Thêm vào bảng với xuất khẩu = 0
+                productMasters.TryGetValue(code.ToUpper(), out var pm);
+                var newItem = new SettlementItemDto
+                {
+                    Id = resultItems.Count + 1,
+                    ProductCode = code,
+                    ProductName = pm?.Description ?? code,
+                    Unit = !string.IsNullOrWhiteSpace(pm?.Unit) ? pm.Unit : "đôi",
+                    HsCode = pm?.HsCode ?? "64041990",
+                    OpeningBalance = whOpening,
+                    InPeriodProduction = whProd,
+                    InPeriodExport = 0,
+                    OtherExport = 0,
+                    ClosingBalance = whOpening + whProd,
+                    Note = "Số liệu nhập từ kho (Chưa xuất khẩu)",
+                    ExportedOrderCount = 0,
+                    RelatedDeclarationNos = new List<string>()
+                };
+                resultItems.Add(newItem);
+                existingMap[code] = newItem;
+                addedFromWarehouse++;
             }
         }
-        return clean;
+
+        // Tự động tính lại Tồn cuối kỳ cho toàn bộ danh sách và kiểm tra cảnh báo
+        int negativeCount = 0;
+        foreach (var item in resultItems)
+        {
+            item.ClosingBalance = (item.OpeningBalance + item.InPeriodProduction) - (item.InPeriodExport + item.OtherExport);
+            if (item.ClosingBalance < 0)
+            {
+                negativeCount++;
+                warnings.Add($"Mã {item.ProductCode}: Thiếu hụt tồn kho {Math.Abs(item.ClosingBalance):#,##0} đôi (Xuất: {item.InPeriodExport:#,##0}, Tồn đầu + Nhập: {item.OpeningBalance + item.InPeriodProduction:#,##0})");
+            }
+        }
+
+        // Sắp xếp lại thứ tự theo mã SP
+        resultItems = resultItems.OrderBy(i => i.ProductCode).ToList();
+        for (int i = 0; i < resultItems.Count; i++)
+        {
+            resultItems[i].Id = i + 1;
+        }
+
+        return new WarehouseImportResultDto
+        {
+            MatchedCount = matchedCount,
+            AddedFromWarehouseCount = addedFromWarehouse,
+            TotalRows = warehouseMap.Count,
+            NegativeItemCount = negativeCount,
+            Items = resultItems,
+            Warnings = warnings
+        };
     }
 }

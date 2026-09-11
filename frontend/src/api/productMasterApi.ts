@@ -5,13 +5,36 @@ import type {
   UpdateProductMasterRequest,
   PagedResult,
   ImportResult,
+  ImportPreviewResponse,
+  ColumnMappingOverride,
+  ValidateItemsRequest,
+  ValidateItemsResult,
 } from '../types';
 
 export const productMasterApi = {
+  // Kiểm tra chéo mã hàng phát hiện nhầm lẫn đối tác
+  validateItems: async (req: ValidateItemsRequest): Promise<ValidateItemsResult> => {
+    const response = await apiClient.post<ValidateItemsResult>('/master-data/validate-items', req);
+    return response.data;
+  },
+
   // Lấy danh sách phân trang
-  getPaged: async (search?: string, page = 1, pageSize = 10): Promise<PagedResult<ProductMaster>> => {
+  getPaged: async (search?: string, page = 1, pageSize = 10, folderId?: number | null): Promise<PagedResult<ProductMaster>> => {
+    const params: Record<string, any> = { search, page, pageSize };
+    if (folderId !== undefined && folderId !== null) {
+      params.folderId = folderId;
+    }
     const response = await apiClient.get<PagedResult<ProductMaster>>('/product-masters', {
-      params: { search, page, pageSize },
+      params,
+    });
+    return response.data;
+  },
+
+  // Di chuyển danh sách sản phẩm sang thư mục khác
+  bulkMove: async (productIds: number[], targetFolderId?: number | null): Promise<{ success: boolean; message: string }> => {
+    const response = await apiClient.post<{ success: boolean; message: string }>('/product-masters/bulk-move', {
+      productIds,
+      targetFolderId: targetFolderId ?? null,
     });
     return response.data;
   },
@@ -45,9 +68,15 @@ export const productMasterApi = {
     await apiClient.delete(`/product-masters/${id}`);
   },
 
-  // Xóa toàn bộ danh mục sản phẩm
-  deleteAll: async (): Promise<{ message: string; deletedCount: number }> => {
-    const response = await apiClient.delete<{ message: string; deletedCount: number }>('/product-masters/all');
+  // Xóa sản phẩm theo thư mục (hoặc toàn bộ nếu không truyền folderId)
+  deleteAll: async (folderId?: number | null): Promise<{ message: string; deletedCount: number }> => {
+    const params: Record<string, any> = {};
+    if (folderId !== undefined && folderId !== null) {
+      params.folderId = folderId;
+    }
+    const response = await apiClient.delete<{ message: string; deletedCount: number }>('/product-masters/all', {
+      params,
+    });
     return response.data;
   },
 
@@ -87,12 +116,51 @@ export const productMasterApi = {
     window.URL.revokeObjectURL(url);
   },
 
-  // Import từ file Excel
-  importExcel: async (file: File, updateExisting = true): Promise<ImportResult> => {
+  // Xem trước cấu trúc và tự động nhận diện cột từ file Excel
+  previewImport: async (file: File, folderId?: number | null): Promise<ImportPreviewResponse> => {
     const formData = new FormData();
     formData.append('file', file);
+    const params: Record<string, any> = {};
+    if (folderId !== undefined && folderId !== null) {
+      params.folderId = folderId;
+    }
+    const response = await apiClient.post<ImportPreviewResponse>(
+      '/product-masters/preview-import',
+      formData,
+      {
+        params,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return response.data;
+  },
+
+  // Import từ file Excel (hỗ trợ folderId và column mapping override)
+  importExcel: async (
+    file: File,
+    updateExisting = true,
+    folderId?: number | null,
+    mapping?: ColumnMappingOverride
+  ): Promise<ImportResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const queryParams = new URLSearchParams({ updateExisting: String(updateExisting) });
+    if (folderId !== undefined && folderId !== null) {
+      queryParams.append('folderId', String(folderId));
+    }
+    if (mapping) {
+      if (mapping.styleCodeCol) queryParams.append('styleCodeCol', String(mapping.styleCodeCol));
+      if (mapping.cmtPriceCol) queryParams.append('cmtCol', String(mapping.cmtPriceCol));
+      if (mapping.dapPriceCol) queryParams.append('dapCol', String(mapping.dapPriceCol));
+      if (mapping.descriptionCol) queryParams.append('descCol', String(mapping.descriptionCol));
+      if (mapping.hsCodeCol) queryParams.append('hsCol', String(mapping.hsCodeCol));
+      if (mapping.unitCol) queryParams.append('unitCol', String(mapping.unitCol));
+      if (mapping.pairsPerCartonCol) queryParams.append('pairCol', String(mapping.pairsPerCartonCol));
+    }
     const response = await apiClient.post<ImportResult>(
-      `/product-masters/import?updateExisting=${updateExisting}`,
+      `/product-masters/import?${queryParams.toString()}`,
       formData,
       {
         headers: {

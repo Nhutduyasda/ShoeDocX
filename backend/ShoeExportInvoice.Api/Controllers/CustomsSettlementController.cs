@@ -85,6 +85,7 @@ public class CustomsSettlementController : ControllerBase
     /// <summary>
     /// Lấy danh sách các kỳ quyết toán đã lưu trong hệ thống.
     /// </summary>
+    [HttpGet]
     [HttpGet("periods")]
     public async Task<ActionResult<List<SettlementPeriodSummaryDto>>> GetSettlementPeriods()
     {
@@ -107,6 +108,7 @@ public class CustomsSettlementController : ControllerBase
     /// <summary>
     /// Lấy chi tiết kỳ quyết toán theo ID.
     /// </summary>
+    [HttpGet("{id}")]
     [HttpGet("periods/{id}")]
     public async Task<ActionResult<SettlementReportDto>> GetSettlementPeriodById(int id)
     {
@@ -218,6 +220,74 @@ public class CustomsSettlementController : ControllerBase
             return StatusCode(500, new
             {
                 message = "Không thể tải chi tiết tờ khai của mã sản phẩm.",
+                detail = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
+    /// Nạp file Excel số liệu kho (Tồn đầu, Nhập sản xuất) và tự động đối soát với danh sách xuất khẩu.
+    /// </summary>
+    [HttpPost("import-warehouse-data")]
+    public async Task<ActionResult<WarehouseImportResultDto>> ImportWarehouseData(
+        IFormFile file,
+        [FromForm] string? currentItems)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new { message = "Vui lòng chọn file Excel để nạp dữ liệu kho." });
+        }
+
+        try
+        {
+            var itemsList = new List<SettlementItemDto>();
+            if (!string.IsNullOrWhiteSpace(currentItems))
+            {
+                var options = new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+                itemsList = System.Text.Json.JsonSerializer.Deserialize<List<SettlementItemDto>>(currentItems, options) ?? new List<SettlementItemDto>();
+            }
+
+            using var stream = file.OpenReadStream();
+            var result = await _settlementService.ImportWarehouseExcelAsync(stream, itemsList);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi nạp file số liệu kho Excel");
+            return StatusCode(500, new
+            {
+                message = "Không thể đọc dữ liệu từ file Excel.",
+                detail = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
+    /// Đối soát và khớp dữ liệu từ clipboard hoặc danh sách dòng nhập kho với danh sách xuất khẩu.
+    /// </summary>
+    [HttpPost("match-warehouse-data")]
+    public async Task<ActionResult<WarehouseImportResultDto>> MatchWarehouseData(
+        [FromBody] MatchWarehouseDataRequestDto request)
+    {
+        if (request == null)
+        {
+            return BadRequest(new { message = "Dữ liệu yêu cầu không hợp lệ." });
+        }
+
+        try
+        {
+            var result = await _settlementService.MatchWarehouseRowsAsync(request.Rows ?? new List<WarehouseDataRowDto>(), request.CurrentItems ?? new List<SettlementItemDto>());
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi đối soát số liệu kho");
+            return StatusCode(500, new
+            {
+                message = "Không thể đối soát dữ liệu kho.",
                 detail = ex.Message
             });
         }

@@ -111,7 +111,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         },
         {
           key: 'settlement',
-          label: 'Báo cáo Quyết toán Hải quan',
+          label: 'Quyết toán Hải quan (Mẫu 16)',
           icon: <AuditOutlined className="text-base" />,
           badge: 'Mẫu 16',
         },
@@ -154,7 +154,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       case 'settlement':
         return [
           { title: <span className="text-slate-400">Nghiệp vụ</span> },
-          { title: <span className="text-slate-700 font-medium">Báo cáo Quyết toán Mẫu 16 (BCQT-SP-GSQL)</span> },
+          { title: <span className="text-slate-700 font-medium">Quyết toán Hải quan (Mẫu 16) & Thống kê Kim ngạch</span> },
         ];
       case 'products':
         return [
@@ -351,10 +351,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans antialiased text-slate-900 w-full max-w-full overflow-x-hidden">
-      {/* Desktop Fixed Sidebar */}
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-800 font-sans antialiased">
+      {/* Desktop Sidebar */}
       <aside
-        className={`hidden lg:flex flex-col shrink-0 border-r border-slate-200 bg-white fixed left-0 top-0 h-screen z-30 transition-all duration-300 ease-in-out ${
+        className={`hidden lg:flex flex-col shrink-0 border-r border-slate-200 bg-white h-screen z-30 transition-all duration-300 ease-in-out ${
           collapsed ? 'w-[72px]' : 'w-64'
         }`}
       >
@@ -374,13 +374,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       </Drawer>
 
       {/* Main Layout Area */}
-      <div
-        className={`flex-1 flex flex-col min-w-0 w-full max-w-full overflow-x-hidden transition-all duration-300 ease-in-out ${
-          collapsed ? 'lg:pl-[72px]' : 'lg:pl-64'
-        }`}
-      >
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {/* Top Header */}
-        <header className="h-14 bg-white border-b border-slate-200 sticky top-0 z-20 px-4 sm:px-6 flex items-center justify-between shrink-0">
+        <header className="h-14 bg-white border-b border-slate-200 shrink-0 px-4 sm:px-6 flex items-center justify-between z-20">
           <div className="flex items-center space-x-3">
             <button
               type="button"
@@ -467,22 +463,24 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           </div>
         </header>
 
-        {/* Page Main Content Container */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-full">
-          {children}
-        </main>
-
-        {/* Footer */}
-        <footer className="border-t border-slate-200 py-3 px-6 text-xs text-slate-500 bg-white">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-1">
-            <span>
-              ShoeDocX • Hệ thống tự động hóa lập Commercial Invoice & Packing List nội bộ
-            </span>
-            <span className="text-slate-400 text-[11px]">
-              Kingmaker III (Việt Nam) Footwear Co., Ltd
-            </span>
+        {/* Page Main Content Container: independent vertical scroll, overflow-x-hidden */}
+        <main className="flex-1 flex flex-col min-w-0 overflow-y-auto overflow-x-hidden">
+          <div className="p-4 sm:p-6 max-w-[1600px] w-full mx-auto space-y-6 flex-1">
+            {children}
           </div>
-        </footer>
+
+          {/* Footer */}
+          <footer className="border-t border-slate-200 py-3 px-6 text-xs text-slate-500 bg-white shrink-0 mt-auto">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-1 max-w-[1600px] mx-auto">
+              <span>
+                ShoeDocX • Hệ thống tự động hóa lập Commercial Invoice & Packing List nội bộ
+              </span>
+              <span className="text-slate-400 text-[11px]">
+                Kingmaker III (Việt Nam) Footwear Co., Ltd
+              </span>
+            </div>
+          </footer>
+        </main>
       </div>
 
       <CheatsheetModal

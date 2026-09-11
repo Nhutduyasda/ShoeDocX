@@ -40,6 +40,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Dependency Injection Services
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IProductMasterService, ProductMasterService>();
+builder.Services.AddScoped<IMasterDataFolderService, MasterDataFolderService>();
 builder.Services.AddScoped<IExcelImportExportService, ExcelImportExportService>();
 builder.Services.AddScoped<IOcrExtractionService, OcrExtractionService>();
 builder.Services.AddScoped<ISequenceService, SequenceService>();

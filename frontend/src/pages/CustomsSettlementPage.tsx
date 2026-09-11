@@ -8,11 +8,14 @@ import {
   InputNumber,
   Tag,
   Tooltip,
-  Alert,
   message,
   Drawer,
   Modal,
   Form,
+  Tabs,
+  Progress,
+  Popconfirm,
+  Upload,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -27,6 +30,17 @@ import {
   InfoCircleOutlined,
   EyeOutlined,
   DownloadOutlined,
+  LockOutlined,
+  CheckCircleOutlined,
+  BarChartOutlined,
+  AuditOutlined,
+  RiseOutlined,
+  DollarCircleOutlined,
+  SafetyCertificateOutlined,
+  TrophyOutlined,
+  UploadOutlined,
+  SnippetsOutlined,
+  FilterOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { settlementApi } from '../api/settlementApi';
@@ -36,29 +50,36 @@ import type {
   SettlementPeriodSummary,
   SaveSettlementPeriodRequest,
   SettlementDrillDownItem,
+  AnalyticsExportStats,
+  WarehouseDataRow,
+  WarehouseImportResult,
 } from '../types';
 
 const { RangePicker } = DatePicker;
 
 export const CustomsSettlementPage: React.FC = () => {
-  // Year & Filter states
   const currentYear = dayjs().year();
+  const [activeTab, setActiveTab] = useState<string>('settlement');
+
+  // ==========================================
+  // TAB 1: SETTLEMENT MANAGER STATES
+  // ==========================================
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>([
     dayjs(`${currentYear}-01-01`),
     dayjs(),
   ]);
-  const [contractNo, setContractNo] = useState<string>('');
+  const [contractNo, setContractNo] = useState<string>('KM-HANEW/01-2025');
+  const [customsOffice, setCustomsOffice] = useState<string>('Chi cục Hải quan Quản lý Hàng gia công');
   const [tableSearch, setTableSearch] = useState<string>('');
 
-  // Report & Items state
   const [report, setReport] = useState<SettlementReport | null>(null);
   const [items, setItems] = useState<SettlementItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [exporting, setExporting] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
 
-  // Drill-down Modal state
+  // Drill-down modal state
   const [drillDownModalOpen, setDrillDownModalOpen] = useState<boolean>(false);
   const [drillDownProductCode, setDrillDownProductCode] = useState<string>('');
   const [drillDownItems, setDrillDownItems] = useState<SettlementDrillDownItem[]>([]);
@@ -71,7 +92,31 @@ export const CustomsSettlementPage: React.FC = () => {
 
   // Save Modal state
   const [saveModalOpen, setSaveModalOpen] = useState<boolean>(false);
+  const [saveStatus, setSaveStatus] = useState<'Draft' | 'Finalized'>('Draft');
   const [saveForm] = Form.useForm();
+
+  // Warehouse import states
+  const [importExcelModalOpen, setImportExcelModalOpen] = useState<boolean>(false);
+  const [importExcelFile, setImportExcelFile] = useState<File | null>(null);
+  const [importExcelLoading, setImportExcelLoading] = useState<boolean>(false);
+
+  const [pasteModalOpen, setPasteModalOpen] = useState<boolean>(false);
+  const [pasteText, setPasteText] = useState<string>('');
+  const [pasteLoading, setPasteLoading] = useState<boolean>(false);
+
+  const [importResultModalOpen, setImportResultModalOpen] = useState<boolean>(false);
+  const [importResult, setImportResult] = useState<WarehouseImportResult | null>(null);
+
+  // Negative balance filter toggle
+  const [onlyNegativeFilter, setOnlyNegativeFilter] = useState<boolean>(false);
+
+  // ==========================================
+  // TAB 2: ANALYTICS & REVENUE STATES
+  // ==========================================
+  const [analyticsYear, setAnalyticsYear] = useState<number>(currentYear);
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsExportStats | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
+  const [hoveredMonth, setHoveredMonth] = useState<number | null>(null);
 
   // Handle year change
   const handleYearChange = (year: number) => {
@@ -96,9 +141,24 @@ export const CustomsSettlementPage: React.FC = () => {
     }
   }, []);
 
+  // Load analytics data
+  const loadAnalytics = useCallback(async (year: number) => {
+    try {
+      setAnalyticsLoading(true);
+      const data = await settlementApi.getExportAnalytics(year);
+      setAnalyticsData(data);
+    } catch (err) {
+      console.error('Lỗi khi tải phân tích kim ngạch:', err);
+      message.error('Không thể tải dữ liệu thống kê kim ngạch.');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadSavedPeriods();
-  }, [loadSavedPeriods]);
+    loadAnalytics(analyticsYear);
+  }, [loadSavedPeriods, loadAnalytics, analyticsYear]);
 
   // Calculate / aggregate settlement data
   const handleCalculate = async () => {
@@ -114,6 +174,7 @@ export const CustomsSettlementPage: React.FC = () => {
         fromDate: dateRange[0].format('YYYY-MM-DD'),
         toDate: dateRange[1].format('YYYY-MM-DD'),
         contractNo: contractNo.trim() || undefined,
+        customsOffice: customsOffice.trim() || undefined,
       });
 
       setReport(res);
@@ -126,6 +187,100 @@ export const CustomsSettlementPage: React.FC = () => {
       message.error(err.response?.data?.message || 'Không thể tổng hợp số liệu quyết toán.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle Warehouse Excel Import
+  const handleImportWarehouseExcel = async () => {
+    if (!importExcelFile) {
+      message.warning('Vui lòng chọn file Excel để tải lên.');
+      return;
+    }
+
+    try {
+      setImportExcelLoading(true);
+      const res = await settlementApi.importWarehouseData(importExcelFile, items);
+      setItems(res.items);
+      setImportResult(res);
+      setImportExcelModalOpen(false);
+      setImportExcelFile(null);
+      setImportResultModalOpen(true);
+
+      message.success(
+        `Đã đối soát kho thành công: Khớp ${res.matchedCount} mã, thêm mới ${res.addedFromWarehouseCount} mã.`
+      );
+    } catch (err: any) {
+      console.error('Lỗi khi nạp file Excel kho:', err);
+      message.error(err.response?.data?.message || 'Không thể đối soát file số liệu kho.');
+    } finally {
+      setImportExcelLoading(false);
+    }
+  };
+
+  // Handle Clipboard Paste Import
+  const handleParseAndMatchClipboard = async () => {
+    if (!pasteText.trim()) {
+      message.warning('Vui lòng dán dữ liệu từ bảng tính vào khung.');
+      return;
+    }
+
+    try {
+      setPasteLoading(true);
+      const lines = pasteText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+      const rows: WarehouseDataRow[] = [];
+
+      for (const line of lines) {
+        const parts = line.includes('\t') ? line.split('\t') : line.split(',');
+        if (parts.length >= 2) {
+          const rawCode = parts[0].trim();
+          const lower = rawCode.toLowerCase();
+          if (
+            lower.includes('mã') ||
+            lower.includes('style') ||
+            lower.includes('code') ||
+            lower.includes('tổng cộng') ||
+            lower.includes('total')
+          ) {
+            continue;
+          }
+
+          const cleanNum = (str?: string) => {
+            if (!str) return 0;
+            const parsed = parseFloat(str.replace(/,/g, '').trim());
+            return isNaN(parsed) ? 0 : parsed;
+          };
+
+          const opening = cleanNum(parts[1]);
+          const prod = parts.length >= 3 ? cleanNum(parts[2]) : 0;
+
+          rows.push({
+            productCode: rawCode,
+            openingBalance: Math.max(0, opening),
+            inPeriodProduction: Math.max(0, prod),
+          });
+        }
+      }
+
+      if (rows.length === 0) {
+        message.warning('Không tìm thấy dòng dữ liệu hợp lệ. Vui lòng kiểm tra lại định dạng (Mã SP, Tồn đầu, Nhập SX).');
+        return;
+      }
+
+      const res = await settlementApi.matchWarehouseData(rows, items);
+      setItems(res.items);
+      setImportResult(res);
+      setPasteModalOpen(false);
+      setPasteText('');
+      setImportResultModalOpen(true);
+
+      message.success(
+        `Đã ghép thành công ${rows.length} dòng dữ liệu: Khớp ${res.matchedCount} mã, thêm mới ${res.addedFromWarehouseCount} mã.`
+      );
+    } catch (err: any) {
+      console.error('Lỗi khi ghép dữ liệu clipboard:', err);
+      message.error(err.response?.data?.message || 'Không thể đối soát dữ liệu từ Clipboard.');
+    } finally {
+      setPasteLoading(false);
     }
   };
 
@@ -158,6 +313,11 @@ export const CustomsSettlementPage: React.FC = () => {
     field: 'openingBalance' | 'inPeriodProduction' | 'otherExport' | 'note',
     value: any
   ) => {
+    if (report?.status === 'Finalized') {
+      message.warning('Kỳ quyết toán này đã được chốt khóa số liệu (Finalized). Không thể chỉnh sửa.');
+      return;
+    }
+
     setItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
@@ -176,18 +336,20 @@ export const CustomsSettlementPage: React.FC = () => {
   };
 
   // Open Save Modal
-  const handleOpenSaveModal = () => {
+  const handleOpenSaveModal = (statusToSave: 'Draft' | 'Finalized' = 'Draft') => {
     if (!report || items.length === 0) {
       message.warning('Chưa có dữ liệu quyết toán để lưu.');
       return;
     }
 
+    setSaveStatus(statusToSave);
     saveForm.setFieldsValue({
       year: selectedYear || dateRange[0].year(),
-      contractNo: contractNo || report.contractNo || '',
-      companyName: report.companyName,
-      taxCode: report.taxCode,
-      address: report.address,
+      contractNo: contractNo || report.contractNo || 'KM-HANEW/01-2025',
+      customsOffice: customsOffice || report.customsOffice || 'Chi cục Hải quan Quản lý Hàng gia công',
+      companyName: report.companyName || 'CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG',
+      taxCode: report.taxCode || '4300326888',
+      address: report.address || 'KCN VSIP Quảng Ngãi, Xã Tịnh Phong, Huyện Sơn Tịnh, Tỉnh Quảng Ngãi',
       note: report.note || `Kỳ quyết toán năm ${selectedYear} (${dateRange[0].format('DD/MM/YYYY')} - ${dateRange[1].format('DD/MM/YYYY')})`,
     });
     setSaveModalOpen(true);
@@ -205,6 +367,8 @@ export const CustomsSettlementPage: React.FC = () => {
         fromDate: dateRange[0].format('YYYY-MM-DD'),
         toDate: dateRange[1].format('YYYY-MM-DD'),
         contractNo: values.contractNo?.trim() || undefined,
+        customsOffice: values.customsOffice?.trim() || undefined,
+        status: saveStatus,
         companyName: values.companyName?.trim(),
         taxCode: values.taxCode?.trim(),
         address: values.address?.trim(),
@@ -212,8 +376,15 @@ export const CustomsSettlementPage: React.FC = () => {
         items: items,
       };
 
-      await settlementApi.saveSettlement(payload);
-      message.success('Đã lưu kỳ báo cáo quyết toán thành công vào hệ thống.');
+      const saved = await settlementApi.saveSettlement(payload);
+      setReport((prev) => (prev ? { ...prev, periodId: saved.id, status: saveStatus } : null));
+
+      if (saveStatus === 'Finalized') {
+        message.success(`Đã CHỐT SỔ & KHÓA KỲ quyết toán năm ${values.year} thành công.`);
+      } else {
+        message.success('Đã lưu bản nháp kỳ báo cáo quyết toán thành công vào hệ thống.');
+      }
+
       setSaveModalOpen(false);
       loadSavedPeriods();
     } catch (err: any) {
@@ -240,8 +411,11 @@ export const CustomsSettlementPage: React.FC = () => {
       if (data.contractNo) {
         setContractNo(data.contractNo);
       }
+      if (data.customsOffice) {
+        setCustomsOffice(data.customsOffice);
+      }
       setHistoryDrawerOpen(false);
-      message.success(`Đã tải kỳ quyết toán năm ${data.year} (${data.items.length} mã hàng).`);
+      message.success(`Đã tải kỳ quyết toán năm ${data.year} (${data.items.length} mã hàng - ${data.status === 'Finalized' ? 'Đã chốt sổ' : 'Bản nháp'}).`);
     } catch (err) {
       console.error('Lỗi khi tải chi tiết kỳ quyết toán:', err);
       message.error('Không thể tải chi tiết kỳ quyết toán.');
@@ -257,7 +431,7 @@ export const CustomsSettlementPage: React.FC = () => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Mau16_BCQT_SP_GSQL_Nam_${year}_${dayjs().format('YYYYMMDDHHmmss')}.xlsx`;
+      a.download = `Mau16_BCQT_SP_GSQL_Nam_${year}_Ky_${periodId}_${dayjs().format('YYYYMMDDHHmmss')}.xlsx`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -284,6 +458,7 @@ export const CustomsSettlementPage: React.FC = () => {
         fromDate: dateRange[0].format('YYYY-MM-DD'),
         toDate: dateRange[1].format('YYYY-MM-DD'),
         contractNo: contractNo.trim() || report.contractNo,
+        customsOffice: customsOffice.trim() || report.customsOffice,
       };
 
       const blob = await settlementApi.exportSettlementExcel(currentReport);
@@ -296,7 +471,7 @@ export const CustomsSettlementPage: React.FC = () => {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      message.success('Xuất file Excel Mẫu 16/BCQT-SP-GSQL (kèm Sheet Drill-down) thành công.');
+      message.success('Xuất file Excel Mẫu 16/BCQT-SP-GSQL (kèm Sheet Drill-down tờ khai) thành công.');
     } catch (err) {
       console.error('Lỗi khi xuất file Excel Mẫu 16:', err);
       message.error('Không thể xuất file Excel.');
@@ -313,18 +488,25 @@ export const CustomsSettlementPage: React.FC = () => {
   const totalClosing = useMemo(() => items.reduce((sum, i) => sum + (Number(i.closingBalance) || 0), 0), [items]);
   const negativeItems = useMemo(() => items.filter((i) => i.closingBalance < 0), [items]);
 
-  // Filtered items by search query
+  // Filtered items by search query and negative balance filter
   const filteredItems = useMemo(() => {
-    if (!tableSearch.trim()) return items;
+    let result = items;
+    if (onlyNegativeFilter) {
+      result = result.filter((i) => i.closingBalance < 0);
+    }
+    if (!tableSearch.trim()) return result;
     const q = tableSearch.toLowerCase().trim();
-    return items.filter(
+    return result.filter(
       (item) =>
         item.productCode.toLowerCase().includes(q) ||
-        (item.productName && item.productName.toLowerCase().includes(q))
+        (item.productName && item.productName.toLowerCase().includes(q)) ||
+        (item.hsCode && item.hsCode.toLowerCase().includes(q))
     );
-  }, [items, tableSearch]);
+  }, [items, tableSearch, onlyNegativeFilter]);
 
-  // Columns definition
+  const isFinalized = report?.status === 'Finalized';
+
+  // Columns definition for Mẫu 16
   const columns: ColumnsType<SettlementItem> = [
     {
       title: (
@@ -335,6 +517,7 @@ export const CustomsSettlementPage: React.FC = () => {
       ),
       key: 'stt',
       width: 50,
+      fixed: 'left',
       align: 'center',
       render: (_, __, idx) => <span className="text-xs text-slate-500">{idx + 1}</span>,
     },
@@ -347,12 +530,29 @@ export const CustomsSettlementPage: React.FC = () => {
       ),
       dataIndex: 'productCode',
       key: 'productCode',
-      width: 135,
-      render: (code: string) => (
-        <span className="font-mono text-xs font-semibold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-          {code}
-        </span>
-      ),
+      width: 145,
+      fixed: 'left',
+      render: (code: string, record) => {
+        const isNeg = record.closingBalance < 0;
+        return (
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`font-mono text-xs font-semibold px-1.5 py-0.5 rounded border ${
+                isNeg
+                  ? 'text-rose-900 bg-rose-100 border-rose-300'
+                  : 'text-slate-900 bg-slate-100 border-slate-200'
+              }`}
+            >
+              {code}
+            </span>
+            {isNeg && (
+              <Tooltip title={`Cảnh báo: Âm tồn ${Math.abs(record.closingBalance).toLocaleString()} đôi!`}>
+                <WarningOutlined className="text-rose-600 text-xs shrink-0" />
+              </Tooltip>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: (
@@ -364,9 +564,14 @@ export const CustomsSettlementPage: React.FC = () => {
       dataIndex: 'productName',
       key: 'productName',
       ellipsis: true,
-      render: (name: string) => (
+      render: (name: string, record) => (
         <Tooltip title={name}>
-          <span className="text-xs text-slate-700">{name || '-'}</span>
+          <div className="text-xs text-slate-700 truncate">
+            <span>{name || '-'}</span>
+            {record.hsCode && (
+              <span className="ml-1.5 text-[10px] font-mono text-slate-400">[{record.hsCode}]</span>
+            )}
+          </div>
         </Tooltip>
       ),
     },
@@ -379,7 +584,7 @@ export const CustomsSettlementPage: React.FC = () => {
       ),
       dataIndex: 'unit',
       key: 'unit',
-      width: 60,
+      width: 55,
       align: 'center',
       render: (u: string) => <span className="text-xs text-slate-500">{u || 'đôi'}</span>,
     },
@@ -392,12 +597,13 @@ export const CustomsSettlementPage: React.FC = () => {
       ),
       dataIndex: 'openingBalance',
       key: 'openingBalance',
-      width: 125,
+      width: 120,
       align: 'right',
       render: (val: number, record) => (
         <InputNumber
           size="small"
           min={0}
+          disabled={isFinalized}
           value={val}
           onChange={(newVal) => handleItemChange(record.id, 'openingBalance', newVal ?? 0)}
           className="w-full text-right font-mono text-xs"
@@ -415,12 +621,13 @@ export const CustomsSettlementPage: React.FC = () => {
       ),
       dataIndex: 'inPeriodProduction',
       key: 'inPeriodProduction',
-      width: 135,
+      width: 130,
       align: 'right',
       render: (val: number, record) => (
         <InputNumber
           size="small"
           min={0}
+          disabled={isFinalized}
           value={val}
           onChange={(newVal) => handleItemChange(record.id, 'inPeriodProduction', newVal ?? 0)}
           className="w-full text-right font-mono text-xs"
@@ -446,13 +653,13 @@ export const CustomsSettlementPage: React.FC = () => {
           <span className="font-mono text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
             {val.toLocaleString()}
           </span>
-          <Tooltip title="Xem chi tiết các tờ khai hải quan cấu thành">
+          <Tooltip title="Xem danh sách các tờ khai hải quan E52 cấu thành (Drill-down)">
             <Button
               type="text"
               size="small"
               icon={<EyeOutlined className="text-blue-600 text-xs" />}
               onClick={() => handleOpenDrillDown(record.productCode)}
-              className="h-6 w-6 p-0 hover:bg-blue-100/50 flex items-center justify-center rounded"
+              className="h-6 w-6 p-0 hover:bg-blue-100/60 flex items-center justify-center rounded cursor-pointer"
             />
           </Tooltip>
         </div>
@@ -467,12 +674,13 @@ export const CustomsSettlementPage: React.FC = () => {
       ),
       dataIndex: 'otherExport',
       key: 'otherExport',
-      width: 110,
+      width: 105,
       align: 'right',
       render: (val: number, record) => (
         <InputNumber
           size="small"
           min={0}
+          disabled={isFinalized}
           value={val}
           onChange={(newVal) => handleItemChange(record.id, 'otherExport', newVal ?? 0)}
           className="w-full text-right font-mono text-xs"
@@ -490,20 +698,27 @@ export const CustomsSettlementPage: React.FC = () => {
       ),
       dataIndex: 'closingBalance',
       key: 'closingBalance',
-      width: 135,
+      width: 145,
       align: 'right',
       render: (val: number) => {
         const isNegative = val < 0;
         return (
-          <span
-            className={`font-mono text-xs font-semibold px-2 py-0.5 rounded border ${
-              isNegative
-                ? 'text-rose-700 bg-rose-50 border-rose-200'
-                : 'text-slate-900 bg-slate-50 border-slate-200'
-            }`}
-          >
-            {val.toLocaleString()}
-          </span>
+          <div className="flex flex-col items-end">
+            <span
+              className={`font-mono text-xs font-semibold px-2 py-0.5 rounded border ${
+                isNegative
+                  ? 'text-rose-700 bg-rose-100 border-rose-300'
+                  : 'text-slate-900 bg-slate-50 border-slate-200'
+              }`}
+            >
+              {val.toLocaleString()}
+            </span>
+            {isNegative && (
+              <span className="text-[10px] text-rose-600 font-medium mt-0.5 whitespace-nowrap">
+                Thiếu: {Math.abs(val).toLocaleString()} đôi
+              </span>
+            )}
+          </div>
         );
       },
     },
@@ -516,10 +731,11 @@ export const CustomsSettlementPage: React.FC = () => {
       ),
       dataIndex: 'note',
       key: 'note',
-      width: 140,
+      width: 130,
       render: (text: string, record) => (
         <Input
           size="small"
+          disabled={isFinalized}
           value={text}
           onChange={(e) => handleItemChange(record.id, 'note', e.target.value)}
           placeholder="Ghi chú..."
@@ -531,23 +747,34 @@ export const CustomsSettlementPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200">
+      {/* Top Main Page Header */}
+      <div className="flex justify-between items-start flex-wrap gap-4 pb-4 border-b border-slate-200">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold text-slate-900 tracking-tight m-0">
-              Báo cáo Quyết toán Hải quan (Mẫu 16/BCQT-SP-GSQL)
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
+              Quyết toán Hải quan & Thống kê Phân tích Kim ngạch
             </h1>
             <Tag className="bg-blue-50 text-blue-700 border-blue-200 text-xs m-0">
-              Phụ lục II TT 39/2018/TT-BTC
+              Thông tư 39/2018/TT-BTC
             </Tag>
+            {report?.status === 'Finalized' && (
+              <Tag color="success" icon={<CheckCircleOutlined />} className="m-0 font-medium">
+                ĐÃ CHỐT SỔ
+              </Tag>
+            )}
+            {report?.status === 'Draft' && (
+              <Tag color="warning" className="m-0 font-medium">
+                BẢN NHÁP
+              </Tag>
+            )}
           </div>
-          <p className="text-xs text-slate-500 mt-1 m-0">
-            Tự động tổng hợp số liệu xuất khẩu loại hình gia công (E52) đã thông quan để lập và nộp báo cáo quyết toán Hải quan
+          <p className="text-sm text-slate-500 mt-1 m-0">
+            Tự động tổng hợp số liệu xuất khẩu gia công (E52) từ các đơn hàng Đã thông quan, xuất Excel Mẫu 16 và phân tích doanh thu CMT/DAP
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Global Toolbar Action Buttons */}
+        <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
           <Button
             icon={<HistoryOutlined />}
             onClick={() => {
@@ -561,12 +788,29 @@ export const CustomsSettlementPage: React.FC = () => {
 
           <Button
             icon={<SaveOutlined />}
-            onClick={handleOpenSaveModal}
-            disabled={items.length === 0}
+            onClick={() => handleOpenSaveModal('Draft')}
+            disabled={items.length === 0 || isFinalized}
             className="text-xs text-slate-700 hover:text-blue-600 border-slate-200"
           >
-            Lưu bảng quyết toán
+            Lưu nháp
           </Button>
+
+          <Popconfirm
+            title="Xác nhận chốt kỳ báo cáo quyết toán?"
+            description="Sau khi chốt sổ, kỳ báo cáo này sẽ được khóa (Finalized) để đảm bảo tính pháp lý khi nộp Hải quan."
+            onConfirm={() => handleOpenSaveModal('Finalized')}
+            okText="Đồng ý chốt"
+            cancelText="Hủy"
+            disabled={items.length === 0 || isFinalized}
+          >
+            <Button
+              icon={<LockOutlined />}
+              disabled={items.length === 0 || isFinalized}
+              className="text-xs text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200"
+            >
+              Chốt kỳ báo cáo
+            </Button>
+          </Popconfirm>
 
           <Button
             type="primary"
@@ -576,271 +820,771 @@ export const CustomsSettlementPage: React.FC = () => {
             disabled={items.length === 0}
             className="text-xs bg-emerald-600 hover:bg-emerald-700 border-emerald-600 font-medium"
           >
-            Xuất Excel Mẫu 16/BCQT-SP-GSQL
+            Xuất Excel Mẫu 16 Chuẩn Hải quan
           </Button>
         </div>
       </div>
 
-      {/* Filter / Calculation Toolbar */}
-      <div className="bg-white border border-slate-200 rounded-lg p-4">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-          {/* Year selector */}
-          <div className="md:col-span-2">
-            <span className="text-xs font-medium text-slate-600 block mb-1">
-              Năm quyết toán:
-            </span>
-            <Select
-              value={selectedYear}
-              onChange={handleYearChange}
-              className="w-full text-xs"
-              options={[
-                { value: 2026, label: 'Năm 2026' },
-                { value: 2025, label: 'Năm 2025' },
-                { value: 2024, label: 'Năm 2024' },
-                { value: 2023, label: 'Năm 2023' },
-              ]}
-            />
-          </div>
-
-          {/* Date Range Picker */}
-          <div className="md:col-span-4">
-            <span className="text-xs font-medium text-slate-600 block mb-1">
-              Khoảng ngày thông quan:
-            </span>
-            <RangePicker
-              value={dateRange}
-              onChange={(dates) => dates && setDateRange(dates as [Dayjs, Dayjs])}
-              format="DD/MM/YYYY"
-              className="w-full text-xs"
-              allowClear={false}
-            />
-          </div>
-
-          {/* Contract Number */}
-          <div className="md:col-span-3">
-            <span className="text-xs font-medium text-slate-600 block mb-1">
-              Số hợp đồng gia công:
-            </span>
-            <Input
-              value={contractNo}
-              onChange={(e) => setContractNo(e.target.value)}
-              placeholder="VD: KM-HANEW/01-2025"
-              className="w-full text-xs"
-              allowClear
-            />
-          </div>
-
-          {/* Action Button */}
-          <div className="md:col-span-3 flex items-end gap-2 pt-5">
-            <Button
-              type="primary"
-              icon={<CalculatorOutlined />}
-              onClick={handleCalculate}
-              loading={loading}
-              className="flex-1 text-xs bg-blue-600 hover:bg-blue-700"
-            >
-              Tổng hợp Dữ liệu từ Tờ khai E52
-            </Button>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => {
-                handleYearChange(currentYear);
-                setContractNo('');
-                setItems([]);
-                setReport(null);
-              }}
-              title="Đặt lại bộ lọc"
-              className="text-xs text-slate-600"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* KPI Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
-            Tổng số mã sản phẩm
-          </div>
-          <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-semibold font-mono text-slate-900">
-              {items.length}
-            </span>
-            <span className="text-xs text-slate-400">mã hình thể</span>
-          </div>
-          <div className="mt-2 text-[11px] text-slate-500">
-            {report?.clearedOrderCount ? `Từ ${report.clearedOrderCount} đơn E52 thông quan` : 'Chờ tổng hợp'}
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
-            Lượng tồn đầu kỳ (Cột 5)
-          </div>
-          <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-semibold font-mono text-slate-900">
-              {totalOpening.toLocaleString()}
-            </span>
-            <span className="text-xs text-slate-400">đôi</span>
-          </div>
-          <div className="mt-2 text-[11px] text-slate-500">
-            Kế thừa từ kỳ trước hoặc hiệu chỉnh
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
-            Lượng xuất trong kỳ E52 (Cột 7)
-          </div>
-          <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-semibold font-mono text-blue-600">
-              {totalExport.toLocaleString()}
-            </span>
-            <span className="text-xs text-slate-400">đôi</span>
-          </div>
-          <div className="mt-2 text-[11px] text-slate-500">
-            Tổng xuất khẩu gia công đã thông quan
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
-            Lượng tồn cuối kỳ (Cột 9)
-          </div>
-          <div className="mt-2 flex items-baseline justify-between">
-            <span
-              className={`text-2xl font-semibold font-mono ${
-                totalClosing < 0 ? 'text-rose-600' : 'text-emerald-600'
-              }`}
-            >
-              {totalClosing.toLocaleString()}
-            </span>
-            <span className="text-xs text-slate-400">đôi</span>
-          </div>
-          <div className="mt-2 text-[11px] text-slate-500">
-            {negativeItems.length > 0 ? (
-              <span className="text-rose-600 font-medium">
-                {negativeItems.length} mã bị âm tồn!
+      {/* Main Tabs Container */}
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        type="card"
+        className="settlement-tabs"
+        items={[
+          {
+            key: 'settlement',
+            label: (
+              <span className="flex items-center gap-1.5 px-1">
+                <AuditOutlined />
+                <span>Báo cáo Quyết toán Mẫu 16 (BCQT-SP-GSQL)</span>
               </span>
-            ) : (
-              'Cân đối tồn kho hợp lệ'
-            )}
-          </div>
-        </div>
-      </div>
+            ),
+            children: (
+              <div className="space-y-5 pt-2">
+                {/* Filter Toolbar */}
+                <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                    {/* Year selector */}
+                    <div className="md:col-span-2">
+                      <span className="text-xs font-medium text-slate-600 block mb-1">
+                        Năm quyết toán:
+                      </span>
+                      <Select
+                        value={selectedYear}
+                        onChange={handleYearChange}
+                        className="w-full text-xs"
+                        options={[
+                          { value: 2026, label: 'Năm 2026' },
+                          { value: 2025, label: 'Năm 2025' },
+                          { value: 2024, label: 'Năm 2024' },
+                          { value: 2023, label: 'Năm 2023' },
+                        ]}
+                      />
+                    </div>
 
-      {/* Warning Alert if negative closing balance detected */}
-      {negativeItems.length > 0 && (
-        <Alert
-          type="warning"
-          showIcon
-          icon={<WarningOutlined className="text-amber-500" />}
-          message={
-            <span className="font-semibold text-slate-800">
-              Cảnh báo số dư cuối kỳ âm tại {negativeItems.length} mã hàng
-            </span>
-          }
-          description={
-            <div className="text-xs text-slate-600 mt-1">
-              Phát hiện {negativeItems.length} mã hàng có Lượng tồn cuối kỳ &lt; 0 (
-              {negativeItems.slice(0, 5).map((i) => i.productCode).join(', ')}
-              {negativeItems.length > 5 ? '...' : ''}). Vui lòng cập nhật bổ sung Lượng tồn đầu kỳ (cột 5) hoặc
-              Lượng nhập sản xuất trong kỳ (cột 6) để đảm bảo tính pháp lý trước khi nộp báo cáo Hải quan.
-            </div>
-          }
-          className="border-amber-200 bg-amber-50"
-        />
-      )}
+                    {/* Date Range Picker */}
+                    <div className="md:col-span-4">
+                      <span className="text-xs font-medium text-slate-600 block mb-1">
+                        Khoảng ngày thông quan:
+                      </span>
+                      <RangePicker
+                        value={dateRange}
+                        onChange={(dates) => dates && setDateRange(dates as [Dayjs, Dayjs])}
+                        format="DD/MM/YYYY"
+                        className="w-full text-xs"
+                        allowClear={false}
+                      />
+                    </div>
 
-      {/* Settlement Table Panel */}
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        {/* Table Toolbar */}
-        <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/50">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-800">
-              Bảng dữ liệu Quyết toán Sản phẩm Xuất khẩu (Mẫu 16/BCQT-SP-GSQL)
-            </span>
-            <Tag className="bg-slate-100 text-slate-600 border-slate-200 text-xs m-0">
-              {filteredItems.length} / {items.length} mã hàng
-            </Tag>
-          </div>
+                    {/* Contract Number */}
+                    <div className="md:col-span-3">
+                      <span className="text-xs font-medium text-slate-600 block mb-1">
+                        Số hợp đồng gia công:
+                      </span>
+                      <Input
+                        value={contractNo}
+                        onChange={(e) => setContractNo(e.target.value)}
+                        placeholder="VD: KM-HANEW/01-2025"
+                        className="w-full text-xs"
+                        allowClear
+                      />
+                    </div>
 
-          <div className="flex items-center gap-2">
-            <Input
-              size="small"
-              placeholder="Tìm mã sản phẩm, tên..."
-              prefix={<SearchOutlined className="text-slate-400" />}
-              value={tableSearch}
-              onChange={(e) => setTableSearch(e.target.value)}
-              className="w-60 text-xs"
-              allowClear
-            />
-          </div>
-        </div>
+                    {/* Customs Office */}
+                    <div className="md:col-span-3">
+                      <span className="text-xs font-medium text-slate-600 block mb-1">
+                        Chi cục Hải quan tiếp nhận:
+                      </span>
+                      <Input
+                        value={customsOffice}
+                        onChange={(e) => setCustomsOffice(e.target.value)}
+                        placeholder="Chi cục Hải quan quản lý"
+                        className="w-full text-xs"
+                        allowClear
+                      />
+                    </div>
+                  </div>
+                </div>
 
-        {/* Table */}
-        <Table
-          dataSource={filteredItems}
-          columns={columns}
-          rowKey="id"
-          loading={loading}
-          size="small"
-          scroll={{ x: 1250 }}
-          pagination={{
-            defaultPageSize: 20,
-            showSizeChanger: true,
-            pageSizeOptions: ['10', '20', '50', '100'],
-            size: 'small',
-          }}
-          locale={{
-            emptyText: (
-              <div className="py-12 text-center text-slate-400">
-                <InfoCircleOutlined className="text-3xl mb-2 text-slate-300 block" />
-                <p className="text-xs m-0">
-                  Chưa có dữ liệu quyết toán. Vui lòng thiết lập bộ lọc và bấm{' '}
-                  <strong className="text-blue-600">"Tổng hợp Dữ liệu từ Tờ khai E52"</strong>.
-                </p>
+                {/* 3-Step Action Workflow Bar */}
+                <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-xs flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide mr-1">
+                      Quy trình 3 bước:
+                    </span>
+                    <Button
+                      type="primary"
+                      icon={<CalculatorOutlined />}
+                      onClick={handleCalculate}
+                      loading={loading}
+                      className="text-xs bg-blue-600 hover:bg-blue-700 font-medium h-8"
+                    >
+                      1. Tổng hợp Lượng Thực xuất (E52)
+                    </Button>
+                    <span className="text-slate-300">→</span>
+                    <Button
+                      icon={<UploadOutlined className="text-emerald-600" />}
+                      onClick={() => setImportExcelModalOpen(true)}
+                      className="text-xs text-slate-700 hover:text-emerald-600 border-slate-200 font-medium h-8"
+                    >
+                      2. Nạp File Số liệu Kho (.xlsx)
+                    </Button>
+                    <Button
+                      icon={<SnippetsOutlined className="text-purple-600" />}
+                      onClick={() => setPasteModalOpen(true)}
+                      className="text-xs text-slate-700 hover:text-purple-600 border-slate-200 h-8"
+                    >
+                      Dán từ Clipboard
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {negativeItems.length > 0 && (
+                      <Button
+                        danger={onlyNegativeFilter}
+                        type={onlyNegativeFilter ? 'primary' : 'default'}
+                        icon={<FilterOutlined />}
+                        onClick={() => setOnlyNegativeFilter(!onlyNegativeFilter)}
+                        className="text-xs font-medium h-8"
+                      >
+                        {onlyNegativeFilter ? 'Xem tất cả mã hàng' : `Chỉ xem mã âm tồn (${negativeItems.length})`}
+                      </Button>
+                    )}
+                    <Button
+                      icon={<ReloadOutlined />}
+                      onClick={() => {
+                        handleYearChange(currentYear);
+                        setContractNo('KM-HANEW/01-2025');
+                        setCustomsOffice('Chi cục Hải quan Quản lý Hàng gia công');
+                        setItems([]);
+                        setReport(null);
+                        setOnlyNegativeFilter(false);
+                      }}
+                      title="Đặt lại dữ liệu"
+                      className="text-xs text-slate-500 h-8"
+                    >
+                      Làm mới
+                    </Button>
+                  </div>
+                </div>
+
+                {/* KPI Cards Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+                    <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      Tổng số mã sản phẩm
+                    </div>
+                    <div className="mt-2 flex items-baseline justify-between">
+                      <span className="text-2xl font-semibold font-mono text-slate-900">
+                        {items.length}
+                      </span>
+                      <span className="text-xs text-slate-400">mã hình thể</span>
+                    </div>
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      {report?.clearedOrderCount ? `Từ ${report.clearedOrderCount} đơn E52 thông quan` : 'Chờ tổng hợp'}
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+                    <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      Lượng tồn đầu kỳ (Cột 5)
+                    </div>
+                    <div className="mt-2 flex items-baseline justify-between">
+                      <span className="text-2xl font-semibold font-mono text-slate-900">
+                        {totalOpening.toLocaleString()}
+                      </span>
+                      <span className="text-xs text-slate-400">đôi</span>
+                    </div>
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      Kế thừa từ kỳ trước hoặc đối soát kho
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+                    <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      Lượng xuất trong kỳ E52 (Cột 7)
+                    </div>
+                    <div className="mt-2 flex items-baseline justify-between">
+                      <span className="text-2xl font-semibold font-mono text-blue-600">
+                        {totalExport.toLocaleString()}
+                      </span>
+                      <span className="text-xs text-slate-400">đôi</span>
+                    </div>
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      Tổng xuất khẩu gia công đã thông quan
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+                    <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      Lượng tồn cuối kỳ (Cột 9)
+                    </div>
+                    <div className="mt-2 flex items-baseline justify-between">
+                      <span
+                        className={`text-2xl font-semibold font-mono ${
+                          totalClosing < 0 ? 'text-rose-600' : 'text-emerald-600'
+                        }`}
+                      >
+                        {totalClosing.toLocaleString()}
+                      </span>
+                      <span className="text-xs text-slate-400">đôi</span>
+                    </div>
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      {negativeItems.length > 0 ? (
+                        <span className="text-rose-600 font-semibold">
+                          ⚠ {negativeItems.length} mã bị âm tồn!
+                        </span>
+                      ) : (
+                        'Cân đối tồn kho hợp lệ'
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Audit Risk Banner when negative closing balance detected */}
+                {negativeItems.length > 0 && (
+                  <div className="rounded-lg border-2 border-rose-400 bg-rose-50 p-4 shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-rose-100 rounded-full text-rose-600 text-lg flex items-center justify-center shrink-0">
+                          <WarningOutlined />
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold text-rose-900 leading-tight">
+                            ⚠ CẢNH BÁO PHÁP LÝ: Phát hiện {negativeItems.length} mã hàng bị ÂM TỒN KHO!
+                          </div>
+                          <div className="text-xs text-rose-700 mt-1">
+                            (Số lượng thực xuất lớn hơn số lượng kho báo sản xuất). Vui lòng kiểm tra lại trước khi xuất file nộp Hải quan.
+                          </div>
+                          <div className="text-[11px] text-rose-600 font-mono mt-1">
+                            Mã bị âm: {negativeItems.slice(0, 8).map((i) => `${i.productCode} (${i.closingBalance.toLocaleString()})`).join(', ')}
+                            {negativeItems.length > 8 ? ` ...và ${negativeItems.length - 8} mã khác` : ''}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          danger
+                          type={onlyNegativeFilter ? 'primary' : 'default'}
+                          icon={<FilterOutlined />}
+                          onClick={() => setOnlyNegativeFilter(!onlyNegativeFilter)}
+                          className="text-xs font-semibold"
+                        >
+                          {onlyNegativeFilter ? 'Hiển thị toàn bộ mã hàng' : `Chỉ xem các mã bị âm tồn (${negativeItems.length})`}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Settlement Table Panel */}
+                <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+                  {/* Table Toolbar */}
+                  <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/50">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-800">
+                        Bảng dữ liệu Quyết toán Sản phẩm Xuất khẩu (Mẫu 16/BCQT-SP-GSQL)
+                      </span>
+                      <Tag className="bg-slate-100 text-slate-600 border-slate-200 text-xs m-0">
+                        {filteredItems.length} / {items.length} mã hàng
+                      </Tag>
+                      {onlyNegativeFilter && (
+                        <Tag color="error" className="text-xs m-0 font-medium">
+                          Đang lọc {filteredItems.length} mã âm tồn
+                        </Tag>
+                      )}
+                      {isFinalized && (
+                        <Tag color="success" icon={<LockOutlined />} className="text-xs m-0">
+                          Khóa sửa (Đã chốt)
+                        </Tag>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {negativeItems.length > 0 && (
+                        <Button
+                          size="small"
+                          danger={onlyNegativeFilter}
+                          type={onlyNegativeFilter ? 'primary' : 'default'}
+                          icon={<FilterOutlined />}
+                          onClick={() => setOnlyNegativeFilter(!onlyNegativeFilter)}
+                          className="text-xs"
+                        >
+                          {onlyNegativeFilter ? 'Xem tất cả mã' : `Chỉ xem mã âm (${negativeItems.length})`}
+                        </Button>
+                      )}
+                      <Input
+                        size="small"
+                        placeholder="Tìm mã sản phẩm, HS, tên..."
+                        prefix={<SearchOutlined className="text-slate-400" />}
+                        value={tableSearch}
+                        onChange={(e) => setTableSearch(e.target.value)}
+                        className="w-60 text-xs"
+                        allowClear
+                      />
+                    </div>
+                  </div>
+
+                  {/* Table */}
+                  <div className="w-full overflow-x-auto min-w-0">
+                    <Table
+                      dataSource={filteredItems}
+                      columns={columns}
+                      rowKey="id"
+                      loading={loading}
+                      size="small"
+                      rowClassName={(record) => (record.closingBalance < 0 ? 'bg-rose-50/70 font-medium' : '')}
+                      scroll={{ x: 'max-content' }}
+                      pagination={{
+                        defaultPageSize: 15,
+                        showSizeChanger: true,
+                        pageSizeOptions: ['15', '30', '50', '100'],
+                        size: 'small',
+                        showTotal: (total, range) => `${range[0]}-${range[1]} của ${total} mục`,
+                      }}
+                    locale={{
+                      emptyText: (
+                        <div className="py-12 text-center text-slate-400">
+                          <InfoCircleOutlined className="text-3xl mb-2 text-slate-300 block" />
+                          <p className="text-xs m-0">
+                            Chưa có dữ liệu quyết toán. Vui lòng thiết lập bộ lọc và bấm{' '}
+                            <strong className="text-blue-600">"Tổng hợp E52"</strong>.
+                          </p>
+                        </div>
+                      ),
+                    }}
+                    summary={() => {
+                      if (filteredItems.length === 0) return null;
+                      return (
+                        <Table.Summary fixed>
+                          <Table.Summary.Row className="bg-slate-100 font-semibold text-xs border-t border-slate-300">
+                            <Table.Summary.Cell index={0} colSpan={4} align="center">
+                              <span className="text-slate-800 tracking-wider">TỔNG CỘNG</span>
+                            </Table.Summary.Cell>
+                            <Table.Summary.Cell index={4} align="right">
+                              <span className="font-mono text-slate-900">{totalOpening.toLocaleString()}</span>
+                            </Table.Summary.Cell>
+                            <Table.Summary.Cell index={5} align="right">
+                              <span className="font-mono text-slate-900">{totalProduction.toLocaleString()}</span>
+                            </Table.Summary.Cell>
+                            <Table.Summary.Cell index={6} align="right">
+                              <span className="font-mono text-blue-600">{totalExport.toLocaleString()}</span>
+                            </Table.Summary.Cell>
+                            <Table.Summary.Cell index={7} align="right">
+                              <span className="font-mono text-slate-900">{totalOther.toLocaleString()}</span>
+                            </Table.Summary.Cell>
+                            <Table.Summary.Cell index={8} align="right">
+                              <span className={`font-mono ${totalClosing < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                {totalClosing.toLocaleString()}
+                              </span>
+                            </Table.Summary.Cell>
+                            <Table.Summary.Cell index={9} />
+                          </Table.Summary.Row>
+                        </Table.Summary>
+                      );
+                    }}
+                  />
+                  </div>
+                </div>
               </div>
             ),
-          }}
-          summary={() => {
-            if (filteredItems.length === 0) return null;
-            return (
-              <Table.Summary fixed>
-                <Table.Summary.Row className="bg-slate-100 font-semibold text-xs border-t border-slate-300">
-                  <Table.Summary.Cell index={0} colSpan={4} align="center">
-                    <span className="text-slate-800 tracking-wider">TỔNG CỘNG</span>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={4} align="right">
-                    <span className="font-mono text-slate-900">{totalOpening.toLocaleString()}</span>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={5} align="right">
-                    <span className="font-mono text-slate-900">{totalProduction.toLocaleString()}</span>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={6} align="right">
-                    <span className="font-mono text-blue-600">{totalExport.toLocaleString()}</span>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={7} align="right">
-                    <span className="font-mono text-slate-900">{totalOther.toLocaleString()}</span>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={8} align="right">
-                    <span className={`font-mono ${totalClosing < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                      {totalClosing.toLocaleString()}
+          },
+          {
+            key: 'analytics',
+            label: (
+              <span className="flex items-center gap-1.5 px-1">
+                <BarChartOutlined />
+                <span>Dashboard Kim ngạch & Doanh thu CMT</span>
+              </span>
+            ),
+            children: (
+              <div className="space-y-6 pt-2">
+                {/* Year Selection Toolbar */}
+                <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-semibold text-slate-700">Năm phân tích:</span>
+                    <Select
+                      value={analyticsYear}
+                      onChange={(y) => {
+                        setAnalyticsYear(y);
+                        loadAnalytics(y);
+                      }}
+                      className="w-32 text-xs"
+                      options={[
+                        { value: 2026, label: 'Năm 2026' },
+                        { value: 2025, label: 'Năm 2025' },
+                        { value: 2024, label: 'Năm 2024' },
+                      ]}
+                    />
+                    <span className="text-xs text-slate-400">|</span>
+                    <span className="text-xs text-slate-500">
+                      Thống kê toàn diện từ các đơn hàng xuất khẩu gia công (E52) đạt trạng thái Đã thông quan
                     </span>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={9} />
-                </Table.Summary.Row>
-              </Table.Summary>
-            );
-          }}
-        />
-      </div>
+                  </div>
+
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    onClick={() => loadAnalytics(analyticsYear)}
+                    loading={analyticsLoading}
+                    className="text-xs text-slate-600 hover:text-blue-600"
+                  >
+                    Làm mới số liệu
+                  </Button>
+                </div>
+
+                {/* 4 KPI Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Card 1: Total Export Volume */}
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs relative overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                        Tổng sản lượng xuất khẩu
+                      </span>
+                      <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-sm">
+                        <RiseOutlined />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-baseline gap-2">
+                      <span className="text-2xl font-bold font-mono text-slate-900">
+                        {analyticsData?.totalQuantity.toLocaleString() ?? '0'}
+                      </span>
+                      <span className="text-xs text-slate-400 font-medium">đôi giày</span>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500 flex items-center gap-1">
+                      <span>Từ</span>
+                      <strong className="text-slate-700 font-mono">{analyticsData?.clearedOrderCount ?? 0}</strong>
+                      <span>đơn hàng E52 đã thông quan</span>
+                    </div>
+                  </div>
+
+                  {/* Card 2: Total DAP Value */}
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs relative overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                        Tổng kim ngạch DAP
+                      </span>
+                      <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm">
+                        <DollarCircleOutlined />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-baseline gap-2">
+                      <span className="text-2xl font-bold font-mono text-emerald-600">
+                        ${analyticsData?.totalDap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}
+                      </span>
+                      <span className="text-xs text-slate-400 font-medium">USD</span>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      Trị giá khai báo Hải quan theo điều kiện DAP
+                    </div>
+                  </div>
+
+                  {/* Card 3: Total CMT Revenue */}
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs relative overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                        Doanh thu gia công CMT
+                      </span>
+                      <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm">
+                        <AuditOutlined />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-baseline gap-2">
+                      <span className="text-2xl font-bold font-mono text-indigo-600">
+                        ${analyticsData?.totalCmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}
+                      </span>
+                      <span className="text-xs text-slate-400 font-medium">USD</span>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      Doanh thu tiền công gia công thực thu
+                    </div>
+                  </div>
+
+                  {/* Card 4: Customs Clearance Channels */}
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs relative overflow-hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                        Phân luồng tờ khai
+                      </span>
+                      <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center text-sm">
+                        <SafetyCertificateOutlined />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <Tag color="success" className="m-0 text-xs font-mono">
+                        Xanh: {analyticsData?.channelStats.greenCount ?? 0} ({analyticsData?.channelStats.greenPercentage ?? 0}%)
+                      </Tag>
+                      <Tag color="warning" className="m-0 text-xs font-mono">
+                        Vàng: {analyticsData?.channelStats.yellowCount ?? 0}
+                      </Tag>
+                      <Tag color="error" className="m-0 text-xs font-mono">
+                        Đỏ: {analyticsData?.channelStats.redCount ?? 0}
+                      </Tag>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      Tổng {analyticsData?.channelStats.totalDeclarations ?? 0} tờ khai được ghi nhận
+                    </div>
+                  </div>
+                </div>
+
+                {/* Monthly Volume & Revenue Interactive Chart */}
+                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-100 gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900 m-0">
+                        Biểu đồ Phân bổ Sản lượng & Doanh thu CMT theo 12 Tháng (Năm {analyticsYear})
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5 m-0">
+                        Rê chuột vào cột tháng để xem chi tiết sản lượng đôi, kim ngạch DAP và doanh thu CMT
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm bg-blue-500 inline-block"></span>
+                        <span className="text-slate-600 font-medium">Sản lượng xuất (đôi)</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm bg-indigo-600 inline-block"></span>
+                        <span className="text-slate-600 font-medium">Doanh thu CMT ($ USD)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SVG Bar / Chart Container */}
+                  <div className="mt-6">
+                    {(() => {
+                      const months = analyticsData?.monthlyStats || [];
+                      const maxQty = Math.max(...months.map((m) => m.quantity), 100);
+
+                      return (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-12 gap-2 h-56 items-end pt-6 px-2">
+                            {months.map((m) => {
+                              const qtyHeight = Math.round((m.quantity / maxQty) * 160);
+                              const isHovered = hoveredMonth === m.month;
+
+                              return (
+                                <div
+                                  key={m.month}
+                                  className="flex flex-col items-center justify-end h-full group relative cursor-pointer"
+                                  onMouseEnter={() => setHoveredMonth(m.month)}
+                                  onMouseLeave={() => setHoveredMonth(null)}
+                                >
+                                  {/* Tooltip on Hover */}
+                                  {isHovered && (
+                                    <div className="absolute bottom-full mb-2 z-20 bg-slate-900 text-white rounded-md p-2.5 shadow-lg text-[11px] min-w-[160px] pointer-events-none">
+                                      <div className="font-semibold text-blue-300 border-b border-slate-700 pb-1 mb-1">
+                                        {m.monthName} / {analyticsYear}
+                                      </div>
+                                      <div className="flex justify-between py-0.5">
+                                        <span className="text-slate-300">Sản lượng:</span>
+                                        <span className="font-mono font-bold text-white">{m.quantity.toLocaleString()} đôi</span>
+                                      </div>
+                                      <div className="flex justify-between py-0.5">
+                                        <span className="text-slate-300">Doanh thu CMT:</span>
+                                        <span className="font-mono text-indigo-300 font-medium">${m.totalCmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="flex justify-between py-0.5">
+                                        <span className="text-slate-300">Kim ngạch DAP:</span>
+                                        <span className="font-mono text-emerald-300 font-medium">${m.totalDap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="flex justify-between py-0.5 text-slate-400 text-[10px]">
+                                        <span>Số đơn hàng:</span>
+                                        <span>{m.orderCount} đơn</span>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Bar container */}
+                                  <div className="w-full max-w-[32px] flex items-end justify-center h-44 pb-1">
+                                    <div
+                                      style={{ height: `${Math.max(qtyHeight, 4)}px` }}
+                                      className={`w-full rounded-t-md transition-all duration-300 ${
+                                        isHovered
+                                          ? 'bg-blue-600 shadow-md scale-105'
+                                          : m.quantity > 0
+                                          ? 'bg-blue-500 hover:bg-blue-600'
+                                          : 'bg-slate-100'
+                                      }`}
+                                    />
+                                  </div>
+
+                                  {/* Month label */}
+                                  <div className={`mt-2 text-[11px] font-medium text-center truncate ${isHovered ? 'text-blue-600 font-bold' : 'text-slate-500'}`}>
+                                    T{m.month}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="border-t border-slate-100 pt-3 text-[11px] text-slate-400 text-center">
+                            Trục hoành: 12 tháng trong năm • Chiều cao cột: Sản lượng xuất khẩu (đôi)
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Bottom Row: Top 5 Styles and Monthly Table */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                  {/* Top 5 Styles Card */}
+                  <div className="lg:col-span-6 bg-white border border-slate-200 rounded-lg p-5 shadow-xs flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <TrophyOutlined className="text-amber-500 text-base" />
+                          <h3 className="text-sm font-semibold text-slate-900 m-0">
+                            Top 5 Mã Giày Xuất Khẩu Nhiều Nhất
+                          </h3>
+                        </div>
+                        <span className="text-xs text-slate-400">Năm {analyticsYear}</span>
+                      </div>
+
+                      <div className="mt-4 space-y-3.5">
+                        {analyticsData?.topStyles.length ? (
+                          analyticsData.topStyles.map((style) => (
+                            <div key={style.styleCode} className="space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
+                                      style.rank === 1
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : style.rank === 2
+                                        ? 'bg-slate-200 text-slate-700'
+                                        : style.rank === 3
+                                        ? 'bg-orange-100 text-orange-800'
+                                        : 'bg-slate-100 text-slate-500'
+                                    }`}
+                                  >
+                                    #{style.rank}
+                                  </span>
+                                  <span className="font-mono font-semibold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                    {style.styleCode}
+                                  </span>
+                                  <span className="text-slate-600 truncate max-w-[170px]" title={style.productName}>
+                                    {style.productName}
+                                  </span>
+                                </div>
+
+                                <div className="text-right">
+                                  <span className="font-mono font-bold text-blue-600">
+                                    {style.quantity.toLocaleString()} đôi
+                                  </span>
+                                  <span className="text-slate-400 text-[11px] ml-1.5">
+                                    ({style.percentage}%)
+                                  </span>
+                                </div>
+                              </div>
+
+                              <Progress
+                                percent={style.percentage}
+                                showInfo={false}
+                                strokeColor="#2563EB"
+                                size="small"
+                                className="m-0"
+                              />
+
+                              <div className="flex justify-between text-[10px] text-slate-400 pt-0.5">
+                                <span>DAP: ${style.totalDap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                <span>CMT: ${style.totalCmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="py-8 text-center text-slate-400 text-xs">
+                            Chưa có dữ liệu xuất khẩu cho năm {analyticsYear}.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Monthly Table Summary */}
+                  <div className="lg:col-span-6 bg-white border border-slate-200 rounded-lg p-5 shadow-xs">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                      <h3 className="text-sm font-semibold text-slate-900 m-0">
+                        Bảng Thống Kê Chi Tiết 12 Tháng
+                      </h3>
+                      <span className="text-xs text-slate-400">Năm {analyticsYear}</span>
+                    </div>
+
+                    <div className="mt-3">
+                      <Table
+                        dataSource={analyticsData?.monthlyStats || []}
+                        rowKey="month"
+                        size="small"
+                        pagination={false}
+                        scroll={{ y: 240 }}
+                        columns={[
+                          {
+                            title: 'Tháng',
+                            dataIndex: 'monthName',
+                            key: 'monthName',
+                            width: 80,
+                            render: (name: string) => <span className="font-medium text-xs text-slate-800">{name}</span>,
+                          },
+                          {
+                            title: 'Số đơn',
+                            dataIndex: 'orderCount',
+                            key: 'orderCount',
+                            width: 65,
+                            align: 'center',
+                            render: (c: number) => <span className="font-mono text-xs text-slate-600">{c}</span>,
+                          },
+                          {
+                            title: 'Sản lượng (đôi)',
+                            dataIndex: 'quantity',
+                            key: 'quantity',
+                            align: 'right',
+                            render: (q: number) => (
+                              <span className="font-mono text-xs font-semibold text-blue-600">
+                                {q.toLocaleString()}
+                              </span>
+                            ),
+                          },
+                          {
+                            title: 'Doanh thu CMT ($)',
+                            dataIndex: 'totalCmt',
+                            key: 'totalCmt',
+                            align: 'right',
+                            render: (cmt: number) => (
+                              <span className="font-mono text-xs text-indigo-600">
+                                ${cmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            ),
+                          },
+                          {
+                            title: 'Kim ngạch DAP ($)',
+                            dataIndex: 'totalDap',
+                            key: 'totalDap',
+                            align: 'right',
+                            render: (dap: number) => (
+                              <span className="font-mono text-xs text-emerald-600">
+                                ${dap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            ),
+                          },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ),
+          },
+        ]}
+      />
 
       {/* Drill-down Modal: Chi tiết các tờ khai đã thông quan cấu thành */}
       <Modal
         title={
           <div className="flex items-center gap-2">
-            <span>Chi tiết Tờ khai Hải quan xuất khẩu (E52) - Mã:</span>
+            <span>Chi tiết Tờ khai Hải quan xuất khẩu (E52) - Mã hình thể:</span>
             <Tag className="font-mono font-bold text-blue-700 bg-blue-50 border-blue-200">
               {drillDownProductCode}
             </Tag>
@@ -853,14 +1597,16 @@ export const CustomsSettlementPage: React.FC = () => {
             Đóng
           </Button>,
         ]}
-        width={900}
+        width="min(1050px, 96vw)"
+        style={{ top: 20 }}
       >
-        <div className="mt-3">
+        <div className="mt-3 w-full overflow-x-auto min-w-0">
           <Table
             dataSource={drillDownItems}
             rowKey={(r, idx) => `${r.orderId}_${idx}`}
             loading={drillDownLoading}
             size="small"
+            scroll={{ x: 'max-content' }}
             pagination={{ defaultPageSize: 10, size: 'small' }}
             columns={[
               {
@@ -868,13 +1614,15 @@ export const CustomsSettlementPage: React.FC = () => {
                 key: 'idx',
                 width: 50,
                 align: 'center',
+                fixed: 'left',
                 render: (_, __, i) => <span className="text-xs text-slate-500">{i + 1}</span>,
               },
               {
                 title: 'Số tờ khai',
                 dataIndex: 'declarationNo',
                 key: 'declarationNo',
-                width: 130,
+                width: 140,
+                fixed: 'left',
                 render: (no: string) => (
                   <span className="font-mono text-xs font-semibold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
                     {no}
@@ -897,7 +1645,7 @@ export const CustomsSettlementPage: React.FC = () => {
                 title: 'Số hóa đơn (INV)',
                 dataIndex: 'invoiceNo',
                 key: 'invoiceNo',
-                width: 140,
+                width: 130,
                 render: (inv: string) => <span className="text-xs font-mono text-slate-800">{inv}</span>,
               },
               {
@@ -920,13 +1668,23 @@ export const CustomsSettlementPage: React.FC = () => {
                 ),
               },
               {
+                title: 'Đơn giá CMT',
+                dataIndex: 'unitPriceCMT',
+                key: 'unitPriceCMT',
+                width: 95,
+                align: 'right',
+                render: (p: number) => (
+                  <span className="font-mono text-xs text-indigo-700">${p.toFixed(2)}</span>
+                ),
+              },
+              {
                 title: 'Đơn giá DAP',
                 dataIndex: 'unitPriceDAP',
                 key: 'unitPriceDAP',
-                width: 100,
+                width: 95,
                 align: 'right',
                 render: (p: number) => (
-                  <span className="font-mono text-xs text-slate-700">${p.toFixed(2)}</span>
+                  <span className="font-mono text-xs text-emerald-700">${p.toFixed(2)}</span>
                 ),
               },
             ]}
@@ -935,12 +1693,12 @@ export const CustomsSettlementPage: React.FC = () => {
               return (
                 <Table.Summary.Row className="bg-slate-50 font-semibold text-xs">
                   <Table.Summary.Cell index={0} colSpan={5} align="center">
-                    <span>TỔNG CỘNG ({drillDownItems.length} tờ khai)</span>
+                    <span>TỔNG CỘNG ({drillDownItems.length} dòng tờ khai)</span>
                   </Table.Summary.Cell>
                   <Table.Summary.Cell index={5} align="right">
                     <span className="font-mono text-blue-600 font-bold">{totalQty.toLocaleString()}</span>
                   </Table.Summary.Cell>
-                  <Table.Summary.Cell index={6} />
+                  <Table.Summary.Cell index={6} colSpan={2} />
                 </Table.Summary.Row>
               );
             }}
@@ -952,7 +1710,7 @@ export const CustomsSettlementPage: React.FC = () => {
       <Drawer
         title="Lịch sử các kỳ quyết toán đã lưu"
         placement="right"
-        width={700}
+        width={750}
         open={historyDrawerOpen}
         onClose={() => setHistoryDrawerOpen(false)}
       >
@@ -981,14 +1739,31 @@ export const CustomsSettlementPage: React.FC = () => {
                   {r.contractNo && (
                     <div className="text-[11px] text-slate-500">HĐ: {r.contractNo}</div>
                   )}
+                  {r.customsOffice && (
+                    <div className="text-[10px] text-slate-400 truncate max-w-[200px]">{r.customsOffice}</div>
+                  )}
                 </div>
+              ),
+            },
+            {
+              title: 'Trạng thái',
+              dataIndex: 'status',
+              key: 'status',
+              width: 95,
+              align: 'center',
+              render: (st: string) => (
+                st === 'Finalized' ? (
+                  <Tag color="success" className="text-[11px] m-0">Đã chốt</Tag>
+                ) : (
+                  <Tag color="warning" className="text-[11px] m-0">Bản nháp</Tag>
+                )
               ),
             },
             {
               title: 'Mã hàng',
               dataIndex: 'itemCount',
               key: 'itemCount',
-              width: 70,
+              width: 65,
               align: 'center',
               render: (c: number) => <span className="text-xs font-mono">{c}</span>,
             },
@@ -1039,14 +1814,14 @@ export const CustomsSettlementPage: React.FC = () => {
 
       {/* Modal: Lưu kỳ báo cáo quyết toán */}
       <Modal
-        title="Lưu bảng báo cáo quyết toán"
+        title={saveStatus === 'Finalized' ? 'Chốt sổ & Khóa kỳ báo cáo quyết toán' : 'Lưu bản nháp bảng quyết toán'}
         open={saveModalOpen}
         onOk={handleConfirmSave}
         onCancel={() => setSaveModalOpen(false)}
         confirmLoading={saving}
-        okText="Xác nhận lưu"
+        okText={saveStatus === 'Finalized' ? 'Xác nhận chốt khóa' : 'Lưu bản nháp'}
         cancelText="Hủy"
-        width={550}
+        width="min(580px, 96vw)"
       >
         <Form form={saveForm} layout="vertical" className="mt-4">
           <div className="grid grid-cols-2 gap-3">
@@ -1062,6 +1837,10 @@ export const CustomsSettlementPage: React.FC = () => {
               <Input placeholder="VD: KM-HANEW/01-2025" className="text-xs" />
             </Form.Item>
           </div>
+
+          <Form.Item name="customsOffice" label="Chi cục Hải quan tiếp nhận / quản lý">
+            <Input placeholder="VD: Chi cục Hải quan Quản lý Hàng gia công" className="text-xs" />
+          </Form.Item>
 
           <Form.Item name="companyName" label="Tên doanh nghiệp">
             <Input className="text-xs" />
@@ -1082,6 +1861,12 @@ export const CustomsSettlementPage: React.FC = () => {
 
           <div className="bg-slate-50 p-3 rounded border border-slate-200 text-xs text-slate-600 space-y-1">
             <div className="flex justify-between">
+              <span>Trạng thái lưu:</span>
+              <span className="font-semibold text-slate-800">
+                {saveStatus === 'Finalized' ? 'Khóa số liệu (Finalized)' : 'Bản nháp (Draft)'}
+              </span>
+            </div>
+            <div className="flex justify-between">
               <span>Tổng số mã hàng:</span>
               <span className="font-mono font-semibold text-slate-800">{items.length} mã</span>
             </div>
@@ -1095,6 +1880,179 @@ export const CustomsSettlementPage: React.FC = () => {
             </div>
           </div>
         </Form>
+      </Modal>
+
+      {/* Modal: Nạp file Excel số liệu kho */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2 text-slate-900">
+            <FileExcelOutlined className="text-emerald-600 text-lg" />
+            <span>Nạp File Số liệu Kho (.xlsx) đối soát Mẫu 16</span>
+          </div>
+        }
+        open={importExcelModalOpen}
+        onCancel={() => {
+          setImportExcelModalOpen(false);
+          setImportExcelFile(null);
+        }}
+        onOk={handleImportWarehouseExcel}
+        confirmLoading={importExcelLoading}
+        okText="Bắt đầu đối soát dữ liệu"
+        cancelText="Hủy"
+        width={560}
+      >
+        <div className="py-2 space-y-4">
+          <p className="text-xs text-slate-600 m-0">
+            Hệ thống sẽ tự động quét các cột trong file: <strong>Mã sản phẩm / Style</strong>,{' '}
+            <strong>Lượng tồn đầu kỳ</strong>, <strong>Lượng nhập sản xuất trong kỳ</strong>.
+            Các hậu tố như <code>.G</code>, <code>-PO...</code> sẽ được tự động chuẩn hóa để khớp với tờ khai xuất khẩu.
+          </p>
+
+          <Upload.Dragger
+            accept=".xlsx,.xls"
+            maxCount={1}
+            beforeUpload={(file) => {
+              setImportExcelFile(file);
+              return false;
+            }}
+            onRemove={() => setImportExcelFile(null)}
+            fileList={importExcelFile ? [importExcelFile as any] : []}
+            className="p-4"
+          >
+            <p className="ant-upload-drag-icon text-emerald-500 mb-2 text-3xl">
+              <UploadOutlined />
+            </p>
+            <p className="text-xs font-semibold text-slate-700 m-0">
+              Nhấp hoặc kéo thả file Excel báo cáo kho vào đây
+            </p>
+            <p className="text-[11px] text-slate-400 mt-1 m-0">
+              Hỗ trợ định dạng .xlsx, .xls xuất từ phần mềm Kho / ERP
+            </p>
+          </Upload.Dragger>
+
+          <div className="bg-slate-50 p-3 rounded border border-slate-200 text-xs text-slate-600">
+            <div className="font-semibold text-slate-700 mb-1">Quy tắc ghép nối & bù trừ:</div>
+            <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-500 m-0">
+              <li>Mã trùng khớp: Tự động cập nhật Cột (5) Tồn đầu và Cột (6) Nhập sản xuất.</li>
+              <li>Mã kho có nhưng chưa xuất khẩu trong kỳ: Tự động thêm dòng mới với Lượng xuất = 0.</li>
+              <li>Sau khi ghép, hệ thống tự động tính lại Cột (9) Tồn cuối và kích hoạt cảnh báo nếu âm tồn.</li>
+            </ul>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Dán từ Clipboard */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2 text-slate-900">
+            <SnippetsOutlined className="text-purple-600 text-lg" />
+            <span>Dán số liệu Kho từ Clipboard</span>
+          </div>
+        }
+        open={pasteModalOpen}
+        onCancel={() => {
+          setPasteModalOpen(false);
+          setPasteText('');
+        }}
+        onOk={handleParseAndMatchClipboard}
+        confirmLoading={pasteLoading}
+        okText="Ghép và tính toán số liệu"
+        cancelText="Hủy"
+        width="min(600px, 96vw)"
+      >
+        <div className="py-2 space-y-3">
+          <p className="text-xs text-slate-600 m-0">
+            Copy các cột từ Excel theo thứ tự: <strong>Mã sản phẩm</strong> [Tab] <strong>Lượng tồn đầu</strong> [Tab] <strong>Nhập sản xuất</strong> rồi dán vào bên dưới:
+          </p>
+          <Input.TextArea
+            rows={8}
+            value={pasteText}
+            onChange={(e) => setPasteText(e.target.value)}
+            placeholder="Ví dụ dán từ Excel:&#10;42072-030	1500	5000&#10;45428-2LX	200	3400&#10;SHOE-TEST	0	1200"
+            className="font-mono text-xs"
+          />
+          <div className="text-[11px] text-slate-400">
+            Hỗ trợ phân cách bằng phím Tab hoặc dấu phẩy (,). Dòng tiêu đề sẽ được tự động bỏ qua.
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Tổng kết đối soát kho */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2">
+            {importResult?.negativeItemCount ? (
+              <WarningOutlined className="text-amber-500 text-lg" />
+            ) : (
+              <CheckCircleOutlined className="text-emerald-600 text-lg" />
+            )}
+            <span>Kết quả đối soát số liệu kho</span>
+          </div>
+        }
+        open={importResultModalOpen}
+        onOk={() => setImportResultModalOpen(false)}
+        onCancel={() => setImportResultModalOpen(false)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setImportResultModalOpen(false)}>
+            Đóng
+          </Button>,
+        ]}
+        width="min(560px, 96vw)"
+      >
+        {importResult && (
+          <div className="py-2 space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-blue-50 border border-blue-200 rounded p-3 text-center">
+                <div className="text-[11px] text-blue-600 font-medium">Đã khớp mã XK</div>
+                <div className="text-xl font-bold font-mono text-blue-800 mt-1">
+                  {importResult.matchedCount}
+                </div>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded p-3 text-center">
+                <div className="text-[11px] text-purple-600 font-medium">Thêm mới từ kho</div>
+                <div className="text-xl font-bold font-mono text-purple-800 mt-1">
+                  {importResult.addedFromWarehouseCount}
+                </div>
+              </div>
+              <div
+                className={`border rounded p-3 text-center ${
+                  importResult.negativeItemCount > 0 ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'
+                }`}
+              >
+                <div
+                  className={`text-[11px] font-medium ${
+                    importResult.negativeItemCount > 0 ? 'text-rose-600' : 'text-emerald-600'
+                  }`}
+                >
+                  {importResult.negativeItemCount > 0 ? 'Mã âm tồn kho' : 'Trạng thái'}
+                </div>
+                <div
+                  className={`text-xl font-bold font-mono mt-1 ${
+                    importResult.negativeItemCount > 0 ? 'text-rose-700' : 'text-emerald-700'
+                  }`}
+                >
+                  {importResult.negativeItemCount > 0 ? `${importResult.negativeItemCount} mã` : 'Hợp lệ'}
+                </div>
+              </div>
+            </div>
+
+            {importResult.warnings && importResult.warnings.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs">
+                <div className="font-semibold text-amber-800 mb-1 flex items-center gap-1.5">
+                  <WarningOutlined />
+                  <span>Cảnh báo chênh lệch tồn kho ({importResult.warnings.length} mã):</span>
+                </div>
+                <div className="max-h-40 overflow-y-auto space-y-1 font-mono text-[11px] text-amber-900 pr-1">
+                  {importResult.warnings.map((w, idx) => (
+                    <div key={idx} className="bg-amber-100/60 p-1.5 rounded">
+                      {w}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -11,6 +11,8 @@ export interface ProductMaster {
   hsCode: string;
   unit: string;
   pairPerCarton: number;
+  folderId?: number | null;
+  folderName?: string | null;
   createdAt: string;
   updatedAt?: string | null;
 }
@@ -25,6 +27,7 @@ export interface CreateProductMasterRequest {
   hsCode: string;
   unit: string;
   pairPerCarton: number;
+  folderId?: number | null;
 }
 
 export interface UpdateProductMasterRequest {
@@ -37,6 +40,58 @@ export interface UpdateProductMasterRequest {
   hsCode: string;
   unit: string;
   pairPerCarton: number;
+  folderId?: number | null;
+}
+
+export interface MasterDataFolder {
+  id: number;
+  name: string;
+  parentId?: number | null;
+  customerName?: string | null;
+  deliveryAddress?: string | null;
+  contractNo?: string | null;
+  poSuffix?: string | null;
+  defaultPairsPerCarton: number;
+  defaultUnit?: string | null;
+  displayOrder: number;
+  productCount: number;
+  totalProductCount: number;
+  children?: MasterDataFolder[];
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+export interface CreateFolderRequest {
+  name: string;
+  parentId?: number | null;
+  customerName?: string | null;
+  deliveryAddress?: string | null;
+  contractNo?: string | null;
+  poSuffix?: string | null;
+  defaultPairsPerCarton?: number;
+  defaultUnit?: string | null;
+  displayOrder?: number;
+}
+
+export interface UpdateFolderRequest {
+  name: string;
+  customerName?: string | null;
+  deliveryAddress?: string | null;
+  contractNo?: string | null;
+  poSuffix?: string | null;
+  defaultPairsPerCarton?: number;
+  defaultUnit?: string | null;
+  displayOrder?: number;
+}
+
+export interface MoveFolderRequest {
+  targetParentId?: number | null;
+  displayOrder?: number;
+}
+
+export interface BulkMoveProductsRequest {
+  productIds: number[];
+  targetFolderId?: number | null;
 }
 
 export interface PagedResult<T> {
@@ -45,6 +100,57 @@ export interface PagedResult<T> {
   page: number;
   pageSize: number;
   totalPages: number;
+  avgUnitPriceCMT?: number | null;
+  avgUnitPriceDAP?: number | null;
+}
+
+export interface ExcelColumnInfo {
+  index: number;
+  columnLetter: string;
+  headerName?: string | null;
+  sampleValues: string[];
+}
+
+export interface DetectedMapping {
+  styleCodeCol: number;
+  poSuffixCol?: number | null;
+  cmtPriceCol: number;
+  dapPriceCol: number;
+  descriptionCol: number;
+  hsCodeCol?: number | null;
+  unitCol?: number | null;
+  pairsPerCartonCol?: number | null;
+}
+
+export interface PreviewRow {
+  rowNumber: number;
+  styleCode: string;
+  description?: string | null;
+  unitPriceCMT: number;
+  unitPriceDAP: number;
+  hsCode?: string | null;
+  unit?: string | null;
+  pairsPerCarton: number;
+  isGo: boolean;
+}
+
+export interface ImportPreviewResponse {
+  totalRows: number;
+  startRowIndex: number;
+  detectedMapping: DetectedMapping;
+  availableColumns: ExcelColumnInfo[];
+  previewRows: PreviewRow[];
+}
+
+export interface ColumnMappingOverride {
+  styleCodeCol?: number;
+  poSuffixCol?: number;
+  cmtPriceCol?: number;
+  dapPriceCol?: number;
+  descriptionCol?: number;
+  hsCodeCol?: number;
+  unitCol?: number;
+  pairsPerCartonCol?: number;
 }
 
 export interface ImportErrorDetail {
@@ -361,15 +467,39 @@ export interface SettlementItem {
   productCode: string;
   productName: string;
   unit: string;
+  hsCode?: string;
   openingBalance: number;
   inPeriodProduction: number;
   inPeriodExport: number;
   otherExport: number;
   closingBalance: number;
+  isNegative?: boolean;
+  discrepancy?: number;
   note?: string;
   exportedOrderCount: number;
   relatedDeclarationNos: string[];
 }
+
+export interface WarehouseDataRow {
+  productCode: string;
+  openingBalance: number;
+  inPeriodProduction: number;
+}
+
+export interface WarehouseImportResult {
+  matchedCount: number;
+  addedFromWarehouseCount: number;
+  totalRows: number;
+  negativeItemCount: number;
+  items: SettlementItem[];
+  warnings: string[];
+}
+
+export interface MatchWarehouseDataRequest {
+  rows: WarehouseDataRow[];
+  currentItems: SettlementItem[];
+}
+
 
 export interface SettlementReport {
   periodId?: number;
@@ -377,6 +507,8 @@ export interface SettlementReport {
   fromDate: string;
   toDate: string;
   contractNo?: string;
+  customsOffice?: string;
+  status?: 'Draft' | 'Finalized';
   companyName: string;
   taxCode: string;
   address: string;
@@ -395,6 +527,7 @@ export interface CalculateSettlementRequest {
   fromDate: string;
   toDate: string;
   contractNo?: string;
+  customsOffice?: string;
 }
 
 export interface SaveSettlementPeriodRequest {
@@ -403,6 +536,8 @@ export interface SaveSettlementPeriodRequest {
   fromDate: string;
   toDate: string;
   contractNo?: string;
+  customsOffice?: string;
+  status?: 'Draft' | 'Finalized';
   companyName?: string;
   taxCode?: string;
   address?: string;
@@ -416,6 +551,8 @@ export interface SettlementPeriodSummary {
   fromDate: string;
   toDate: string;
   contractNo?: string;
+  customsOffice?: string;
+  status?: 'Draft' | 'Finalized';
   createdAt: string;
   itemCount: number;
   totalExportQuantity: number;
@@ -434,6 +571,50 @@ export interface SettlementDrillDownItem {
   unitPriceCMT: number;
   unitPriceDAP: number;
   customerName: string;
+}
+
+// ==========================================
+// EXPORT ANALYTICS & REVENUE TYPES
+// ==========================================
+
+export interface MonthlyExportStat {
+  month: number;
+  monthName: string;
+  quantity: number;
+  totalDap: number;
+  totalCmt: number;
+  orderCount: number;
+}
+
+export interface TopExportStyle {
+  rank: number;
+  styleCode: string;
+  productName: string;
+  quantity: number;
+  totalDap: number;
+  totalCmt: number;
+  percentage: number;
+}
+
+export interface CustomsChannelStat {
+  greenCount: number;
+  yellowCount: number;
+  redCount: number;
+  totalDeclarations: number;
+  greenPercentage: number;
+  yellowPercentage: number;
+  redPercentage: number;
+}
+
+export interface AnalyticsExportStats {
+  year: number;
+  totalQuantity: number;
+  totalDap: number;
+  totalCmt: number;
+  clearedOrderCount: number;
+  monthlyStats: MonthlyExportStat[];
+  topStyles: TopExportStyle[];
+  channelStats: CustomsChannelStat;
 }
 
 // ==========================================
@@ -474,6 +655,29 @@ export interface BatchOcrConfirmRequest {
   batches: BatchScanItemExport[];
 }
 
+// ==========================================
+// KIỂM TRA CHÉO & PHÁT HIỆN NHẦM ĐỐI TÁC (PARTNER MISMATCH)
+// ==========================================
 
+export interface ValidateItemsRequest {
+  currentPartnerFolderId: number;
+  styleCodes: string[];
+}
 
+export interface ItemValidationDetail {
+  rawCode: string;
+  normalizedCode: string;
+  isMatchedInCurrent: boolean;
+  matchedFolderId?: number | null;
+  matchedFolderName?: string | null;
+  matchedProduct?: ProductMaster | null;
+}
 
+export interface ValidateItemsResult {
+  hasMismatch: boolean;
+  suggestedPartnerFolderId?: number | null;
+  suggestedPartnerName?: string | null;
+  matchedCountInSuggested: number;
+  totalCodes: number;
+  details: ItemValidationDetail[];
+}

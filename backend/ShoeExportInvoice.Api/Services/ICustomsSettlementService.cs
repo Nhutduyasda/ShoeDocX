@@ -12,4 +12,7 @@ public interface ICustomsSettlementService
     Task<byte[]> ExportSettlementExcelAsync(SettlementReportDto report);
     Task<byte[]> ExportSettlementExcelByIdAsync(int id);
     Task<List<SettlementDrillDownItemDto>> GetDrillDownAsync(string productCode, DateTime fromDate, DateTime toDate, string? contractNo = null);
+    Task<AnalyticsExportStatsDto> GetExportAnalyticsAsync(int year);
+    Task<WarehouseImportResultDto> ImportWarehouseExcelAsync(Stream stream, List<SettlementItemDto> currentItems);
+    Task<WarehouseImportResultDto> MatchWarehouseRowsAsync(List<WarehouseDataRowDto> rows, List<SettlementItemDto> currentItems);
 }

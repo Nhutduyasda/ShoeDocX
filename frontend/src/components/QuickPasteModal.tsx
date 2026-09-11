@@ -17,6 +17,7 @@ import {
 } from '@ant-design/icons';
 import type { CreateShipmentItem, ProductMaster } from '../types';
 import { ProcessType } from '../types';
+import { normalizeOcrStyleCode } from './OcrUploadModal';
 
 const { TextArea } = Input;
 
@@ -40,6 +41,8 @@ interface QuickPasteModalProps {
   visible: boolean;
   onClose: () => void;
   products: ProductMaster[];
+  selectedPartnerId?: number | null;
+  defaultPairsPerCarton?: number;
   onApply: (items: CreateShipmentItem[], mode: 'replace' | 'append') => void;
 }
 
@@ -47,6 +50,8 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
   visible,
   onClose,
   products,
+  selectedPartnerId,
+  defaultPairsPerCarton = 12,
   onApply,
 }) => {
   const [pastedText, setPastedText] = useState<string>('');
@@ -54,11 +59,14 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
 
   const productMap = useMemo(() => {
     const map = new Map<string, ProductMaster>();
+    // Chỉ nạp sản phẩm thuộc đối tác đang chọn (hoặc không phân folder) để phát hiện mã ngoài danh mục
     products.forEach((p) => {
-      map.set(p.styleCode.trim().toUpperCase(), p);
+      if (!selectedPartnerId || !p.folderId || p.folderId === selectedPartnerId) {
+        map.set(p.styleCode.trim().toUpperCase(), p);
+      }
     });
     return map;
-  }, [products]);
+  }, [products, selectedPartnerId]);
 
   const parsedData = useMemo(() => {
     if (!pastedText.trim()) {
@@ -96,6 +104,7 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
 
       let rawStyleCode = parts[0] || '';
       rawStyleCode = rawStyleCode.replace(/^["']|["']$/g, '').trim();
+      rawStyleCode = normalizeOcrStyleCode(rawStyleCode);
 
       const rawQtyStr = (parts[1] || '').replace(/[,.\s]/g, '');
       const parsedQty = parseInt(rawQtyStr, 10);
@@ -126,7 +135,7 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
         unitPriceCMT: matched?.unitPriceCMT || 0,
         unitPriceDAP: matched?.unitPriceDAP || 0,
         unit: matched?.unit || 'đôi',
-        pairPerCarton: matched?.pairPerCarton || 12,
+        pairPerCarton: matched?.pairPerCarton || defaultPairsPerCarton || 12,
         description: matched?.description || '',
         isValid,
         errorMessage: !rawStyleCode

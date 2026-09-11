@@ -16,6 +16,8 @@ public class ProductMasterDto
     public string HsCode { get; set; } = string.Empty;
     public string Unit { get; set; } = "đôi";
     public int PairPerCarton { get; set; }
+    public int? FolderId { get; set; }
+    public string? FolderName { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

@@ -310,13 +310,75 @@ public class CustomsSettlementTests : IDisposable
         Assert.Equal("SUM(E12:E12)", ws.Cell("E13").FormulaA1);
         Assert.Equal("SUM(I12:I12)", ws.Cell("I13").FormulaA1);
 
-        // Check Sheet 2: Bảng kê chi tiết tờ khai (Drill-down)
+        // Check Sheet 1 & Sheet 2
         Assert.Equal(2, workbook.Worksheets.Count);
+        Assert.Equal("Mau_16_BCQT_SP", ws.Name);
         var ws2 = workbook.Worksheet(2);
-        Assert.Equal("Bảng kê chi tiết tờ khai", ws2.Name);
+        Assert.Equal("Bang_Ke_Chi_Tiet_E52", ws2.Name);
         Assert.Contains("BẢNG KÊ CHI TIẾT TỜ KHAI HẢI QUAN XUẤT KHẨU GIA CÔNG (E52)", ws2.Cell("A5").GetString());
         Assert.Equal("STT", ws2.Cell("A8").GetString());
         Assert.Equal("Số tờ khai hải quan", ws2.Cell("C8").GetString());
+    }
+
+    [Theory]
+    [InlineData("42072-030", "42072-030")]
+    [InlineData("42072-030.G", "42072-030")]
+    [InlineData("42072-030-PO5", "42072-030")]
+    [InlineData("42072-030/PO5", "42072-030")]
+    [InlineData("42072-030.KM3.PO5.26", "42072-030")]
+    [InlineData("42072-030.KM3.PO5.26.G", "42072-030")]
+    [InlineData("42072-030 KM3.PO5.26", "42072-030")]
+    public void NormalizeProductCode_ShouldStripPoAndGoSuffixes(string raw, string expected)
+    {
+        string actual = CustomsSettlementService.NormalizeProductCode(raw);
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public async Task GetExportAnalytics_ShouldCalculate12MonthsAndTopStyles()
+    {
+        using (var context = new AppDbContext(_dbOptions))
+        {
+            var order = new ShipmentOrder
+            {
+                ContractNo = "HD-2026",
+                InvoiceNo = "INV-STAT-1",
+                CustomerName = "Target Corp",
+                CustomsDeclarationType = "E52",
+                CustomsChannel = 1, // Luồng Xanh
+                Status = ShipmentStatus.Cleared,
+                InvoiceDate = new DateTime(2026, 3, 10),
+                ClearanceDate = new DateTime(2026, 3, 11),
+                DeclarationNo = "308880001",
+                Items = new List<ShipmentOrderItem>
+                {
+                    new ShipmentOrderItem { StyleCode = "42072-030.KM3.PO5.26", Quantity = 500, UnitPriceCMT = 2.5m, UnitPriceDAP = 15m },
+                    new ShipmentOrderItem { StyleCode = "45428-2LX.G", Quantity = 300, UnitPriceCMT = 3.0m, UnitPriceDAP = 20m }
+                }
+            };
+
+            context.ShipmentOrders.Add(order);
+            await context.SaveChangesAsync();
+        }
+
+        using (var context = new AppDbContext(_dbOptions))
+        {
+            var service = new CustomsSettlementService(context, NullLogger<CustomsSettlementService>.Instance);
+            var stats = await service.GetExportAnalyticsAsync(2026);
+
+            Assert.NotNull(stats);
+            Assert.Equal(2026, stats.Year);
+            Assert.Equal(800, stats.TotalQuantity);
+            Assert.Equal(500 * 15m + 300 * 20m, stats.TotalDap);
+            Assert.Equal(500 * 2.5m + 300 * 3.0m, stats.TotalCmt);
+            Assert.Equal(12, stats.MonthlyStats.Count);
+            Assert.Equal(800, stats.MonthlyStats[2].Quantity); // March (month 3)
+            Assert.Equal(1, stats.ChannelStats.GreenCount);
+            Assert.Equal(100, stats.ChannelStats.GreenPercentage);
+            Assert.Equal(2, stats.TopStyles.Count);
+            Assert.Equal("42072-030", stats.TopStyles[0].StyleCode);
+            Assert.Equal(500, stats.TopStyles[0].Quantity);
+        }
     }
 
     [Fact]
@@ -376,5 +438,140 @@ public class CustomsSettlementTests : IDisposable
             Assert.All(drillDown, d => Assert.Equal("308889999001", d.DeclarationNo));
             Assert.Equal(400, drillDown.Sum(d => d.Quantity));
         }
+    }
+
+    [Fact]
+    public async Task MatchWarehouseRows_ShouldUpdateExistingAndAddNewAndDetectNegative()
+    {
+        using var context = new AppDbContext(_dbOptions);
+        context.ProductMasters.Add(new ProductMaster
+        {
+            StyleCode = "SHOE-NEW-WH",
+            Description = "Warehouse Only Shoe",
+            Unit = "PRS",
+            HsCode = "64041990"
+        });
+        await context.SaveChangesAsync();
+
+        var service = new CustomsSettlementService(context, NullLogger<CustomsSettlementService>.Instance);
+
+        var currentItems = new List<SettlementItemDto>
+        {
+            new SettlementItemDto
+            {
+                Id = 1,
+                ProductCode = "SHOE-001",
+                ProductName = "Running Shoe",
+                Unit = "PRS",
+                OpeningBalance = 0,
+                InPeriodProduction = 0,
+                InPeriodExport = 500, // Exported 500
+                OtherExport = 0,
+                ClosingBalance = -500 // Initially negative
+            }
+        };
+
+        var warehouseRows = new List<WarehouseDataRowDto>
+        {
+            // Case 1: Match SHOE-001 with 100 opening + 200 production -> Total 300 vs 500 export -> Still negative -200
+            new WarehouseDataRowDto
+            {
+                ProductCode = "SHOE-001",
+                OpeningBalance = 100,
+                InPeriodProduction = 200
+            },
+            // Case 2: New item in warehouse that had no export in period -> Added to table with InPeriodExport = 0
+            new WarehouseDataRowDto
+            {
+                ProductCode = "SHOE-NEW-WH",
+                OpeningBalance = 50,
+                InPeriodProduction = 150
+            }
+        };
+
+        var result = await service.MatchWarehouseRowsAsync(warehouseRows, currentItems);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, result.MatchedCount);
+        Assert.Equal(1, result.AddedFromWarehouseCount);
+        Assert.Equal(2, result.TotalRows);
+        Assert.Equal(1, result.NegativeItemCount);
+
+        var matchedItem = result.Items.FirstOrDefault(i => i.ProductCode == "SHOE-001");
+        Assert.NotNull(matchedItem);
+        Assert.Equal(100, matchedItem.OpeningBalance);
+        Assert.Equal(200, matchedItem.InPeriodProduction);
+        Assert.Equal(500, matchedItem.InPeriodExport);
+        Assert.Equal(-200, matchedItem.ClosingBalance);
+        Assert.True(matchedItem.IsNegative);
+        Assert.Equal(200, matchedItem.Discrepancy);
+
+        var newItem = result.Items.FirstOrDefault(i => i.ProductCode == "SHOE-NEW-WH");
+        Assert.NotNull(newItem);
+        Assert.Equal(50, newItem.OpeningBalance);
+        Assert.Equal(150, newItem.InPeriodProduction);
+        Assert.Equal(0, newItem.InPeriodExport);
+        Assert.Equal(200, newItem.ClosingBalance);
+        Assert.False(newItem.IsNegative);
+        Assert.Equal(0, newItem.Discrepancy);
+        Assert.Equal("Warehouse Only Shoe", newItem.ProductName);
+    }
+
+    [Fact]
+    public async Task ImportWarehouseExcel_ShouldParseHeadersAndMatchData()
+    {
+        using var context = new AppDbContext(_dbOptions);
+        var service = new CustomsSettlementService(context, NullLogger<CustomsSettlementService>.Instance);
+
+        // Create an in-memory Excel workbook simulating Warehouse report
+        using var memoryStream = new MemoryStream();
+        using (var wb = new XLWorkbook())
+        {
+            var ws = wb.Worksheets.Add("SoLieuKho");
+            ws.Cell(1, 1).Value = "Mã sản phẩm / Style";
+            ws.Cell(1, 2).Value = "Tồn đầu kỳ";
+            ws.Cell(1, 3).Value = "Nhập sản xuất";
+
+            ws.Cell(2, 1).Value = "42072-030.G"; // Needs normalization
+            ws.Cell(2, 2).Value = 1000;
+            ws.Cell(2, 3).Value = 5000;
+
+            ws.Cell(3, 1).Value = "TỔNG CỘNG"; // Should be ignored
+            ws.Cell(3, 2).Value = 1000;
+            ws.Cell(3, 3).Value = 5000;
+
+            wb.SaveAs(memoryStream);
+        }
+
+        memoryStream.Position = 0;
+
+        var currentItems = new List<SettlementItemDto>
+        {
+            new SettlementItemDto
+            {
+                Id = 1,
+                ProductCode = "42072-030",
+                ProductName = "Sandals Comfort",
+                Unit = "PRS",
+                OpeningBalance = 0,
+                InPeriodProduction = 0,
+                InPeriodExport = 4000,
+                OtherExport = 0,
+                ClosingBalance = -4000
+            }
+        };
+
+        var result = await service.ImportWarehouseExcelAsync(memoryStream, currentItems);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, result.MatchedCount);
+        Assert.Equal(0, result.NegativeItemCount); // (1000 + 5000) - 4000 = 2000 >= 0
+
+        var item = result.Items.FirstOrDefault(i => i.ProductCode == "42072-030");
+        Assert.NotNull(item);
+        Assert.Equal(1000, item.OpeningBalance);
+        Assert.Equal(5000, item.InPeriodProduction);
+        Assert.Equal(2000, item.ClosingBalance);
+        Assert.False(item.IsNegative);
     }
 }

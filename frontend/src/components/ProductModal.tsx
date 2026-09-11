@@ -1,11 +1,13 @@
-import React, { useEffect } from 'react';
-import { Modal, Form, Input, InputNumber, Row, Col, message, Divider } from 'antd';
-import type { ProductMaster, CreateProductMasterRequest } from '../types';
+﻿import React, { useEffect } from 'react';
+import { Modal, Form, Input, InputNumber, Row, Col, message, Divider, TreeSelect } from 'antd';
+import type { ProductMaster, CreateProductMasterRequest, MasterDataFolder } from '../types';
 import { productMasterApi } from '../api/productMasterApi';
 
 interface ProductModalProps {
   visible: boolean;
   product: ProductMaster | null; // null => Thêm mới, khác null => Sửa
+  folders?: MasterDataFolder[];
+  defaultFolderId?: number | null;
   onCancel: () => void;
   onSuccess: () => void;
 }
@@ -13,12 +15,34 @@ interface ProductModalProps {
 export const ProductModal: React.FC<ProductModalProps> = ({
   visible,
   product,
+  folders = [],
+  defaultFolderId,
   onCancel,
   onSuccess,
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = React.useState(false);
   const isEdit = !!product;
+
+  const formatTreeSelect = (nodes: MasterDataFolder[]): any[] => {
+    return nodes.map((node) => ({
+      title: `${node.name} (${node.defaultPairsPerCarton} đôi/thùng)`,
+      value: node.id,
+      key: node.id,
+      children: node.children ? formatTreeSelect(node.children) : [],
+    }));
+  };
+
+  const findFolder = (nodes: MasterDataFolder[], id: number): MasterDataFolder | null => {
+    for (const n of nodes) {
+      if (n.id === id) return n;
+      if (n.children) {
+        const found = findFolder(n.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
 
   useEffect(() => {
     if (visible) {
@@ -33,19 +57,34 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           hsCode: product.hsCode,
           unit: product.unit,
           pairPerCarton: product.pairPerCarton,
+          folderId: product.folderId ?? undefined,
         });
       } else {
+        const targetFld = defaultFolderId ? findFolder(folders, defaultFolderId) : null;
         form.resetFields();
         form.setFieldsValue({
           unitPriceCMT: 0,
           unitPriceDAP: 0,
           hsCode: '64041990',
-          unit: 'đôi',
-          pairPerCarton: 12,
+          unit: targetFld?.defaultUnit || 'PRS',
+          pairPerCarton: targetFld?.defaultPairsPerCarton || 12,
+          folderId: defaultFolderId ?? undefined,
         });
       }
     }
-  }, [visible, product, form]);
+  }, [visible, product, defaultFolderId, form]);
+
+  const handleFolderChange = (val: number | undefined) => {
+    if (val) {
+      const f = findFolder(folders, val);
+      if (f) {
+        form.setFieldsValue({
+          pairPerCarton: f.defaultPairsPerCarton || 12,
+          unit: f.defaultUnit || form.getFieldValue('unit') || 'PRS',
+        });
+      }
+    }
+  };
 
   const handleSubmit = async () => {
     try {
@@ -60,8 +99,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         unitPriceCMT_Go: values.unitPriceCMT_Go || null,
         unitPriceDAP_Go: values.unitPriceDAP_Go || null,
         hsCode: values.hsCode?.trim() || '64041990',
-        unit: values.unit?.trim() || 'đôi',
+        unit: values.unit?.trim() || 'PRS',
         pairPerCarton: values.pairPerCarton || 12,
+        folderId: values.folderId ?? null,
       };
 
       if (isEdit && product) {
@@ -76,7 +116,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     } catch (err: any) {
       if (err.errorFields) return;
       console.error(err);
-      message.error('Vui lòng kiểm tra lại dữ liệu nhập.');
+      const errorMsg =
+        err.response?.data?.message ||
+        err.message ||
+        'Lỗi xảy ra khi lưu thông tin sản phẩm';
+      message.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -124,6 +168,25 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
           <Col span={12}>
             <Form.Item
+              name="folderId"
+              label={<span className="text-xs font-medium text-slate-700">Thư mục đối tác</span>}
+              extra={<span className="text-[11px] text-slate-400">Tự động kế thừa quy cách đóng gói</span>}
+            >
+              <TreeSelect
+                treeData={formatTreeSelect(folders)}
+                placeholder="Chọn thư mục đối tác"
+                allowClear
+                treeDefaultExpandAll
+                onChange={handleFolderChange}
+                className="text-xs"
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
               name="hsCode"
               label={<span className="text-xs font-medium text-slate-700">Mã HS Code Hải quan *</span>}
               rules={[
@@ -133,6 +196,22 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               extra={<span className="text-[11px] text-slate-400">Mặc định: 64041990</span>}
             >
               <Input placeholder="64041990" className="font-mono text-xs" />
+            </Form.Item>
+          </Col>
+
+          <Col span={12}>
+            <Form.Item
+              name="pairPerCarton"
+              label={<span className="text-xs font-medium text-slate-700">Số đôi / Thùng (Pair/CTN) *</span>}
+              rules={[{ required: true, message: 'Vui lòng nhập quy cách đóng gói' }]}
+              extra={<span className="text-[11px] text-slate-400">KM III: 12 đôi | Đối tác khác: 24 đôi</span>}
+            >
+              <InputNumber
+                className="w-full font-mono text-xs"
+                min={1}
+                max={1000}
+                placeholder="12"
+              />
             </Form.Item>
           </Col>
         </Row>
@@ -161,7 +240,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           <Col span={12}>
             <Form.Item
               name="unitPriceCMT"
-              label={<span className="text-xs font-medium text-slate-700">Đơn giá gia công CMT (USD) *</span>}
+              label={<span className="text-xs font-medium text-slate-700">Đơn giá CMT Thành hình (USD) *</span>}
               rules={[{ required: true, message: 'Vui lòng nhập đơn giá CMT' }]}
             >
               <InputNumber
@@ -170,7 +249,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 step={0.01}
                 precision={4}
                 prefix={<span className="text-slate-400">$</span>}
-                placeholder="0.0000"
+                placeholder="0.00"
               />
             </Form.Item>
           </Col>
@@ -178,7 +257,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           <Col span={12}>
             <Form.Item
               name="unitPriceDAP"
-              label={<span className="text-xs font-medium text-slate-700">Đơn giá DAP (USD) *</span>}
+              label={<span className="text-xs font-medium text-slate-700">Đơn giá DAP Thành hình (USD) *</span>}
               rules={[{ required: true, message: 'Vui lòng nhập đơn giá DAP' }]}
             >
               <InputNumber
@@ -187,15 +266,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 step={0.01}
                 precision={4}
                 prefix={<span className="text-slate-400">$</span>}
-                placeholder="0.0000"
+                placeholder="0.00"
               />
             </Form.Item>
           </Col>
         </Row>
 
-        {/* Đơn giá Gò không may */}
-        <Divider className="my-2 text-xs text-slate-500 font-medium">
-          Đơn giá riêng Gò không may (.G) — Để trống nếu dùng chung giá trên
+        {/* Đơn giá Gò không may (.G) */}
+        <Divider className="my-2 text-xs text-amber-700 font-medium">
+          Đơn giá Gò không may (Tùy chọn gia công .G)
         </Divider>
 
         <Row gutter={16}>
@@ -239,22 +318,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               label={<span className="text-xs font-medium text-slate-700">Đơn vị tính *</span>}
               rules={[{ required: true, message: 'Vui lòng nhập đơn vị tính' }]}
             >
-              <Input placeholder="đôi" className="text-xs" />
-            </Form.Item>
-          </Col>
-
-          <Col span={12}>
-            <Form.Item
-              name="pairPerCarton"
-              label={<span className="text-xs font-medium text-slate-700">Số đôi / Thùng (Pair/CTN) *</span>}
-              rules={[{ required: true, message: 'Vui lòng nhập quy cách đóng gói' }]}
-            >
-              <InputNumber
-                className="w-full font-mono text-xs"
-                min={1}
-                max={1000}
-                placeholder="12"
-              />
+              <Input placeholder="PRS" className="text-xs" />
             </Form.Item>
           </Col>
         </Row>

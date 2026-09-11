@@ -5,6 +5,7 @@ using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Models.Entities;
 using ShoeExportInvoice.Api.Common;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace ShoeExportInvoice.Api.Services;
 
@@ -17,6 +18,25 @@ public class ExcelImportExportService : IExcelImportExportService
     {
         _context = context;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Chuẩn hóa mô tả sản phẩm cho hóa đơn INV và PKL:
+    /// Bỏ phần đơn giá gia công kèm đơn vị tính "(Đơn giá gia công:... USD/đôi)" khỏi mô tả.
+    /// Ví dụ: "Giày có mũ giày bằng vật liệu dệt và đế ngoài bằng plastic, mũi giày không được gắn bảo vệ (Đơn giá gia công:1.16 USD/đôi). Hàng mới 100%."
+    /// -> "Giày có mũ giày bằng vật liệu dệt và đế ngoài bằng plastic, mũi giày không được gắn bảo vệ . Hàng mới 100%."
+    /// </summary>
+    public static string CleanDescriptionForInvAndPkl(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return string.Empty;
+
+        var cleaned = Regex.Replace(
+            description,
+            @"\s*\([^)]*gia\s*c[oôOÔ]ng[^)]*\)",
+            " ",
+            RegexOptions.IgnoreCase);
+
+        return cleaned;
     }
 
     private string GetTemplatePath()
@@ -144,7 +164,7 @@ public class ExcelImportExportService : IExcelImportExportService
             invSheet.Cell(row, 3).SetValue(itemCode);
 
             // D: Mô tả hàng hóa
-            invSheet.Cell(row, 4).SetValue(item.Description);
+            invSheet.Cell(row, 4).SetValue(CleanDescriptionForInvAndPkl(item.Description));
 
             // E: Số lượng
             invSheet.Cell(row, 5).SetValue(item.Quantity);
@@ -237,7 +257,7 @@ public class ExcelImportExportService : IExcelImportExportService
             pklSheet.Cell(row, 2).SetValue(itemCode);
 
             // C: Mô tả hàng hóa
-            pklSheet.Cell(row, 3).SetValue(item.Description);
+            pklSheet.Cell(row, 3).SetValue(CleanDescriptionForInvAndPkl(item.Description));
 
             // D: Số lượng (Quantity)
             pklSheet.Cell(row, 4).SetValue(item.Quantity);
@@ -343,7 +363,7 @@ public class ExcelImportExportService : IExcelImportExportService
                     ? $"{item.StyleCode}.G {request.PoSuffix}".Trim()
                     : $"{item.StyleCode} {request.PoSuffix}".Trim());
 
-            string desc = item.Description ?? string.Empty;
+            string desc = CleanDescriptionForInvAndPkl(item.Description);
             string procTypeName = item.ProcessType == ProcessType.GoKhongMay ? "Gò không may" : "Thành phẩm";
 
             // 1. Thùng chẵn (Full Cartons)
@@ -552,7 +572,7 @@ public class ExcelImportExportService : IExcelImportExportService
                     : $"{item.StyleCode} {request.PoSuffix}".Trim());
 
             invSheet.Cell(row, 3).SetValue(fullCode);
-            invSheet.Cell(row, 4).SetValue(item.Description ?? string.Empty);
+            invSheet.Cell(row, 4).SetValue(CleanDescriptionForInvAndPkl(item.Description));
             invSheet.Cell(row, 5).SetValue(item.Quantity);
             invSheet.Cell(row, 6).SetValue(!string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "đôi");
             invSheet.Cell(row, 7).SetValue(item.UnitPriceCMT ?? 0m);
@@ -617,7 +637,7 @@ public class ExcelImportExportService : IExcelImportExportService
 
             pklSheet.Cell(row, 1).FormulaA1 = $"IF(F{row}<=0,\"\",(SUM($F$11:F{prevRow})+1)&\"-\"&SUM($F$11:F{row}))";
             pklSheet.Cell(row, 2).SetValue(pklItem.FullItemCode);
-            pklSheet.Cell(row, 3).SetValue(pklItem.Description);
+            pklSheet.Cell(row, 3).SetValue(CleanDescriptionForInvAndPkl(pklItem.Description));
             pklSheet.Cell(row, 4).SetValue(pklItem.Quantity);
             pklSheet.Cell(row, 5).SetValue("đôi");
             pklSheet.Cell(row, 6).FormulaA1 = $"IF(D{row}<=0,0,IF(D{row}<{pairCtn},1,D{row}/{pairCtn}))";
@@ -720,7 +740,7 @@ public class ExcelImportExportService : IExcelImportExportService
             {
                 StyleCode = p.StyleCode,
                 FullItemCode = $"{p.StyleCode} (KM3.PO5.26)",
-                Description = p.Description,
+                Description = CleanDescriptionForInvAndPkl(p.Description),
                 Quantity = p.PairPerCarton * 100, // Số lượng mẫu 100 thùng chuẩn
                 Unit = p.Unit,
                 UnitPriceCMT = p.UnitPriceCMT,
@@ -742,155 +762,188 @@ public class ExcelImportExportService : IExcelImportExportService
 
         using var workbook = new XLWorkbook(fileStream);
 
-        // 1. Chọn sheet thích hợp: Ưu tiên sheet có tên "INV", "PRODUCT", "MASTER", hoặc sheet hiển thị đầu tiên
-        var worksheet = workbook.Worksheets.FirstOrDefault(w => w.Name.Equals("INV", StringComparison.OrdinalIgnoreCase))
-                     ?? workbook.Worksheets.FirstOrDefault(w => w.Name.Contains("INV", StringComparison.OrdinalIgnoreCase))
-                     ?? workbook.Worksheets.FirstOrDefault(w => w.Name.Contains("PRODUCT", StringComparison.OrdinalIgnoreCase))
+        // 1. Chọn sheet phù hợp: Ưu tiên sheet "Sheet2", "MASTER", "PRODUCT", "DANH MUC", "Sheet1", hoặc sheet hiển thị đầu tiên
+        var worksheet = workbook.Worksheets.FirstOrDefault(w => w.Name.Equals("Sheet2", StringComparison.OrdinalIgnoreCase))
                      ?? workbook.Worksheets.FirstOrDefault(w => w.Name.Contains("MASTER", StringComparison.OrdinalIgnoreCase))
+                     ?? workbook.Worksheets.FirstOrDefault(w => w.Name.Contains("PRODUCT", StringComparison.OrdinalIgnoreCase))
+                     ?? workbook.Worksheets.FirstOrDefault(w => w.Name.Contains("DANH MUC", StringComparison.OrdinalIgnoreCase))
+                     ?? workbook.Worksheets.FirstOrDefault(w => w.Name.Equals("Sheet1", StringComparison.OrdinalIgnoreCase))
                      ?? workbook.Worksheets.FirstOrDefault(w => w.Visibility == XLWorksheetVisibility.Visible)
                      ?? workbook.Worksheets.FirstOrDefault();
 
         if (worksheet == null)
         {
-            result.Errors.Add(new ImportErrorDetail { RowNumber = 0, Message = "File Excel không chứa bất kỳ bảng tính nào." });
+            result.Success = false;
+            result.Message = "File Excel không chứa bất kỳ bảng tính nào.";
+            result.Errors.Add(new ImportErrorDetail { RowNumber = 0, Message = result.Message });
             return result;
         }
 
-        _logger.LogInformation("Import danh mục từ sheet: '{SheetName}'", worksheet.Name);
+        _logger.LogInformation("Import danh mục Master Data từ sheet: '{SheetName}'", worksheet.Name);
 
-        // 2. Tìm dòng tiêu đề (Header Row) và ánh xạ cột tự động
-        int headerRow = 1;
-        int styleCol = 1, descCol = 2, cmtCol = 3, dapCol = 4, hsCol = -1, unitCol = -1, pairCol = -1;
-        bool foundHeader = false;
+        // 2. Auto-detect Header: Kiểm tra dòng đầu tiên (Row 1 / Col 1)
+        var cellA1Text = worksheet.Cell(1, 1).GetString().Trim();
+        bool hasHeader = false;
 
-        for (int r = 1; r <= 20; r++)
+        // Các từ khóa tiêu đề phổ biến
+        bool hasHeaderKeyword = cellA1Text.Contains("Mã", StringComparison.OrdinalIgnoreCase) ||
+                                cellA1Text.Contains("Style", StringComparison.OrdinalIgnoreCase) ||
+                                cellA1Text.Contains("STT", StringComparison.OrdinalIgnoreCase) ||
+                                cellA1Text.Contains("Code", StringComparison.OrdinalIgnoreCase) ||
+                                cellA1Text.Contains("Tiêu đề", StringComparison.OrdinalIgnoreCase);
+
+        // Định dạng mã sản phẩm thực tế: bắt đầu bằng số và dấu gạch ngang ví dụ: ^\d{5}-
+        bool isRealProductCode = Regex.IsMatch(cellA1Text, @"^\d{5}-", RegexOptions.IgnoreCase);
+
+        if (hasHeaderKeyword && !isRealProductCode)
         {
-            for (int c = 1; c <= 15; c++)
-            {
-                var txt = worksheet.Cell(r, c).GetString().Trim().ToUpper();
-                if (txt.Contains("MÃ HÀNG") || txt.Contains("STYLE") || txt.Contains("MÃ HÌNH THỂ"))
-                {
-                    headerRow = r;
-                    foundHeader = true;
-                    break;
-                }
-            }
-            if (foundHeader) break;
+            hasHeader = true;
+        }
+        else if (isRealProductCode)
+        {
+            hasHeader = false;
+        }
+        else
+        {
+            // Kiểm tra thêm: nếu cột 4 (D) hoặc cột 5 (E) ở dòng 1 có giá trị số hợp lệ -> dữ liệu bắt đầu ngay từ Dòng 1
+            bool col4IsNumber = worksheet.Cell(1, 4).DataType == XLDataType.Number ||
+                (decimal.TryParse(worksheet.Cell(1, 4).GetString().Trim().Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out var n4) && n4 > 0);
+
+            hasHeader = hasHeaderKeyword && !col4IsNumber;
         }
 
-        // Tìm cột "THÀNH TIỀN" để tránh nhầm lẫn với "ĐƠN GIÁ" khi có ô merge
-        int totalAmountCol = -1;
-        for (int c = 1; c <= 15; c++)
+        // Cấu hình vị trí cột (1-based index)
+        int rawCodeCol = 1;
+        int poCol = 2;
+        int fullCodeCol = 3;
+        int cmtCol = 4;
+        int dapCol = 5;
+        int descCol = 6;
+        int unitCol = 7;
+        int hsCol = 8;
+        int pairCol = 9;
+
+        int dataStartRow = 1;
+
+        if (hasHeader)
         {
-            var h = worksheet.Cell(headerRow, c).GetString().Trim().ToUpper();
-            if (h.Contains("THÀNH TIỀN") || h.Contains("TOTAL"))
+            // Nếu có header, kiểm tra xem có phải mẫu cũ (Col 2 là Mô tả) hay mẫu chuẩn 8 cột (Col 6 là Mô tả)
+            var col2Header = worksheet.Cell(1, 2).GetString().Trim().ToUpperInvariant();
+            if (col2Header.Contains("MÔ TẢ") || col2Header.Contains("DESCRIPTION"))
             {
-                totalAmountCol = c;
+                // Mẫu 5/6 cột cũ: Col 1: Style, Col 2: Desc, Col 3: CMT, Col 4: DAP, Col 5: HS, Col 6: Unit
+                descCol = 2;
+                cmtCol = 3;
+                dapCol = 4;
+                hsCol = 5;
+                unitCol = 6;
+                poCol = -1;
+                fullCodeCol = -1;
+            }
+
+            dataStartRow = 2;
+
+            // Kiểm tra nếu dòng 2 là tiêu đề phụ nhiều tầng (chứa CMT/DAP)
+            if (cmtCol > 0 && (worksheet.Cell(2, cmtCol).GetString().Contains("CMT", StringComparison.OrdinalIgnoreCase) ||
+                               worksheet.Cell(2, dapCol).GetString().Contains("DAP", StringComparison.OrdinalIgnoreCase)))
+            {
+                dataStartRow = 3;
             }
         }
-
-        // Ánh xạ các cột dựa trên nội dung dòng tiêu đề (và dòng phụ nếu tiêu đề nhiều tầng)
-        for (int c = 1; c <= 15; c++)
+        else
         {
-            var h1 = worksheet.Cell(headerRow, c).GetString().Trim().ToUpper();
-            var h2 = worksheet.Cell(headerRow + 1, c).GetString().Trim().ToUpper();
-            var combined = $"{h1} {h2}";
-
-            if (combined.Contains("MÃ HÀNG") || combined.Contains("STYLE") || combined.Contains("MÃ HÌNH THỂ"))
-            {
-                styleCol = c;
-            }
-            else if (combined.Contains("MÔ TẢ") || combined.Contains("DESCRIPTION"))
-            {
-                descCol = c;
-            }
-            else if (combined.Contains("CMT") && (totalAmountCol == -1 || c < totalAmountCol))
-            {
-                cmtCol = c;
-            }
-            else if (combined.Contains("DAP") && (totalAmountCol == -1 || c < totalAmountCol))
-            {
-                dapCol = c;
-            }
-            else if (combined.Contains("ĐVT") || combined.Contains("UNIT") || combined.Contains("ĐƠN VỊ"))
-            {
-                unitCol = c;
-            }
-            else if (combined.Contains("HS") || combined.Contains("MÃ HS"))
-            {
-                hsCol = c;
-            }
-            else if (combined.Contains("PAIR") || combined.Contains("CTN") || combined.Contains("THÙNG") || combined.Contains("SỐ ĐÔI"))
-            {
-                pairCol = c;
-            }
+            // Không có Header: Dữ liệu bắt đầu ngay từ Dòng 1 (Row 1 / Index 0)
+            dataStartRow = 1;
         }
 
-        // Xác định dòng bắt đầu dữ liệu
-        int dataStartRow = headerRow + 1;
-        if (worksheet.Cell(headerRow + 1, cmtCol).GetString().ToUpper().Contains("CMT") ||
-            worksheet.Cell(headerRow + 1, dapCol).GetString().ToUpper().Contains("DAP"))
-        {
-            dataStartRow = headerRow + 2;
-        }
+        _logger.LogInformation("Phát hiện Header: {HasHeader}. Dữ liệu bắt đầu từ dòng: {StartRow}", hasHeader, dataStartRow);
 
         int lastRow = worksheet.LastRowUsed()?.RowNumber() ?? 0;
         if (lastRow < dataStartRow)
         {
-            result.Errors.Add(new ImportErrorDetail { RowNumber = 0, Message = "Bảng tính không có dữ liệu hàng hóa." });
+            result.Success = false;
+            result.Message = "Bảng tính không có dữ liệu hàng hóa.";
+            result.Errors.Add(new ImportErrorDetail { RowNumber = 0, Message = result.Message });
             return result;
         }
 
-        var existingProducts = await _context.ProductMasters.ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p);
+        var existingProducts = await _context.ProductMasters.ToDictionaryAsync(p => p.StyleCode.ToUpperInvariant(), p => p);
 
         for (int r = dataStartRow; r <= lastRow; r++)
         {
             var row = worksheet.Row(r);
-            int rowNumber = r;
+
+            // Bỏ qua nếu toàn bộ dòng trống
+            bool isRowEmpty = true;
+            for (int c = 1; c <= 8; c++)
+            {
+                if (!row.Cell(c).IsEmpty() && !string.IsNullOrWhiteSpace(row.Cell(c).GetString()))
+                {
+                    isRowEmpty = false;
+                    break;
+                }
+            }
+            if (isRowEmpty) continue;
+
+            var rawCodeStr = row.Cell(rawCodeCol).GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(rawCodeStr))
+            {
+                result.Errors.Add(new ImportErrorDetail
+                {
+                    RowNumber = r,
+                    StyleCode = "N/A",
+                    Message = "Dòng thiếu mã sản phẩm (Cột A bị trống)."
+                });
+                continue;
+            }
+
+            // Dừng lại nếu gặp dòng tổng cộng
+            if (rawCodeStr.Contains("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase) ||
+                rawCodeStr.Contains("TOTAL", StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            result.TotalRowsRead++;
 
             try
             {
-                var rawStyleCode = row.Cell(styleCol).GetString()?.Trim();
-                if (string.IsNullOrWhiteSpace(rawStyleCode)) continue;
-
-                // Dừng lại nếu gặp dòng TỔNG CỘNG
-                if (rawStyleCode.ToUpper().Contains("TỔNG CỘNG") || rawStyleCode.ToUpper().Contains("TOTAL")) break;
-                if (row.Cell(2).GetString().ToUpper().Contains("TỔNG CỘNG")) break;
-
-                // Chuẩn hóa mã hình thể gốc
-                var cleanStyleCode = CleanStyleCode(rawStyleCode);
-                if (string.IsNullOrWhiteSpace(cleanStyleCode))
+                // Parse đơn giá CMT
+                if (!TryExtractDecimal(row.Cell(cmtCol), out var cmtPrice, out var cmtError))
                 {
                     result.Errors.Add(new ImportErrorDetail
                     {
-                        RowNumber = rowNumber,
-                        StyleCode = rawStyleCode,
-                        Message = "Không thể trích xuất mã hình thể gốc hợp lệ."
+                        RowNumber = r,
+                        StyleCode = rawCodeStr,
+                        Message = $"Đơn giá CMT không hợp lệ: {cmtError}"
                     });
                     continue;
                 }
 
-                var description = row.Cell(descCol).GetString()?.Trim();
-                if (string.IsNullOrWhiteSpace(description))
+                // Parse đơn giá DAP
+                if (!TryExtractDecimal(row.Cell(dapCol), out var dapPrice, out var dapError))
                 {
                     result.Errors.Add(new ImportErrorDetail
                     {
-                        RowNumber = rowNumber,
-                        StyleCode = cleanStyleCode,
-                        Message = "Mô tả hàng hải quan bị trống."
+                        RowNumber = r,
+                        StyleCode = rawCodeStr,
+                        Message = $"Đơn giá DAP không hợp lệ: {dapError}"
                     });
                     continue;
                 }
 
-                decimal cmt = ParseDecimal(row.Cell(cmtCol));
-                decimal dap = ParseDecimal(row.Cell(dapCol));
+                // Mô tả hải quan
+                var customsDescription = descCol > 0 ? row.Cell(descCol).GetString()?.Trim() ?? string.Empty : string.Empty;
 
-                string hsCode = hsCol > 0 ? row.Cell(hsCol).GetString()?.Trim() ?? "64041990" : "64041990";
+                // Đơn vị tính: mặc định "PR" hoặc "đôi"
+                var unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() : null;
+                if (string.IsNullOrWhiteSpace(unit)) unit = "PR";
+
+                // Mã HS: mặc định "64041990"
+                var hsCode = hsCol > 0 ? row.Cell(hsCol).GetString()?.Trim() : null;
                 if (string.IsNullOrWhiteSpace(hsCode)) hsCode = "64041990";
 
-                string unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() ?? "đôi" : "đôi";
-                if (string.IsNullOrWhiteSpace(unit)) unit = "đôi";
-
+                // Quy cách đóng gói (PairsPerCarton): mặc định 12
                 int pairCtn = 12;
                 if (pairCol > 0)
                 {
@@ -901,62 +954,219 @@ public class ExcelImportExportService : IExcelImportExportService
                     }
                 }
 
-                result.TotalRows++;
-
-                if (existingProducts.TryGetValue(cleanStyleCode, out var existing))
+                // Tách mã sản phẩm và nhận diện công đoạn
+                // Loại bỏ phần PO trong ngoặc nếu RawCode có chứa
+                var cleanRaw = rawCodeStr;
+                int parenIdx = cleanRaw.IndexOf('(');
+                if (parenIdx > 0)
                 {
-                    if (updateExisting)
+                    cleanRaw = cleanRaw.Substring(0, parenIdx).Trim();
+                }
+
+                bool isGo = cleanRaw.EndsWith(".G", StringComparison.OrdinalIgnoreCase);
+                string baseCode = isGo
+                    ? cleanRaw.Substring(0, cleanRaw.Length - 2).Trim()
+                    : cleanRaw.Trim();
+
+                if (string.IsNullOrWhiteSpace(baseCode))
+                {
+                    result.Errors.Add(new ImportErrorDetail
                     {
-                        existing.Description = description;
-                        if (cmt > 0) existing.UnitPriceCMT = cmt;
-                        if (dap > 0) existing.UnitPriceDAP = dap;
-                        existing.HsCode = hsCode;
-                        existing.Unit = unit;
-                        existing.PairPerCarton = pairCtn;
+                        RowNumber = r,
+                        StyleCode = rawCodeStr,
+                        Message = "Không thể trích xuất mã hình thể hợp lệ."
+                    });
+                    continue;
+                }
+
+                var lookupKey = baseCode.ToUpperInvariant();
+
+                // Xác định mô tả: nếu trống thì fallback theo FullCode hoặc tên mặc định
+                if (string.IsNullOrWhiteSpace(customsDescription))
+                {
+                    var fullCodeStr = fullCodeCol > 0 ? row.Cell(fullCodeCol).GetString()?.Trim() : null;
+                    customsDescription = !string.IsNullOrWhiteSpace(fullCodeStr)
+                        ? $"Giày xuất khẩu {fullCodeStr}"
+                        : $"Giày xuất khẩu {baseCode}";
+                }
+
+                if (isGo)
+                {
+                    // Hàng Gò không may (có hậu tố .G)
+                    if (existingProducts.TryGetValue(lookupKey, out var existing))
+                    {
+                        existing.UnitPriceCMT_Go = cmtPrice;
+                        existing.UnitPriceDAP_Go = dapPrice;
+                        existing.HasGoOption = true;
+                        if (!string.IsNullOrWhiteSpace(customsDescription) && (string.IsNullOrWhiteSpace(existing.Description) || updateExisting))
+                        {
+                            existing.Description = customsDescription;
+                        }
+                        if (!string.IsNullOrWhiteSpace(hsCode)) existing.HsCode = hsCode;
+                        if (!string.IsNullOrWhiteSpace(unit)) existing.Unit = unit;
                         existing.UpdatedAt = DateTime.UtcNow;
                         result.UpdatedCount++;
                     }
                     else
                     {
-                        result.Errors.Add(new ImportErrorDetail
+                        var newProduct = new ProductMaster
                         {
-                            RowNumber = rowNumber,
-                            StyleCode = cleanStyleCode,
-                            Message = "Mã hình thể đã tồn tại trong hệ thống (chọn ghi đè để cập nhật)."
-                        });
+                            StyleCode = baseCode,
+                            Description = customsDescription,
+                            UnitPriceCMT = 0,
+                            UnitPriceDAP = 0,
+                            UnitPriceCMT_Go = cmtPrice,
+                            UnitPriceDAP_Go = dapPrice,
+                            HasGoOption = true,
+                            HsCode = hsCode,
+                            Unit = unit,
+                            PairPerCarton = pairCtn,
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        _context.ProductMasters.Add(newProduct);
+                        existingProducts[lookupKey] = newProduct;
+                        result.CreatedCount++;
                     }
                 }
                 else
                 {
-                    var newProduct = new ProductMaster
+                    // Hàng tiêu chuẩn Thành hình (không có đuôi .G)
+                    if (existingProducts.TryGetValue(lookupKey, out var existing))
                     {
-                        StyleCode = cleanStyleCode,
-                        Description = description,
-                        UnitPriceCMT = cmt,
-                        UnitPriceDAP = dap,
-                        HsCode = hsCode,
-                        Unit = unit,
-                        PairPerCarton = pairCtn,
-                        CreatedAt = DateTime.UtcNow
-                    };
-                    _context.ProductMasters.Add(newProduct);
-                    existingProducts[cleanStyleCode] = newProduct;
-                    result.CreatedCount++;
+                        if (updateExisting)
+                        {
+                            existing.UnitPriceCMT = cmtPrice;
+                            existing.UnitPriceDAP = dapPrice;
+                            if (!string.IsNullOrWhiteSpace(customsDescription)) existing.Description = customsDescription;
+                            if (!string.IsNullOrWhiteSpace(hsCode)) existing.HsCode = hsCode;
+                            if (!string.IsNullOrWhiteSpace(unit)) existing.Unit = unit;
+                            existing.UpdatedAt = DateTime.UtcNow;
+                            result.UpdatedCount++;
+                        }
+                        else
+                        {
+                            result.Errors.Add(new ImportErrorDetail
+                            {
+                                RowNumber = r,
+                                StyleCode = baseCode,
+                                Message = "Mã hình thể đã tồn tại trong hệ thống (chọn ghi đè để cập nhật)."
+                            });
+                        }
+                    }
+                    else
+                    {
+                        var newProduct = new ProductMaster
+                        {
+                            StyleCode = baseCode,
+                            Description = customsDescription,
+                            UnitPriceCMT = cmtPrice,
+                            UnitPriceDAP = dapPrice,
+                            HsCode = hsCode,
+                            Unit = unit,
+                            PairPerCarton = pairCtn,
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        _context.ProductMasters.Add(newProduct);
+                        existingProducts[lookupKey] = newProduct;
+                        result.CreatedCount++;
+                    }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi xử lý dòng {RowNumber}", rowNumber);
+                _logger.LogError(ex, "Lỗi khi xử lý dòng {RowNumber} ({StyleCode})", r, rawCodeStr);
                 result.Errors.Add(new ImportErrorDetail
                 {
-                    RowNumber = rowNumber,
+                    RowNumber = r,
+                    StyleCode = rawCodeStr,
                     Message = $"Lỗi xử lý: {ex.Message}"
                 });
             }
         }
 
         await _context.SaveChangesAsync();
+
+        result.ImportedCount = result.CreatedCount + result.UpdatedCount;
+        result.Success = result.ImportedCount > 0;
+        result.Message = result.Errors.Count == 0
+            ? $"Đã import thành công {result.ImportedCount} mã sản phẩm vào Master Data!"
+            : $"Đã xử lý {result.ImportedCount}/{result.TotalRowsRead} mã sản phẩm. Có {result.Errors.Count} dòng bị lỗi.";
+
+        _logger.LogInformation("Hoàn tất Import: {TotalRead} dòng đọc, {Imported} import thành công, {Errors} lỗi",
+            result.TotalRowsRead, result.ImportedCount, result.Errors.Count);
+
         return result;
+    }
+
+    private static bool TryExtractDecimal(IXLCell? cell, out decimal value, out string? errorMessage)
+    {
+        value = 0m;
+        errorMessage = null;
+        if (cell == null || cell.IsEmpty()) return true;
+
+        try
+        {
+            // Nếu ô là lỗi công thức trong Excel (như #N/A, #VALUE!, #REF!, v.v.) thì mặc định giá = 0
+            if (cell.DataType == XLDataType.Error)
+            {
+                value = 0m;
+                return true;
+            }
+
+            if (cell.DataType == XLDataType.Number)
+            {
+                value = (decimal)cell.GetDouble();
+                return true;
+            }
+
+            var str = cell.GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(str)) return true;
+
+            // Xử lý các lỗi công thức dạng chuỗi hoặc ký hiệu rỗng/chưa có giá: #N/A, N/A, NA, -, --, v.v.
+            if (str.Equals("#N/A", StringComparison.OrdinalIgnoreCase) ||
+                str.Equals("N/A", StringComparison.OrdinalIgnoreCase) ||
+                str.Equals("NA", StringComparison.OrdinalIgnoreCase) ||
+                str.Equals("#VALUE!", StringComparison.OrdinalIgnoreCase) ||
+                str.Equals("#REF!", StringComparison.OrdinalIgnoreCase) ||
+                str.Equals("#NAME?", StringComparison.OrdinalIgnoreCase) ||
+                str.Equals("#NULL!", StringComparison.OrdinalIgnoreCase) ||
+                str.Equals("#NUM!", StringComparison.OrdinalIgnoreCase) ||
+                str.Equals("#DIV/0!", StringComparison.OrdinalIgnoreCase) ||
+                str.Equals("-") || str.Equals("--") || str.Equals("None", StringComparison.OrdinalIgnoreCase))
+            {
+                value = 0m;
+                return true;
+            }
+
+            str = str.Replace("$", "")
+                     .Replace("USD", "", StringComparison.OrdinalIgnoreCase)
+                     .Replace("đ", "", StringComparison.OrdinalIgnoreCase)
+                     .Replace("VND", "", StringComparison.OrdinalIgnoreCase)
+                     .Trim();
+
+            if (str.Contains(',') && str.Contains('.'))
+            {
+                str = str.Replace(",", "");
+            }
+            else if (str.Contains(','))
+            {
+                str = str.Replace(',', '.');
+            }
+
+            if (decimal.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+            {
+                value = parsed;
+                return true;
+            }
+
+            errorMessage = $"Giá trị '{cell.GetString()}' không phải là định dạng số hợp lệ.";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return false;
+        }
     }
 
     private static string CleanStyleCode(string raw)
@@ -983,31 +1193,10 @@ public class ExcelImportExportService : IExcelImportExportService
 
     private static decimal ParseDecimal(IXLCell cell, decimal defaultValue = 0)
     {
-        if (cell == null || cell.IsEmpty()) return defaultValue;
-
-        try
+        if (TryExtractDecimal(cell, out var val, out _))
         {
-            if (cell.DataType == XLDataType.Number)
-            {
-                return (decimal)cell.GetDouble();
-            }
-
-            var str = cell.GetString()?.Trim();
-            if (string.IsNullOrWhiteSpace(str)) return defaultValue;
-
-            str = str.Replace("$", "").Replace("USD", "").Replace("đ", "").Trim();
-            str = str.Replace(',', '.');
-
-            if (decimal.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out var val))
-            {
-                return val;
-            }
+            return val;
         }
-        catch
-        {
-            // ignored
-        }
-
         return defaultValue;
     }
 

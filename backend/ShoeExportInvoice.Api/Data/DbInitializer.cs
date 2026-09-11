@@ -12,7 +12,10 @@ public static class DbInitializer
             // Apply any pending migrations or create database
             await context.Database.MigrateAsync();
 
-            if (!await context.ProductMasters.AnyAsync())
+            // Chỉ nạp dữ liệu mẫu khi có cấu hình biến môi trường SEED_SAMPLE_DATA=true (mặc định để trống để người dùng nạp dữ liệu thật)
+            var shouldSeed = Environment.GetEnvironmentVariable("SEED_SAMPLE_DATA")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+
+            if (shouldSeed && !await context.ProductMasters.AnyAsync())
             {
                 logger.LogInformation("Seeding initial ProductMaster data...");
 

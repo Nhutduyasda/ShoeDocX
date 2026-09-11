@@ -15,6 +15,9 @@ import {
   Tooltip,
   Modal,
   Tag,
+  Radio,
+  Popconfirm,
+  Empty,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -39,7 +42,7 @@ import {
   RocketOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { shipmentApi, invoiceNoToFileName } from '../api/shipmentApi';
+import { shipmentApi, invoiceNoToFileName, extractSequenceNumber, toStandardFileName } from '../api/shipmentApi';
 import { productMasterApi } from '../api/productMasterApi';
 import { customsApi } from '../api/customsApi';
 import type { NavTabKey } from '../layouts/AppLayout';
@@ -51,7 +54,7 @@ import type {
   SavedShipmentSummary,
   SequenceInfo,
 } from '../types';
-import { ProcessType, ShipmentStatus } from '../types';
+import { ProcessType, ShipmentStatus, ExportSequencePriority } from '../types';
 import { PklPreviewModal } from '../components/PklPreviewModal';
 import { QuickPasteModal } from '../components/QuickPasteModal';
 import { OcrUploadModal } from '../components/OcrUploadModal';
@@ -81,38 +84,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [batchOcrModalVisible, setBatchOcrModalVisible] = useState<boolean>(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
-  const [items, setItems] = useState<CreateShipmentItem[]>([
-    {
-      styleCode: '42072-030',
-      description: 'Giày có mũ giày bằng vật liệu dệt và đế ngoài bằng plastic, mũi giày không được gắn bảo vệ. Hàng mới 100%.',
-      quantity: 36,
-      processType: ProcessType.Standard,
-      unitPriceCMT: 3.2,
-      unitPriceDAP: 8.2,
-      unit: 'đôi',
-      pairPerCarton: 12,
-    },
-    {
-      styleCode: '45428-2LX',
-      description: 'Giày thể thao nam cổ thấp đế cao su. Hàng mới 100%.',
-      quantity: 4032,
-      processType: ProcessType.GoKhongMay,
-      unitPriceCMT: 3.5,
-      unitPriceDAP: 8.5,
-      unit: 'đôi',
-      pairPerCarton: 12,
-    },
-    {
-      styleCode: '51200-1BK',
-      description: 'Giày búp bê nữ có quai cài. Hàng mới 100%.',
-      quantity: 5,
-      processType: ProcessType.Standard,
-      unitPriceCMT: 2.9,
-      unitPriceDAP: 7.9,
-      unit: 'đôi',
-      pairPerCarton: 12,
-    },
-  ]);
+  const [items, setItems] = useState<CreateShipmentItem[]>([]);
 
   const [products, setProducts] = useState<ProductMaster[]>([]);
   const [previewData, setPreviewData] = useState<PklPreviewResponse | null>(null);
@@ -125,6 +97,12 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [sequenceInfo, setSequenceInfo] = useState<SequenceInfo | null>(null);
   const [sequenceEditVisible, setSequenceEditVisible] = useState<boolean>(false);
   const [sequenceEditValue, setSequenceEditValue] = useState<number>(1);
+
+  // Export Sequence Modal (khi có cả 2 loại hàng Thành hình và Gò)
+  const [exportSequenceModalVisible, setExportSequenceModalVisible] = useState<boolean>(false);
+  const [exportPriority, setExportPriority] = useState<ExportSequencePriority>(ExportSequencePriority.StandardFirst);
+  const [startInvoiceNum, setStartInvoiceNum] = useState<number>(233);
+  const [pendingExportRequest, setPendingExportRequest] = useState<CreateShipmentRequest | null>(null);
 
   // Lịch sử hóa đơn
   const [savedShipments, setSavedShipments] = useState<SavedShipmentSummary[]>([]);
@@ -179,9 +157,31 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       const currentInvoice = form.getFieldValue('invoiceNo');
       if (!currentInvoice || currentInvoice === 'KMHD-NEW2026-0233') {
         form.setFieldValue('invoiceNo', info.previewInvoiceNo);
+        setStartInvoiceNum(info.nextNumber);
+        setSequenceEditValue(info.nextNumber);
+      } else {
+        const seq = extractSequenceNumber(currentInvoice);
+        if (seq) {
+          setStartInvoiceNum(seq);
+          setSequenceEditValue(seq);
+        }
       }
     } catch {
       // Ignored
+    }
+  };
+
+  const handleInvoiceNoChange = (val: string) => {
+    const clean = val.trim();
+    const seq = extractSequenceNumber(clean);
+    if (seq !== null && seq > 0) {
+      setStartInvoiceNum(seq);
+      setSequenceEditValue(seq);
+      setSequenceInfo({
+        nextNumber: seq,
+        previewInvoiceNo: clean,
+        previewFileName: toStandardFileName(seq),
+      });
     }
   };
 
@@ -225,8 +225,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         }
       }
 
+      // Ưu tiên giá trị ô Input (Source of Truth)
+      const currentInvoiceNo = (form.getFieldValue('invoiceNo') || values.invoiceNo || '').trim();
+      const match = currentInvoiceNo.match(/\d+$/);
+      const currentSeq = match ? parseInt(match[0], 10) : (startInvoiceNum || sequenceInfo?.nextNumber || 233);
+
       return {
-        invoiceNo: values.invoiceNo,
+        invoiceNo: currentInvoiceNo,
+        startInvoiceNumber: currentSeq,
         invoiceDate: values.invoiceDate.format('YYYY-MM-DDTHH:mm:ss'),
         poSuffix: values.poSuffix || '',
         contractNo: values.contractNo || '',
@@ -268,6 +274,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     try {
       const info = await shipmentApi.getSequence();
       setSequenceInfo(info);
+      setStartInvoiceNum(info.nextNumber);
+      setSequenceEditValue(info.nextNumber);
       form.setFieldsValue({ invoiceNo: info.previewInvoiceNo });
       message.info(`Đã điền số hóa đơn tiếp theo: ${info.previewInvoiceNo}`);
     } catch {
@@ -275,14 +283,13 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       const randomSeq = Math.floor(100 + Math.random() * 900);
       const newInvoiceNo = `KMHD-NEW${year}-0${randomSeq}`;
       form.setFieldsValue({ invoiceNo: newInvoiceNo });
+      setStartInvoiceNum(randomSeq);
+      setSequenceEditValue(randomSeq);
       message.info(`Đã sinh số hóa đơn gợi ý: ${newInvoiceNo}`);
     }
   };
 
-  const handleExportExcel = async () => {
-    const req = await buildRequestData();
-    if (!req) return;
-
+  const executeExport = async (req: CreateShipmentRequest) => {
     try {
       setExporting(true);
       const result = await shipmentApi.exportShipmentExcel(req);
@@ -301,7 +308,13 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       }
 
       if (isZip && exportSummary?.hasTwoFiles) {
-        const zipName = `KM3-26-DH${exportSummary.goSequenceNumber}-${exportSummary.standardSequenceNumber}.zip`;
+        const firstNum = req.priority === ExportSequencePriority.GoFirst 
+          ? exportSummary.goSequenceNumber 
+          : exportSummary.standardSequenceNumber;
+        const secondNum = req.priority === ExportSequencePriority.GoFirst 
+          ? exportSummary.standardSequenceNumber 
+          : exportSummary.goSequenceNumber;
+        const zipName = `KM3-26-DH${firstNum}-${secondNum}.zip`;
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -311,6 +324,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         a.remove();
         window.URL.revokeObjectURL(url);
 
+        const isStandardFirst = req.priority !== ExportSequencePriority.GoFirst;
+        const line1 = isStandardFirst
+          ? `• ${exportSummary.standardInvoiceNo} (${exportSummary.standardFileName}) — Thành hình: ${(exportSummary.standardTotalQuantity ?? 0).toLocaleString()} đôi`
+          : `• ${exportSummary.goInvoiceNo} (${exportSummary.goFileName}) — Gò: ${(exportSummary.goTotalQuantity ?? 0).toLocaleString()} đôi`;
+        const line2 = isStandardFirst
+          ? `• ${exportSummary.goInvoiceNo} (${exportSummary.goFileName}) — Gò: ${(exportSummary.goTotalQuantity ?? 0).toLocaleString()} đôi`
+          : `• ${exportSummary.standardInvoiceNo} (${exportSummary.standardFileName}) — Thành hình: ${(exportSummary.standardTotalQuantity ?? 0).toLocaleString()} đôi`;
+
         message.success({
           content: (
             <div className="space-y-1">
@@ -318,11 +339,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 Đã xuất file ZIP và tự động lưu <strong>2 hóa đơn</strong> vào Lịch sử chứng từ:
               </div>
               <div className="text-xs text-slate-600 pl-2">
-                • <strong>{exportSummary.goInvoiceNo}</strong> ({exportSummary.goFileName}) — Gò:{' '}
-                <strong>{(exportSummary.goTotalQuantity ?? 0).toLocaleString()}</strong> đôi
-                <br />
-                • <strong>{exportSummary.standardInvoiceNo}</strong> ({exportSummary.standardFileName}) — Thành hình:{' '}
-                <strong>{(exportSummary.standardTotalQuantity ?? 0).toLocaleString()}</strong> đôi
+                <div>{line1}</div>
+                <div>{line2}</div>
               </div>
               <Button
                 type="link"
@@ -381,6 +399,38 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     }
   };
 
+  const handleExportExcel = async () => {
+    const req = await buildRequestData();
+    if (!req) return;
+
+    const hasBothTypes =
+      req.items.some((i) => i.processType === ProcessType.Standard) &&
+      req.items.some((i) => i.processType === ProcessType.GoKhongMay);
+
+    if (hasBothTypes) {
+      // Ưu tiên sequence number từ chính req.startInvoiceNumber hoặc req.invoiceNo (Source of Truth!)
+      const currentSeq = req.startInvoiceNumber ?? extractSequenceNumber(req.invoiceNo) ?? sequenceInfo?.nextNumber ?? 233;
+      setStartInvoiceNum(currentSeq);
+      setExportPriority(ExportSequencePriority.StandardFirst);
+      setPendingExportRequest(req);
+      setExportSequenceModalVisible(true);
+      return;
+    }
+
+    await executeExport(req);
+  };
+
+  const handleConfirmSequenceExport = async () => {
+    if (!pendingExportRequest) return;
+    const reqWithSeq: CreateShipmentRequest = {
+      ...pendingExportRequest,
+      startInvoiceNumber: startInvoiceNum,
+      priority: exportPriority,
+    };
+    setExportSequenceModalVisible(false);
+    await executeExport(reqWithSeq);
+  };
+
   const handleSaveShipment = async () => {
     const req = await buildRequestData();
     if (!req) return;
@@ -390,11 +440,10 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       const saved = await shipmentApi.createShipment(req);
       await loadShipmentsHistory();
 
-      // Cập nhật số hóa đơn tiếp theo cho form
+      // Cập nhật số hóa đơn tiếp theo sau khi lưu
       try {
         const nextInfo = await shipmentApi.getSequence();
         setSequenceInfo(nextInfo);
-        form.setFieldValue('invoiceNo', nextInfo.previewInvoiceNo);
       } catch {
         // Ignored
       }
@@ -507,6 +556,17 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         });
         setItems(reloadedItems);
       }
+      // Đồng bộ sequence states từ đơn hàng cũ được nạp
+      const seq = extractSequenceNumber(order.invoiceNo);
+      if (seq) {
+        setStartInvoiceNum(seq);
+        setSequenceEditValue(seq);
+        setSequenceInfo({
+          nextNumber: seq,
+          previewInvoiceNo: order.invoiceNo,
+          previewFileName: toStandardFileName(seq),
+        });
+      }
       setActiveTab('create');
       onTabChange?.('shipment');
       message.success({ content: `Đã nạp lại đơn hàng ${order.invoiceNo} vào lưới nhập liệu!`, key: 'load-order' });
@@ -563,13 +623,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleRemoveItem = (index: number) => {
-    if (items.length <= 1) {
-      message.warning('Đơn hàng cần giữ lại ít nhất 1 mặt hàng.');
-      return;
-    }
     const next = [...items];
     next.splice(index, 1);
     setItems(next);
+  };
+
+  const handleClearAllItems = () => {
+    setItems([]);
+    message.success('Đã xóa sạch danh sách mặt hàng.');
   };
 
   const handleProductSelect = (index: number, styleCode: string) => {
@@ -658,8 +719,11 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     try {
       const info = await shipmentApi.setSequence(sequenceEditValue);
       setSequenceInfo(info);
+      setStartInvoiceNum(sequenceEditValue);
+      // Đồng bộ 2 chiều: cập nhật trực tiếp ô Số Hóa đơn (Invoice No) trong Form
+      form.setFieldValue('invoiceNo', info.previewInvoiceNo);
       setSequenceEditVisible(false);
-      message.success(`Đã ghi đè: lần xuất tiếp theo là DH${sequenceEditValue}`);
+      message.success(`Đã đồng bộ: Số hóa đơn ${info.previewInvoiceNo} (File: ${info.previewFileName})`);
     } catch {
       message.error('Lỗi khi ghi đè số thứ tự.');
     }
@@ -690,6 +754,47 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     0
   );
   const uniqueStyleCodesCount = new Set(items.map((i) => i.styleCode.trim().toUpperCase()).filter(Boolean)).size;
+
+  const standardItems = items.filter((i) => i.processType === ProcessType.Standard);
+  const goItems = items.filter((i) => i.processType === ProcessType.GoKhongMay);
+  const standardQty = standardItems.reduce((acc, i) => acc + (i.quantity || 0), 0);
+  const goQty = goItems.reduce((acc, i) => acc + (i.quantity || 0), 0);
+
+  const firstSeqNum = startInvoiceNum || 233;
+  const secondSeqNum = firstSeqNum + 1;
+  const isStandardFirst = exportPriority === ExportSequencePriority.StandardFirst;
+
+  const previewFile1 = isStandardFirst
+    ? {
+        label: 'Hàng Thành hình',
+        type: 'standard' as const,
+        fileName: `KM3-26-DH${firstSeqNum}.xlsx`,
+        invoiceNo: `KMHD-NEW2026-0${firstSeqNum}`,
+        qty: standardQty,
+      }
+    : {
+        label: 'Hàng Gò không may',
+        type: 'go' as const,
+        fileName: `KM3-26-DH${firstSeqNum}.xlsx`,
+        invoiceNo: `KMHD-NEW2026-0${firstSeqNum}`,
+        qty: goQty,
+      };
+
+  const previewFile2 = isStandardFirst
+    ? {
+        label: 'Hàng Gò không may',
+        type: 'go' as const,
+        fileName: `KM3-26-DH${secondSeqNum}.xlsx`,
+        invoiceNo: `KMHD-NEW2026-0${secondSeqNum}`,
+        qty: goQty,
+      }
+    : {
+        label: 'Hàng Thành hình',
+        type: 'standard' as const,
+        fileName: `KM3-26-DH${secondSeqNum}.xlsx`,
+        invoiceNo: `KMHD-NEW2026-0${secondSeqNum}`,
+        qty: standardQty,
+      };
 
   const columns: ColumnsType<CreateShipmentItem> = [
     {
@@ -1195,15 +1300,17 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               >
                 Lưu đơn hàng
               </Button>
-              <Button
-                type="primary"
-                icon={<DownloadOutlined />}
-                loading={exporting}
-                onClick={handleExportExcel}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4 font-medium"
-              >
-                Xuất File Excel (.xlsx)
-              </Button>
+              <Tooltip title="Tự động lưu đơn hàng vào hệ thống và tải xuống file Excel (không cần bấm Lưu trước)">
+                <Button
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  loading={exporting}
+                  onClick={handleExportExcel}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4 font-medium"
+                >
+                  Xuất File Excel & Lưu đơn
+                </Button>
+              </Tooltip>
             </div>
           </div>
 
@@ -1229,7 +1336,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                     icon={<EditOutlined className="text-xs" />}
                     className="text-slate-600 hover:text-blue-600 border-slate-300 text-xs h-7 px-2"
                     onClick={() => {
-                      setSequenceEditValue(sequenceInfo?.nextNumber ?? 1);
+                      const curInvoice = form.getFieldValue('invoiceNo') || '';
+                      const curSeq = extractSequenceNumber(curInvoice) ?? sequenceInfo?.nextNumber ?? 1;
+                      setSequenceEditValue(curSeq);
                       setSequenceEditVisible(true);
                     }}
                   >
@@ -1242,6 +1351,11 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             <Form
               form={form}
               layout="vertical"
+              onValuesChange={(changedValues) => {
+                if ('invoiceNo' in changedValues) {
+                  handleInvoiceNoChange(changedValues.invoiceNo || '');
+                }
+              }}
               initialValues={{
                 invoiceNo: 'KMHD-NEW2026-0233',
                 invoiceDate: dayjs(),
@@ -1263,6 +1377,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                     <Input
                       className="font-mono text-xs font-medium"
                       placeholder="vd: KMHD-NEW2026-0233"
+                      onChange={(e) => handleInvoiceNoChange(e.target.value)}
                       suffix={
                         <Tooltip title="Gợi ý số Invoice tiếp theo">
                           <ReloadOutlined
@@ -1451,11 +1566,29 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 >
                   Nạp từ Master Data
                 </Button>
+                <Popconfirm
+                  title="Xóa toàn bộ danh sách mặt hàng?"
+                  description="Bạn có chắc chắn muốn xóa tất cả các dòng hiện tại không?"
+                  okText="Xóa tất cả"
+                  cancelText="Hủy"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={handleClearAllItems}
+                  disabled={items.length === 0}
+                >
+                  <Button
+                    danger
+                    icon={<DeleteOutlined />}
+                    disabled={items.length === 0}
+                    className="text-xs h-8"
+                  >
+                    Xóa tất cả
+                  </Button>
+                </Popconfirm>
                 <Button
                   type="primary"
                   icon={<PlusOutlined />}
                   onClick={handleAddItem}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8"
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-medium"
                 >
                   + Thêm dòng
                 </Button>
@@ -1469,39 +1602,83 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 rowKey={(_, index) => `${index}`}
                 pagination={false}
                 size="middle"
-                summary={() => (
-                  <Table.Summary fixed>
-                    <Table.Summary.Row className="bg-slate-50 font-medium text-slate-900 border-t border-slate-200">
-                      <Table.Summary.Cell index={0} colSpan={3}>
-                        <span className="font-semibold text-xs text-slate-800 uppercase tracking-wider">
-                          TỔNG CỘNG LÔ HÀNG:
-                        </span>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={3} align="right">
-                        <span className="font-mono text-slate-900 font-bold text-sm">
-                          {totalQuantity.toLocaleString()} đôi
-                        </span>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={4} colSpan={2} align="center">
-                        <span className="font-mono text-xs text-slate-600">
-                          Ước tính: {totalCartons.toLocaleString()} kiện
-                        </span>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={6} align="right">
-                        <span className="font-mono text-xs text-slate-700">
-                          CMT: ${totalAmountCMT.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={7} colSpan={2} align="right">
-                        <span className="font-mono text-sm text-blue-700 font-bold">
-                          DAP: ${totalAmountDAP.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={9} align="center" />
-                      <Table.Summary.Cell index={10} align="center" />
-                    </Table.Summary.Row>
-                  </Table.Summary>
-                )}
+                locale={{
+                  emptyText: (
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description={
+                        <div className="space-y-1 py-3">
+                          <div className="text-sm font-semibold text-slate-700">
+                            Chưa có mặt hàng nào trong đơn
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Thêm dòng mới để nhập tay, dán từ file Excel hoặc quét ảnh phiếu kho để bắt đầu
+                          </div>
+                        </div>
+                      }
+                    >
+                      <Space size="middle" className="pb-2">
+                        <Button
+                          type="primary"
+                          icon={<PlusOutlined />}
+                          onClick={handleAddItem}
+                          className="bg-blue-600 hover:bg-blue-700 text-xs h-8 font-medium"
+                        >
+                          + Thêm dòng mới
+                        </Button>
+                        <Button
+                          icon={<ThunderboltOutlined />}
+                          onClick={() => setQuickPasteVisible(true)}
+                          className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
+                        >
+                          Dán nhanh từ Excel
+                        </Button>
+                        <Button
+                          icon={<CameraOutlined />}
+                          onClick={() => setOcrModalVisible(true)}
+                          className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
+                        >
+                          Quét OCR Phiếu kho
+                        </Button>
+                      </Space>
+                    </Empty>
+                  ),
+                }}
+                summary={() =>
+                  items.length > 0 ? (
+                    <Table.Summary fixed>
+                      <Table.Summary.Row className="bg-slate-50 font-medium text-slate-900 border-t border-slate-200">
+                        <Table.Summary.Cell index={0} colSpan={3}>
+                          <span className="font-semibold text-xs text-slate-800 uppercase tracking-wider">
+                            TỔNG CỘNG LÔ HÀNG:
+                          </span>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={3} align="right">
+                          <span className="font-mono text-slate-900 font-bold text-sm">
+                            {totalQuantity.toLocaleString()} đôi
+                          </span>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={4} colSpan={2} align="center">
+                          <span className="font-mono text-xs text-slate-600">
+                            Ước tính: {totalCartons.toLocaleString()} kiện
+                          </span>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={6} align="right">
+                          <span className="font-mono text-xs text-slate-700">
+                            CMT: ${totalAmountCMT.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={7} colSpan={2} align="right">
+                          <span className="font-mono text-sm text-blue-700 font-bold">
+                            DAP: ${totalAmountDAP.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={9} align="center" />
+                        <Table.Summary.Cell index={10} align="center" />
+                      </Table.Summary.Row>
+                    </Table.Summary>
+                  ) : null
+                }
               />
             </div>
 
@@ -1608,6 +1785,140 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           loadShipmentsHistory();
         }}
       />
+
+      {/* Modal Xác nhận Thứ tự Xuất Hóa đơn (khi có cả 2 loại hàng) */}
+      <Modal
+        title={
+          <div className="flex items-center space-x-2 text-sm font-semibold text-slate-900">
+            <RocketOutlined className="text-blue-600" />
+            <span>Xác nhận Thứ tự Xuất Hóa đơn & Đặt tên File</span>
+          </div>
+        }
+        open={exportSequenceModalVisible}
+        onCancel={() => setExportSequenceModalVisible(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setExportSequenceModalVisible(false)} className="text-xs h-9 px-4">
+            Hủy bỏ
+          </Button>,
+          <Button
+            key="confirm"
+            type="primary"
+            icon={<DownloadOutlined />}
+            loading={exporting}
+            onClick={handleConfirmSequenceExport}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs h-9 px-5"
+          >
+            Xác nhận & Xuất File
+          </Button>,
+        ]}
+        width={580}
+        destroyOnClose
+      >
+        <div className="space-y-4 py-2">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900 flex items-start space-x-2">
+            <ExclamationCircleOutlined className="text-amber-600 mt-0.5 text-sm flex-shrink-0" />
+            <div>
+              Đợt hàng có <strong>cả 2 loại hàng</strong> ({standardItems.length} mã Thành hình và {goItems.length} mã Gò).
+              Hệ thống sẽ tách thành <strong>2 file Excel riêng biệt</strong> và đóng gói vào 1 file ZIP.
+            </div>
+          </div>
+
+          {/* Khối nhập số bắt đầu */}
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+            <label className="block text-xs font-semibold text-slate-700">
+              Số Hóa đơn Bắt đầu:
+            </label>
+            <div className="flex items-center space-x-3">
+              <InputNumber
+                min={1}
+                max={9999}
+                value={startInvoiceNum}
+                onChange={(val) => setStartInvoiceNum(val ?? 233)}
+                className="w-32 font-mono text-xs"
+              />
+              <span className="text-xs text-slate-500">
+                (Gợi ý tiếp theo từ hệ thống: <strong className="font-mono text-slate-700">#{sequenceInfo?.nextNumber || 233}</strong>)
+              </span>
+            </div>
+          </div>
+
+          {/* Tùy chọn Thứ tự Cấp số */}
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-slate-700">
+              Tùy chọn Thứ tự Cấp số:
+            </label>
+            <Radio.Group
+              value={exportPriority}
+              onChange={(e) => setExportPriority(e.target.value)}
+              className="w-full flex flex-col space-y-2"
+            >
+              <Radio
+                value={ExportSequencePriority.StandardFirst}
+                className="border border-slate-200 rounded-lg p-3 hover:border-blue-500 transition-colors w-full"
+              >
+                <div className="inline-block align-middle ml-1">
+                  <div className="text-xs font-medium text-slate-900">
+                    Xuất Hàng Thành hình trước, Hàng Gò sau{' '}
+                    <Tag color="blue" className="ml-1 text-[10px]">Khuyên dùng</Tag>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                    Thành hình: #{firstSeqNum} &rarr; Gò không may: #{secondSeqNum}
+                  </div>
+                </div>
+              </Radio>
+              <Radio
+                value={ExportSequencePriority.GoFirst}
+                className="border border-slate-200 rounded-lg p-3 hover:border-blue-500 transition-colors w-full"
+              >
+                <div className="inline-block align-middle ml-1">
+                  <div className="text-xs font-medium text-slate-900">
+                    Xuất Hàng Gò trước, Hàng Thành hình sau
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                    Gò không may: #{firstSeqNum} &rarr; Thành hình: #{secondSeqNum}
+                  </div>
+                </div>
+              </Radio>
+            </Radio.Group>
+          </div>
+
+          {/* Bảng Xem trước Tức thời (Live Preview) */}
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+              <span>Bảng Xem trước Tức thời (Live Preview)</span>
+              <span className="font-mono text-[11px] text-slate-500">ZIP: KM3-26-DH{firstSeqNum}-{secondSeqNum}.zip</span>
+            </div>
+            <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 overflow-hidden bg-white">
+              {[previewFile1, previewFile2].map((f, idx) => (
+                <div key={idx} className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center space-x-3">
+                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-600 font-mono text-xs font-medium">
+                      {idx + 1}
+                    </span>
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono font-semibold text-xs text-slate-900">{f.fileName}</span>
+                        <Tag color={f.type === 'standard' ? 'blue' : 'gold'} className="text-[10px] m-0">
+                          {f.label}
+                        </Tag>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                        Invoice No: <span className="font-medium text-slate-700">{f.invoiceNo}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs font-semibold font-mono text-slate-900">
+                      {f.qty.toLocaleString()} đôi
+                    </div>
+                    <div className="text-[10px] text-slate-400">Số lượng</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 });

@@ -248,7 +248,17 @@ public class OcrController : ControllerBase
         }
 
         // 2. Lấy dãy số thứ tự liên tục từ SequenceService
-        var seqNumbers = await _sequenceService.GetNextSequenceNumbersAsync(totalSeqNeeded);
+        int[] seqNumbers;
+        if (request.StartInvoiceNumber.HasValue && request.StartInvoiceNumber.Value > 0)
+        {
+            int startNum = request.StartInvoiceNumber.Value;
+            seqNumbers = Enumerable.Range(startNum, totalSeqNeeded).ToArray();
+            await _sequenceService.SetNextSequenceNumberAsync(startNum + totalSeqNeeded);
+        }
+        else
+        {
+            seqNumbers = await _sequenceService.GetNextSequenceNumbersAsync(totalSeqNeeded);
+        }
         int seqCursor = 0;
 
         var summary = new BatchExportSummaryDto
@@ -269,13 +279,25 @@ public class OcrController : ControllerBase
                 if (goItems.Count > 0 && stdItems.Count > 0)
                 {
                     // === TÁCH 2 FILE CHO ĐỢT NÀY ===
-                    int goSeq = seqNumbers[seqCursor++];
-                    int stdSeq = seqNumbers[seqCursor++];
+                    int firstSeq = seqNumbers[seqCursor++];
+                    int secondSeq = seqNumbers[seqCursor++];
+
+                    int standardSeq, goSeq;
+                    if (request.Priority == ExportSequencePriority.GoFirst)
+                    {
+                        goSeq = firstSeq;
+                        standardSeq = secondSeq;
+                    }
+                    else
+                    {
+                        standardSeq = firstSeq;
+                        goSeq = secondSeq;
+                    }
 
                     string goInvoiceNo = _sequenceService.ToInvoiceNo(goSeq);
-                    string stdInvoiceNo = _sequenceService.ToInvoiceNo(stdSeq);
+                    string stdInvoiceNo = _sequenceService.ToInvoiceNo(standardSeq);
                     string goFileName = _sequenceService.ToFileName(goSeq);
-                    string stdFileName = _sequenceService.ToFileName(stdSeq);
+                    string stdFileName = _sequenceService.ToFileName(standardSeq);
 
                     var goReq = BuildShipmentRequest(request, goItems, goInvoiceNo);
                     var stdReq = BuildShipmentRequest(request, stdItems, stdInvoiceNo);

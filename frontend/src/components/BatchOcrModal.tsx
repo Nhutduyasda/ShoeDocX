@@ -35,7 +35,7 @@ import type {
   ProductMaster,
   CreateShipmentItem,
 } from '../types';
-import { ProcessType } from '../types';
+import { ProcessType, ExportSequencePriority } from '../types';
 
 interface BatchOcrModalProps {
   visible: boolean;
@@ -75,6 +75,9 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const [poSuffix, setPoSuffix] = useState<string>('(KM3.PO5.26)');
   const [customerName, setCustomerName] = useState<string>(
     'CÔNG TY TNHH KINGMAKER III (VIỆT NAM) FOOTWEAR'
+  );
+  const [batchPriority, setBatchPriority] = useState<ExportSequencePriority>(
+    ExportSequencePriority.StandardFirst
   );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -335,6 +338,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
         contractNo: contractNo.trim(),
         poSuffix: poSuffix.trim(),
         customerName: customerName.trim(),
+        priority: batchPriority,
         batches: batchesPayload,
       };
 
@@ -627,7 +631,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
 
         {/* Global Export Config & Final Action Button */}
         <div className="border-t border-slate-200 pt-3 bg-slate-50 p-4 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 flex-1 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 text-xs">
             <div>
               <span className="text-slate-500 block mb-0.5">Số Hợp đồng:</span>
               <Input
@@ -653,6 +657,19 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 className="text-xs"
+              />
+            </div>
+            <div>
+              <span className="text-slate-500 block mb-0.5">Thứ tự xuất (nếu tách 2 file):</span>
+              <Select
+                size="small"
+                value={batchPriority}
+                onChange={setBatchPriority}
+                className="w-full text-xs"
+                options={[
+                  { value: ExportSequencePriority.StandardFirst, label: 'Thành hình trước, Gò sau' },
+                  { value: ExportSequencePriority.GoFirst, label: 'Gò trước, Thành hình sau' },
+                ]}
               />
             </div>
           </div>

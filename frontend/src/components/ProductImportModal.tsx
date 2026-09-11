@@ -58,9 +58,10 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
       return;
     }
 
-    const file = fileList[0].originFileObj as File;
-    if (!file) {
-      message.warning('File không hợp lệ');
+    const rawItem = fileList[0] as any;
+    const file = (rawItem?.originFileObj ?? rawItem) as File;
+    if (!file || typeof file.slice !== 'function') {
+      message.warning('File không hợp lệ hoặc chưa được chọn đúng định dạng.');
       return;
     }
 
@@ -71,18 +72,19 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
 
       if (res.failedCount === 0) {
         message.success(
-          `Import thành công: ${res.createdCount} tạo mới, ${res.updatedCount} cập nhật`
+          res.message || `Import thành công: ${res.createdCount} tạo mới, ${res.updatedCount} cập nhật`
         );
         onSuccess();
       } else {
         message.warning(
-          `Import hoàn tất: ${res.createdCount} tạo mới, ${res.updatedCount} cập nhật, ${res.failedCount} lỗi`
+          res.message || `Import hoàn tất: ${res.createdCount} tạo mới, ${res.updatedCount} cập nhật, ${res.failedCount} lỗi`
         );
         onSuccess();
       }
     } catch (err: any) {
       console.error(err);
-      message.error('Lỗi xảy ra trong quá trình import dữ liệu');
+      const errorMsg = err.response?.data?.message || err.message || 'Lỗi xảy ra trong quá trình import dữ liệu';
+      message.error(errorMsg);
     } finally {
       setUploading(false);
     }
@@ -183,16 +185,24 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
           <Dragger
             fileList={fileList}
             beforeUpload={(file) => {
+              const fileName = file.name.toLowerCase();
               const isXlsx =
-                file.name.endsWith('.xlsx') ||
+                fileName.endsWith('.xlsx') ||
+                fileName.endsWith('.xls') ||
                 file.type ===
-                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                file.type === 'application/vnd.ms-excel';
               if (!isXlsx) {
-                message.error('Vui lòng chỉ chọn file Excel (.xlsx)');
+                message.error('Vui lòng chỉ chọn file Excel (.xlsx hoặc .xls)');
                 return Upload.LIST_IGNORE;
               }
               setFileList([file]);
               return false;
+            }}
+            onChange={(info) => {
+              if (info.fileList.length > 0) {
+                setFileList(info.fileList.slice(-1));
+              }
             }}
             onRemove={() => {
               setFileList([]);

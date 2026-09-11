@@ -7,6 +7,7 @@ import {
   Popconfirm,
   message,
   Tooltip,
+  Modal,
 } from 'antd';
 import {
   PlusOutlined,
@@ -16,6 +17,7 @@ import {
   ReloadOutlined,
   EditOutlined,
   DeleteOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { ProductMaster } from '../types';
@@ -36,6 +38,10 @@ export const ProductMasterPage: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<ProductMaster | null>(null);
   const [importModalVisible, setImportModalVisible] = useState<boolean>(false);
   const [exporting, setExporting] = useState<boolean>(false);
+  const [clearing, setClearing] = useState<boolean>(false);
+  const [bulkUnitModalVisible, setBulkUnitModalVisible] = useState<boolean>(false);
+  const [newBulkUnit, setNewBulkUnit] = useState<string>('đôi');
+  const [updatingUnit, setUpdatingUnit] = useState<boolean>(false);
 
   // Fetch product list
   const fetchProducts = useCallback(async () => {
@@ -64,6 +70,42 @@ export const ProductMasterPage: React.FC = () => {
     } catch (err) {
       console.error(err);
       message.error('Không thể xóa mã hàng này.');
+    }
+  };
+
+  // Handle Delete All
+  const handleDeleteAll = async () => {
+    try {
+      setClearing(true);
+      const res = await productMasterApi.deleteAll();
+      message.success(res.message || 'Đã xóa toàn bộ danh mục hàng hóa thành công!');
+      setPage(1);
+      fetchProducts();
+    } catch (err) {
+      console.error(err);
+      message.error('Không thể xóa danh mục hàng hóa.');
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  // Handle Bulk Update Unit
+  const handleBulkUpdateUnit = async () => {
+    if (!newBulkUnit.trim()) {
+      message.warning('Vui lòng nhập đơn vị tính mới');
+      return;
+    }
+    try {
+      setUpdatingUnit(true);
+      const res = await productMasterApi.bulkUpdateUnit(newBulkUnit.trim());
+      message.success(res.message || `Đã cập nhật ĐVT thành "${newBulkUnit.trim()}" cho tất cả sản phẩm!`);
+      setBulkUnitModalVisible(false);
+      fetchProducts();
+    } catch (err: any) {
+      console.error(err);
+      message.error(err.response?.data?.message || 'Không thể cập nhật ĐVT.');
+    } finally {
+      setUpdatingUnit(false);
     }
   };
 
@@ -279,6 +321,26 @@ export const ProductMasterPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Popconfirm
+            title="Xóa tất cả danh mục hàng hóa?"
+            description="Bạn có chắc chắn muốn xóa toàn bộ mã sản phẩm trong Master Data? Thao tác này không thể hoàn tác!"
+            onConfirm={handleDeleteAll}
+            okText="Xóa tất cả"
+            cancelText="Hủy"
+            okButtonProps={{ danger: true, size: 'small' }}
+            cancelButtonProps={{ size: 'small' }}
+          >
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              loading={clearing}
+              disabled={totalCount === 0}
+              className="text-xs h-9 px-3.5 font-normal"
+            >
+              Xóa tất cả
+            </Button>
+          </Popconfirm>
+
           <Button
             icon={<DownloadOutlined />}
             onClick={handleExportExcel}
@@ -294,6 +356,18 @@ export const ProductMasterPage: React.FC = () => {
             className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-normal"
           >
             Nhập Excel
+          </Button>
+
+          <Button
+            icon={<SwapOutlined />}
+            onClick={() => {
+              setNewBulkUnit('đôi');
+              setBulkUnitModalVisible(true);
+            }}
+            disabled={totalCount === 0}
+            className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-normal"
+          >
+            Đổi ĐVT tất cả
           </Button>
 
           <Button
@@ -423,6 +497,56 @@ export const ProductMasterPage: React.FC = () => {
           fetchProducts();
         }}
       />
+
+      {/* Modal Đổi ĐVT hàng loạt */}
+      <Modal
+        title="Đổi Đơn Vị Tính (ĐVT) cho tất cả hàng hóa"
+        open={bulkUnitModalVisible}
+        onCancel={() => setBulkUnitModalVisible(false)}
+        onOk={handleBulkUpdateUnit}
+        confirmLoading={updatingUnit}
+        okText="Cập nhật tất cả"
+        cancelText="Hủy"
+        okButtonProps={{ className: 'bg-blue-600' }}
+      >
+        <div className="space-y-4 py-2">
+          <p className="text-xs text-slate-500 m-0">
+            Thao tác này sẽ cập nhật đơn vị tính cho toàn bộ <strong>{totalCount}</strong> mã sản phẩm hiện có trong Master Data.
+          </p>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">
+              Chọn nhanh đơn vị tính phổ biến:
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {['đôi', 'PR', 'PCE', 'Cặp', 'THÙNG', 'Chiếc'].map((u) => (
+                <Button
+                  key={u}
+                  size="small"
+                  type={newBulkUnit === u ? 'primary' : 'default'}
+                  onClick={() => setNewBulkUnit(u)}
+                  className={newBulkUnit === u ? 'bg-blue-600 text-white' : 'border-slate-300 text-slate-700'}
+                >
+                  {u}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">
+              Hoặc nhập đơn vị tính tùy chỉnh:
+            </label>
+            <Input
+              value={newBulkUnit}
+              onChange={(e) => setNewBulkUnit(e.target.value)}
+              placeholder="Nhập ĐVT (ví dụ: đôi, PR, PCE...)"
+              maxLength={20}
+              className="font-mono text-xs"
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

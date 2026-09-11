@@ -130,6 +130,34 @@ public class ProductMasterService : IProductMasterService
         return true;
     }
 
+    public async Task<int> DeleteAllAsync()
+    {
+        var count = await _context.ProductMasters.ExecuteDeleteAsync();
+        try
+        {
+            await _context.Database.ExecuteSqlRawAsync("DELETE FROM sqlite_sequence WHERE name = 'ProductMasters';");
+        }
+        catch
+        {
+            // Bỏ qua nếu SQLite không có bảng sqlite_sequence
+        }
+        return count;
+    }
+
+    public async Task<int> BulkUpdateUnitAsync(string newUnit)
+    {
+        if (string.IsNullOrWhiteSpace(newUnit))
+            throw new ArgumentException("Đơn vị tính không được để trống.", nameof(newUnit));
+
+        var trimmed = newUnit.Trim();
+        var count = await _context.ProductMasters
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.Unit, trimmed)
+                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow));
+
+        return count;
+    }
+
     public async Task<bool> ExistsStyleCodeAsync(string styleCode, int? excludeId = null)
     {
         var query = _context.ProductMasters.AsNoTracking().Where(p => p.StyleCode.ToLower() == styleCode.Trim().ToLower());

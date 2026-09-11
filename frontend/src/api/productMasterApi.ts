@@ -45,6 +45,18 @@ export const productMasterApi = {
     await apiClient.delete(`/product-masters/${id}`);
   },
 
+  // Xóa toàn bộ danh mục sản phẩm
+  deleteAll: async (): Promise<{ message: string; deletedCount: number }> => {
+    const response = await apiClient.delete<{ message: string; deletedCount: number }>('/product-masters/all');
+    return response.data;
+  },
+
+  // Cập nhật ĐVT đồng loạt cho tất cả sản phẩm
+  bulkUpdateUnit: async (unit: string): Promise<{ message: string; updatedCount: number }> => {
+    const response = await apiClient.put<{ message: string; updatedCount: number }>('/product-masters/bulk-update-unit', { unit });
+    return response.data;
+  },
+
   // Tải file mẫu Excel
   downloadTemplate: async (): Promise<void> => {
     const response = await apiClient.get('/product-masters/template', {

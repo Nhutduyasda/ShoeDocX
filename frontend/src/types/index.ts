@@ -54,6 +54,10 @@ export interface ImportErrorDetail {
 }
 
 export interface ImportResult {
+  success: boolean;
+  totalRowsRead: number;
+  importedCount: number;
+  message: string;
   totalRows: number;
   createdCount: number;
   updatedCount: number;
@@ -76,6 +80,13 @@ export const ShipmentStatus = {
 } as const;
 
 export type ShipmentStatus = typeof ShipmentStatus[keyof typeof ShipmentStatus];
+
+export const ExportSequencePriority = {
+  StandardFirst: 1, // Thành hình trước, Gò sau
+  GoFirst: 2,       // Gò trước, Thành hình sau
+} as const;
+
+export type ExportSequencePriority = typeof ExportSequencePriority[keyof typeof ExportSequencePriority];
 
 export interface ShipmentOrder {
   id: number;
@@ -135,6 +146,8 @@ export interface CreateShipmentRequest {
   address: string;
   deliveryTerms: string;
   paymentTerms: string;
+  startInvoiceNumber?: number;
+  priority?: ExportSequencePriority;
   items: CreateShipmentItem[];
 }
 
@@ -450,6 +463,8 @@ export interface BatchOcrConfirmRequest {
   deliveryTerms?: string;
   paymentTerms?: string;
   invoiceDate?: string;
+  startInvoiceNumber?: number;
+  priority?: ExportSequencePriority;
   batches: BatchScanItemExport[];
 }
 

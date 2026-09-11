@@ -132,6 +132,31 @@ public class ProductMastersController : ControllerBase
     }
 
     /// <summary>
+    /// Xóa toàn bộ danh mục sản phẩm trong Master Data
+    /// </summary>
+    [HttpDelete("all")]
+    public async Task<IActionResult> DeleteAll()
+    {
+        var count = await _productService.DeleteAllAsync();
+        return Ok(new { message = $"Đã xóa thành công toàn bộ {count} sản phẩm trong danh mục.", deletedCount = count });
+    }
+
+    /// <summary>
+    /// Cập nhật ĐVT (Đơn vị tính) đồng loạt cho toàn bộ danh mục sản phẩm
+    /// </summary>
+    [HttpPut("bulk-update-unit")]
+    public async Task<IActionResult> BulkUpdateUnit([FromBody] BulkUpdateUnitDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Unit))
+        {
+            return BadRequest(new { message = "Đơn vị tính không được để trống." });
+        }
+
+        var count = await _productService.BulkUpdateUnitAsync(dto.Unit);
+        return Ok(new { message = $"Đã cập nhật ĐVT thành '{dto.Unit}' cho toàn bộ {count} sản phẩm.", updatedCount = count });
+    }
+
+    /// <summary>
     /// Tải file Excel mẫu để chuẩn bị dữ liệu import
     /// </summary>
     [HttpGet("template")]

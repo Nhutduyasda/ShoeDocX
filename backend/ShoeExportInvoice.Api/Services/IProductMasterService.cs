@@ -10,5 +10,7 @@ public interface IProductMasterService
     Task<ProductMasterDto> CreateAsync(CreateProductMasterDto dto);
     Task<ProductMasterDto?> UpdateAsync(int id, UpdateProductMasterDto dto);
     Task<bool> DeleteAsync(int id);
+    Task<int> DeleteAllAsync();
+    Task<int> BulkUpdateUnitAsync(string newUnit);
     Task<bool> ExistsStyleCodeAsync(string styleCode, int? excludeId = null);
 }

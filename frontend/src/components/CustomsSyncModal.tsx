@@ -7,7 +7,7 @@ import {
   Alert,
   Spin,
   message,
-  Popconfirm,
+  notification,
   Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -120,6 +120,8 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
     }
   };
 
+  const isEffectivelyMatched = Boolean(reconciliation?.isFullyMatched);
+
   const handleConfirmSync = async () => {
     if (!reconciliation || !reconciliation.isOrderFound || !reconciliation.matchedOrder) {
       message.error('Không tìm thấy đơn hàng tương ứng để đồng bộ.');
@@ -143,16 +145,21 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
           grossWeight: decl.grossWeight,
           totalDap: decl.totalDap,
           totalCmt: decl.totalCmt,
-          isFullyMatched: reconciliation.isFullyMatched,
+          isFullyMatched: isEffectivelyMatched,
         },
         file || undefined
       );
 
-      message.success(result.message);
+      notification.success({
+        message: 'Thông quan thành công',
+        description: `Đồng bộ tờ khai ${decl.declarationNo} thành công! Đơn hàng đã chuyển sang trạng thái Đã thông quan.`,
+        duration: 4.5,
+      });
+
       if (onSyncSuccess) {
         onSyncSuccess(result);
       }
-      onClose();
+      handleClose();
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } }; message?: string };
       message.error(
@@ -203,6 +210,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
       key: 'index',
       width: 50,
       align: 'center',
+      fixed: 'left',
       render: (val: number) => <span className="text-slate-400 font-mono text-xs">{val}</span>,
     },
     {
@@ -210,6 +218,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
       dataIndex: 'styleCode',
       key: 'styleCode',
       width: 140,
+      fixed: 'left',
       render: (code: string, record) => (
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-semibold text-slate-800">{code}</span>
@@ -298,6 +307,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
       title: 'Trạng thái đối soát',
       key: 'status',
       width: 140,
+      fixed: 'right',
       render: (_, record) => {
         if (record.isMatched) {
           return (
@@ -335,7 +345,8 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
     <Modal
       open={open}
       onCancel={handleClose}
-      width={980}
+      width="min(1100px, 96vw)"
+      style={{ top: 20 }}
       title={
         <div className="flex items-center gap-2.5 py-1">
           <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-base">
@@ -366,34 +377,29 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
             </Button>
             {reconciliation?.isOrderFound && (
               <>
-                {reconciliation.isFullyMatched ? (
+                {reconciliation.isInvoiceMismatch ? (
+                  <Tooltip title="Không thể lưu hoặc đồng bộ vì số hóa đơn trên tờ khai khác với hóa đơn đang chọn">
+                    <Button
+                      disabled
+                      danger
+                      type="primary"
+                      icon={<CloseCircleOutlined />}
+                    >
+                      Khóa đồng bộ (Lệch hóa đơn)
+                    </Button>
+                  </Tooltip>
+                ) : isEffectivelyMatched ? (
                   <Button
                     type="primary"
                     icon={<CheckCircleOutlined />}
                     loading={confirming}
                     onClick={handleConfirmSync}
-                    className="bg-blue-600 hover:bg-blue-700"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-md px-5 h-9 rounded-lg"
                   >
-                    Xác nhận Thông quan & Lưu hồ sơ
+                    {confirming ? 'Đang lưu hồ sơ...' : 'Xác nhận Đồng bộ & Thông quan'}
                   </Button>
                 ) : (
-                  <Popconfirm
-                    title="Hồ sơ có sai lệch số liệu"
-                    description="Dữ liệu trên tờ khai không khớp hoàn toàn với Invoice nội bộ. Bạn có chắc chắn muốn lưu hồ sơ với trạng thái 'Sai lệch số liệu' không?"
-                    okText="Vẫn lưu hồ sơ"
-                    cancelText="Kiểm tra lại"
-                    okButtonProps={{ danger: true }}
-                    onConfirm={handleConfirmSync}
-                  >
-                    <Button
-                      danger
-                      type="primary"
-                      icon={<ExclamationCircleOutlined />}
-                      loading={confirming}
-                    >
-                      Lưu hồ sơ (Có sai lệch)
-                    </Button>
-                  </Popconfirm>
+                  <Button disabled>Cần khắc phục sai lệch trước khi thông quan</Button>
                 )}
               </>
             )}
@@ -559,6 +565,31 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
               </div>
             </div>
 
+            {/* Banner cảnh báo sai lệch số hóa đơn (nếu có) */}
+            {reconciliation.isInvoiceMismatch && (
+              <Alert
+                type="error"
+                showIcon
+                icon={<CloseCircleOutlined />}
+                message="Cảnh báo: Sai lệch Số Hóa đơn (Invoice Mismatch)"
+                description={
+                  <div className="space-y-1.5 mt-1">
+                    <div className="text-xs font-semibold text-rose-800">
+                      {reconciliation.invoiceMismatchWarning}
+                    </div>
+                    <div className="text-xs text-slate-600">
+                      Hóa đơn đang mở đối soát: <strong className="font-mono text-slate-900">{reconciliation.matchedOrder?.invoiceNo}</strong> | 
+                      Số hóa đơn trên tờ khai: <strong className="font-mono text-rose-700">{reconciliation.declaration.invoiceNo}</strong>
+                    </div>
+                    <div className="text-[11px] text-rose-600 italic">
+                      * Chức năng đồng bộ đã tự động khóa để bảo vệ dữ liệu, tránh ghi đè nhầm tờ khai của đơn khác.
+                    </div>
+                  </div>
+                }
+                className="rounded-lg border-rose-300 bg-rose-50/80"
+              />
+            )}
+
             {/* Banner trạng thái đối soát */}
             {!reconciliation.isOrderFound ? (
               <Alert
@@ -569,14 +600,27 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
                 description={reconciliation.message}
                 className="rounded-lg"
               />
-            ) : reconciliation.isFullyMatched ? (
+            ) : isEffectivelyMatched ? (
               <Alert
                 type="success"
                 showIcon
-                icon={<CheckCircleOutlined />}
-                message="Dữ liệu khớp 100%"
-                description={reconciliation.message}
-                className="rounded-lg border-emerald-200 bg-emerald-50/50"
+                icon={<CheckCircleOutlined className="text-emerald-600 text-lg" />}
+                message={
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="font-bold text-emerald-900 text-sm">
+                      ✔ HỒ SƠ ĐÃ KHỚP 100% SỐ LIỆU HẢI QUAN
+                    </span>
+                    <Tag color="success" className="font-semibold text-xs px-2.5 py-0.5 rounded-full m-0">
+                      Sẵn sàng thông quan
+                    </Tag>
+                  </div>
+                }
+                description={
+                  <div className="text-xs text-emerald-800 mt-1 leading-relaxed">
+                    Tất cả các dòng hàng, số lượng ({reconciliation.matchedOrder?.totalQuantity.toLocaleString('en-US')} đôi) và đơn giá DAP đều trùng khớp hoàn toàn giữa Tờ khai hải quan và Hóa đơn {reconciliation.matchedOrder?.invoiceNo}. Bạn hãy bấm nút <strong className="text-emerald-950 font-semibold">"Xác nhận Đồng bộ & Thông quan"</strong> bên dưới để hoàn tất cập nhật và khóa lưu trữ hồ sơ điện tử.
+                  </div>
+                }
+                className="rounded-lg border-emerald-300 bg-emerald-50 shadow-sm"
               />
             ) : (
               <Alert
@@ -600,7 +644,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
 
             {/* Bảng so sánh chi tiết từng dòng hàng */}
             {reconciliation.comparisonRows.length > 0 && (
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <div className="border border-slate-200 rounded-lg overflow-hidden w-full overflow-x-auto min-w-0">
                 <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-700">
                     Bảng đối soát chi tiết dòng hàng ({reconciliation.comparisonRows.length} mặt hàng)
@@ -615,7 +659,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
                   rowKey="index"
                   size="small"
                   pagination={false}
-                  scroll={{ y: 280 }}
+                  scroll={{ x: 'max-content', y: 320 }}
                 />
               </div>
             )}

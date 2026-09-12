@@ -36,4 +36,6 @@ public class UpdateProductMasterDto
 
     [Range(1, 1000, ErrorMessage = "Số đôi / thùng (Pair/CTN) phải từ 1 đến 1000")]
     public int PairPerCarton { get; set; } = 12;
+
+    public int? FolderId { get; set; }
 }

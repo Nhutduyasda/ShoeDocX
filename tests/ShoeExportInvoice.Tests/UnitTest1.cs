@@ -307,4 +307,42 @@ public class UnitTest1
         Assert.Equal("IF(D15<=0,0,IF(D15<10,1,D15/10))", pkl.Cell(15, 6).FormulaA1);
         Assert.Equal("D15/10", pkl.Cell(15, 9).FormulaA1);
     }
+
+    [Fact]
+    public void CleanDescriptionForInvAndPkl_ShouldRemoveProcessingPriceAndUnitFromDescription()
+    {
+        var input = "Giày có mũ giày bằng vật liệu dệt và đế ngoài bằng plastic, mũi giày không được gắn bảo vệ (Đơn giá gia công:1.16 USD/đôi). Hàng mới 100%.";
+        var expected = "Giày có mũ giày bằng vật liệu dệt và đế ngoài bằng plastic, mũi giày không được gắn bảo vệ . Hàng mới 100%.";
+
+        var actual = ExcelImportExportService.CleanDescriptionForInvAndPkl(input);
+        Assert.Equal(expected, actual);
+
+        var input2 = "Giày thể thao nam (Đơn giá gia công: 3.2 USD/đôi). Hàng mới 100%.";
+        var expected2 = "Giày thể thao nam . Hàng mới 100%.";
+        Assert.Equal(expected2, ExcelImportExportService.CleanDescriptionForInvAndPkl(input2));
+    }
+
+    [Theory]
+    [InlineData(ExportSequencePriority.StandardFirst, 233, 234)]
+    [InlineData(ExportSequencePriority.GoFirst, 234, 233)]
+    public void ExportSequencePriority_ShouldAssignCorrectSequenceNumbers(ExportSequencePriority priority, int expectedStandardSeq, int expectedGoSeq)
+    {
+        int firstSeq = 233;
+        int secondSeq = 234;
+
+        int standardSeq, goSeq;
+        if (priority == ExportSequencePriority.GoFirst)
+        {
+            goSeq = firstSeq;
+            standardSeq = secondSeq;
+        }
+        else
+        {
+            standardSeq = firstSeq;
+            goSeq = secondSeq;
+        }
+
+        Assert.Equal(expectedStandardSeq, standardSeq);
+        Assert.Equal(expectedGoSeq, goSeq);
+    }
 }

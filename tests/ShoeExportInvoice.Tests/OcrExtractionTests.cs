@@ -121,4 +121,94 @@ public class OcrExtractionTests
         Assert.Equal(4032, stdItem.Quantity);
         Assert.True(stdItem.IsMatched);
     }
+
+    [Theory]
+    [InlineData("BM5879-464(KM3)", "BM5879-464")]
+    [InlineData("BL5879-482(KM3)", "BL5879-482")]
+    [InlineData("YL3564-469(KM3)", "YL3564-469")]
+    [InlineData("BM5879-464 (KM3)", "BM5879-464")]
+    [InlineData("BM5879-464 (X3)", "BM5879-464")]
+    [InlineData("45428-2LX.G(KM3)", "45428-2LX.G")]
+    [InlineData("45428-2LX(KM3).G", "45428-2LX.G")]
+    [InlineData("42072-030", "42072-030")]
+    public void NormalizeStyleCode_ShouldStripPartnerSuffixInParentheses(string raw, string expected)
+    {
+        var result = OcrExtractionService.NormalizeStyleCode(raw);
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public async Task ParseAndEnrichOcrResultAsync_WithParenthesisPartnerSuffix_ShouldNormalizeAndMatchMasterData()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        using var context = new AppDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+
+        // Seed products with clean code
+        context.ProductMasters.AddRange(
+            new ProductMaster
+            {
+                StyleCode = "BM5879-464",
+                Description = "Giày thể thao nữ KM3",
+                UnitPriceCMT = 3.5m,
+                UnitPriceDAP = 9.0m,
+                HsCode = "64041990",
+                Unit = "đôi",
+                PairPerCarton = 12,
+                CreatedAt = DateTime.UtcNow
+            },
+            new ProductMaster
+            {
+                StyleCode = "YL3564-469",
+                Description = "Giày thể thao nam YL",
+                UnitPriceCMT = 4.2m,
+                UnitPriceDAP = 10.5m,
+                HsCode = "64041990",
+                Unit = "đôi",
+                PairPerCarton = 12,
+                CreatedAt = DateTime.UtcNow
+            }
+        );
+        await context.SaveChangesAsync();
+
+        var configuration = new ConfigurationBuilder().Build();
+        var httpClient = new HttpClient();
+        var service = new OcrExtractionService(httpClient, context, configuration, NullLogger<OcrExtractionService>.Instance);
+
+        var sampleJsonWithSuffixes = @"{
+          ""title"": ""PHIẾU XUẤT KHO XƯỞNG"",
+          ""reportedTotal"": 1500,
+          ""items"": [
+            { ""styleCode"": ""BM5879-464(KM3)"", ""quantity"": 1000, ""note"": """" },
+            { ""styleCode"": ""YL3564-469 (X3)"", ""quantity"": 500, ""note"": """" }
+          ]
+        }";
+
+        var result = await service.ParseAndEnrichOcrResultAsync(sampleJsonWithSuffixes, default);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Items.Count);
+
+        // Check BM5879-464 was normalized and matched
+        var item1 = result.Items.FirstOrDefault(x => x.StyleCode == "BM5879-464");
+        Assert.NotNull(item1);
+        Assert.True(item1.IsMatched);
+        Assert.Equal(3.5m, item1.UnitPriceCMT);
+        Assert.Equal(9.0m, item1.UnitPriceDAP);
+        Assert.Equal("Giày thể thao nữ KM3", item1.Description);
+
+        // Check YL3564-469 was normalized and matched
+        var item2 = result.Items.FirstOrDefault(x => x.StyleCode == "YL3564-469");
+        Assert.NotNull(item2);
+        Assert.True(item2.IsMatched);
+        Assert.Equal(4.2m, item2.UnitPriceCMT);
+        Assert.Equal(10.5m, item2.UnitPriceDAP);
+        Assert.Equal("Giày thể thao nam YL", item2.Description);
+    }
 }

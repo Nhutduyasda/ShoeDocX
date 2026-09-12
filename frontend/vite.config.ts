@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5270',
+        target: process.env.XNK_API_TARGET || 'http://localhost:5270',
         changeOrigin: true,
         secure: false,
       },

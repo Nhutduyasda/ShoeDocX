@@ -29,9 +29,10 @@ public class ProductMastersController : ControllerBase
     public async Task<ActionResult<PagedResultDto<ProductMasterDto>>> GetPaged(
         [FromQuery] string? search,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 10)
+        [FromQuery] int pageSize = 10,
+        [FromQuery] int? folderId = null)
     {
-        var result = await _productService.GetPagedAsync(search, page, pageSize);
+        var result = await _productService.GetPagedAsync(search, page, pageSize, folderId);
         return Ok(result);
     }
 
@@ -132,6 +133,34 @@ public class ProductMastersController : ControllerBase
     }
 
     /// <summary>
+    /// Xóa toàn bộ sản phẩm trong một thư mục (hoặc toàn bộ danh mục nếu không truyền folderId)
+    /// </summary>
+    [HttpDelete("all")]
+    public async Task<IActionResult> DeleteAll([FromQuery] int? folderId = null)
+    {
+        var count = await _productService.DeleteAllAsync(folderId);
+        var msg = folderId.HasValue
+            ? $"Đã xóa thành công {count} sản phẩm trong thư mục được chọn."
+            : $"Đã xóa thành công toàn bộ {count} sản phẩm trong danh mục.";
+        return Ok(new { message = msg, deletedCount = count });
+    }
+
+    /// <summary>
+    /// Cập nhật ĐVT (Đơn vị tính) đồng loạt cho toàn bộ danh mục sản phẩm
+    /// </summary>
+    [HttpPut("bulk-update-unit")]
+    public async Task<IActionResult> BulkUpdateUnit([FromBody] BulkUpdateUnitDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Unit))
+        {
+            return BadRequest(new { message = "Đơn vị tính không được để trống." });
+        }
+
+        var count = await _productService.BulkUpdateUnitAsync(dto.Unit);
+        return Ok(new { message = $"Đã cập nhật ĐVT thành '{dto.Unit}' cho toàn bộ {count} sản phẩm.", updatedCount = count });
+    }
+
+    /// <summary>
     /// Tải file Excel mẫu để chuẩn bị dữ liệu import
     /// </summary>
     [HttpGet("template")]
@@ -165,13 +194,24 @@ public class ProductMastersController : ControllerBase
     }
 
     /// <summary>
-    /// Import danh mục sản phẩm từ file Excel (.xlsx)
+    /// Di chuyển danh sách sản phẩm sang thư mục khác
     /// </summary>
-    [HttpPost("import")]
+    [HttpPost("bulk-move")]
+    public async Task<IActionResult> BulkMove([FromBody] BulkMoveProductsDto dto)
+    {
+        var success = await _productService.BulkMoveProductsAsync(dto.ProductIds, dto.TargetFolderId);
+        return Ok(new { success, message = $"Đã chuyển {dto.ProductIds.Count} sản phẩm sang thư mục mới." });
+    }
+
+    /// <summary>
+    /// Xem trước cấu trúc và tự động nhận diện cột của file Excel Master Data
+    /// </summary>
+    [HttpPost("preview-import")]
+    [HttpPost("/api/master-data/preview-import")]
     [Consumes("multipart/form-data")]
-    public async Task<ActionResult<ImportResultDto>> ImportExcel(
+    public async Task<ActionResult<ImportPreviewResponseDto>> PreviewImport(
         IFormFile? file,
-        [FromQuery] bool updateExisting = true)
+        [FromQuery] int? folderId = null)
     {
         if (file == null || file.Length == 0)
         {
@@ -187,13 +227,89 @@ public class ProductMastersController : ControllerBase
         try
         {
             using var stream = file.OpenReadStream();
-            var result = await _excelService.ImportProductMastersFromExcelAsync(stream, updateExisting);
+            var preview = await _excelService.PreviewProductMastersFromExcelAsync(stream, folderId);
+            return Ok(preview);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi phân tích file Excel xem trước: {FileName}", file.FileName);
+            return StatusCode(500, new { message = "Không thể phân tích file Excel. Vui lòng kiểm tra định dạng." });
+        }
+    }
+
+    /// <summary>
+    /// Import danh mục sản phẩm từ file Excel (.xlsx) với tùy chọn ghi đè cột ánh xạ
+    /// </summary>
+    [HttpPost("import")]
+    [HttpPost("/api/master-data/import-excel")]
+    [Consumes("multipart/form-data")]
+    public async Task<ActionResult<ImportResultDto>> ImportExcel(
+        IFormFile? file,
+        [FromQuery] bool updateExisting = true,
+        [FromQuery] int? folderId = null,
+        [FromQuery] int? styleCodeCol = null,
+        [FromQuery] int? cmtCol = null,
+        [FromQuery] int? dapCol = null,
+        [FromQuery] int? descCol = null,
+        [FromQuery] int? hsCol = null,
+        [FromQuery] int? unitCol = null,
+        [FromQuery] int? pairCol = null)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new { message = "Vui lòng chọn file Excel để tải lên." });
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLower();
+        if (ext != ".xlsx")
+        {
+            return BadRequest(new { message = "Chỉ chấp nhận định dạng file Excel (.xlsx)." });
+        }
+
+        try
+        {
+            ColumnMappingOverrideDto? mappingOverride = null;
+            if (styleCodeCol.HasValue || cmtCol.HasValue || dapCol.HasValue || descCol.HasValue || hsCol.HasValue || unitCol.HasValue || pairCol.HasValue)
+            {
+                mappingOverride = new ColumnMappingOverrideDto
+                {
+                    StyleCodeCol = styleCodeCol,
+                    CmtPriceCol = cmtCol,
+                    DapPriceCol = dapCol,
+                    DescriptionCol = descCol,
+                    HsCodeCol = hsCol,
+                    UnitCol = unitCol,
+                    PairsPerCartonCol = pairCol
+                };
+            }
+
+            using var stream = file.OpenReadStream();
+            var result = await _excelService.ImportProductMastersFromExcelAsync(stream, updateExisting, folderId, mappingOverride);
             return Ok(result);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi import file Excel: {FileName}", file.FileName);
             return StatusCode(500, new { message = "Không thể xử lý file Excel: " + ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Tra cứu & kiểm tra chéo mã hàng trên toàn bộ Master Data để phát hiện nhầm lẫn đối tác (Partner Mismatch Detection)
+    /// </summary>
+    [HttpPost("validate-items")]
+    [HttpPost("/api/master-data/validate-items")]
+    public async Task<ActionResult<ValidateItemsResult>> ValidateItems([FromBody] ValidateItemsRequest request)
+    {
+        try
+        {
+            var result = await _productService.ValidateItemsAsync(request);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi kiểm tra chéo mã hàng Master Data");
+            return StatusCode(500, new { message = "Lỗi hệ thống khi kiểm tra chéo mã hàng: " + ex.Message });
         }
     }
 }

@@ -13,18 +13,18 @@ public class OcrExtractionService : IOcrExtractionService
 {
     private readonly HttpClient _httpClient;
     private readonly AppDbContext _context;
-    private readonly IConfiguration _configuration;
+    private readonly OcrOptions _options;
     private readonly ILogger<OcrExtractionService> _logger;
 
     public OcrExtractionService(
         HttpClient httpClient,
         AppDbContext context,
         IConfiguration configuration,
-        ILogger<OcrExtractionService> logger)
+        ILogger<OcrExtractionService> logger, Microsoft.Extensions.Options.IOptions<OcrOptions>? options = null)
     {
         _httpClient = httpClient;
         _context = context;
-        _configuration = configuration;
+        _options = options?.Value ?? configuration.GetSection("OpenAI").Get<OcrOptions>() ?? new OcrOptions();
         _logger = logger;
     }
 
@@ -33,9 +33,7 @@ public class OcrExtractionService : IOcrExtractionService
         string mimeType,
         CancellationToken cancellationToken = default)
     {
-        var openAiKey = _configuration["OpenAI:ApiKey"]
-            ?? _configuration["OcrSettings:OpenAIApiKey"]
-            ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        var openAiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? _options.ApiKey;
 
         if (string.IsNullOrWhiteSpace(openAiKey))
         {
@@ -72,17 +70,15 @@ public class OcrExtractionService : IOcrExtractionService
         string apiKey,
         CancellationToken cancellationToken)
     {
-        var model = _configuration["OpenAI:Model"]
-            ?? _configuration["OcrSettings:OpenAIModel"]
-            ?? "gpt-4o-mini";
+        var model = _options.Model;
 
-        var url = "https://api.openai.com/v1/chat/completions";
+        var url = _options.Endpoint;
 
         var prompt = @"Bạn là trợ lý bóc tách bảng số liệu kiểm kho từ hình ảnh. Hãy đọc thật kỹ từng dòng trong bảng:
 1. Tiêu đề: Đọc chính xác dòng text màu đỏ/đen ở trên cùng của bảng (Ví dụ: ""LẦN 20 08/9 5BUY HD THÀNH HÌNH"").
 2. Bảng dữ liệu:
    - Chỉ đọc các dòng CÓ DỮ LIỆU. Bỏ qua hoàn toàn các dòng kẻ trống.
-   - Cột 1 (Hình thể/Mã giày): Giữ nguyên format mã (vd: ""42072-410"", ""42073-030"").
+   - Cột 1 (Hình thể/Mã giày): Giữ nguyên format mã (vd: ""42072-410"", ""42073-030""). Chỉ trích xuất mã hình thể gốc (ví dụ: 'BM5879-464'), loại bỏ các ký hiệu ghi chú đối tác hoặc phân xưởng nằm trong dấu ngoặc đơn ở đuôi như '(KM3)', '(X3)'.
    - Cột 2 (Số lượng đi hàng): Đọc đúng số nguyên tương ứng trên cùng dòng đó.
    - Cột 3 (Ghi chú/Màu sắc nếu có): Nếu có ghi chú bên cạnh (vd: ""GÒ KHÔNG MAY"") thì trích xuất, nếu không thì để chuỗi rỗng """".
 3. Tổng cộng: Đọc chính xác con số nằm trong ô màu vàng ở dòng ""TỔNG CỘNG"" cuối bảng.
@@ -219,7 +215,8 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
         {
             foreach (var itemElem in itemsProp.EnumerateArray())
             {
-                var code = itemElem.TryGetProperty("styleCode", out var sProp) ? sProp.GetString() ?? "" : "";
+                var rawCode = itemElem.TryGetProperty("styleCode", out var sProp) ? sProp.GetString() ?? "" : "";
+                var code = NormalizeStyleCode(rawCode);
                 var qty = itemElem.TryGetProperty("quantity", out var qProp) && qProp.TryGetInt32(out var qVal) ? qVal : 0;
                 var note = itemElem.TryGetProperty("note", out var nProp) ? nProp.GetString() ?? "" : "";
 
@@ -241,7 +238,8 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
         var dbProducts = await _context.ProductMasters
             .AsNoTracking()
             .Where(p => lookupCodes.Contains(p.StyleCode.ToUpper()))
-            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p, cancellationToken);
+            .ToListAsync(cancellationToken);
+        var productMap = dbProducts.GroupBy(p => p.StyleCode.ToUpperInvariant()).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
 
         var finalItems = new List<OcrItemDto>();
         foreach (var raw in extractedItems)
@@ -249,7 +247,7 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
             var upperCode = raw.StyleCode.ToUpperInvariant();
             var lookupCode = upperCode.EndsWith(".G") ? upperCode.Substring(0, upperCode.Length - 2).Trim() : upperCode;
 
-            dbProducts.TryGetValue(lookupCode, out var matchedProduct);
+            productMap.TryGetValue(lookupCode, out var matchedProduct);
 
             // Kiểm tra quy trình Gò không may
             var isGoProcess = raw.Note.Contains("GÒ", StringComparison.OrdinalIgnoreCase)
@@ -287,6 +285,25 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
             CalculatedTotal = calculatedTotal,
             IsTotalMatched = (calculatedTotal == reportedTotal)
         };
+    }
+
+    public static string NormalizeStyleCode(string rawCode)
+    {
+        if (string.IsNullOrWhiteSpace(rawCode)) return string.Empty;
+        var trimmed = rawCode.Trim();
+        bool hasGo = false;
+        if (trimmed.EndsWith(".G", StringComparison.OrdinalIgnoreCase))
+        {
+            hasGo = true;
+            trimmed = trimmed[..^2].Trim();
+        }
+        // Xóa bỏ phần trong ngoặc đơn ở cuối mã: vd "BM5879-464(KM3)" -> "BM5879-464"
+        var cleaned = System.Text.RegularExpressions.Regex.Replace(trimmed, @"\s*\([^\)]*\)$", "").Trim();
+        if (hasGo && !cleaned.EndsWith(".G", StringComparison.OrdinalIgnoreCase))
+        {
+            cleaned += ".G";
+        }
+        return cleaned;
     }
 
     private record ExtractedRawItem(string StyleCode, int Quantity, string Note);

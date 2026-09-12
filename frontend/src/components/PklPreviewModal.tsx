@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Table, Button, Tag } from 'antd';
+import { Modal, Table, Button, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { PklPreviewResponse, PklBreakdownItem } from '../types';
@@ -11,6 +11,7 @@ interface PklPreviewModalProps {
   data: PklPreviewResponse | null;
   onExportExcel: () => void;
   exporting: boolean;
+  disableExport?: boolean;
 }
 
 export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
@@ -19,6 +20,7 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
   data,
   onExportExcel,
   exporting,
+  disableExport = false,
 }) => {
   if (!data) return null;
 
@@ -174,16 +176,31 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
         <Button key="close" onClick={onClose} className="border-slate-300 text-slate-700 text-xs h-9 px-3.5">
           Đóng
         </Button>,
-        <Button
+        <Tooltip
           key="export"
-          type="primary"
-          icon={<DownloadOutlined />}
-          loading={exporting}
-          onClick={onExportExcel}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4"
+          title={
+            disableExport
+              ? 'Vui lòng cập nhật thông tin Master Data cho các mã còn thiếu trước khi xuất file!'
+              : ''
+          }
         >
-          Xuất File Excel (.xlsx)
-        </Button>,
+          <span>
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              loading={exporting}
+              disabled={disableExport}
+              onClick={onExportExcel}
+              className={
+                disableExport
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed text-xs h-9 px-4'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4'
+              }
+            >
+              Xuất File Excel (.xlsx)
+            </Button>
+          </span>
+        </Tooltip>,
       ]}
     >
       <div className="py-2 space-y-4">

@@ -45,7 +45,7 @@ public class CustomsClearanceSyncTests : IDisposable
         _connection.Dispose();
     }
 
-    private MemoryStream CreateSampleVnaccsExcelStream()
+    internal static MemoryStream CreateSampleVnaccsExcelStream()
     {
         var wb = new XLWorkbook();
         var ws = wb.Worksheets.Add("TKX");
@@ -213,5 +213,226 @@ public class CustomsClearanceSyncTests : IDisposable
         Assert.True(result.IsOrderFound);
         Assert.False(result.IsFullyMatched);
         Assert.NotEmpty(result.Discrepancies);
+    }
+
+    [Fact]
+    public void TryParseCustomsDecimal_ShouldHandleVietnameseAndUsFormats()
+    {
+        Assert.True(CustomsDeclarationService.TryParseCustomsDecimal("8,1", out decimal d1));
+        Assert.Equal(8.1m, d1);
+
+        Assert.True(CustomsDeclarationService.TryParseCustomsDecimal("8,2", out decimal d2));
+        Assert.Equal(8.2m, d2);
+
+        Assert.True(CustomsDeclarationService.TryParseCustomsDecimal("13.585,2", out decimal d3));
+        Assert.Equal(13585.2m, d3);
+
+        Assert.True(CustomsDeclarationService.TryParseCustomsDecimal("1.652,40", out decimal d4));
+        Assert.Equal(1652.40m, d4);
+
+        Assert.True(CustomsDeclarationService.TryParseCustomsDecimal("1,652.40", out decimal d5));
+        Assert.Equal(1652.40m, d5);
+
+        Assert.True(CustomsDeclarationService.TryParseCustomsDecimal("8.10", out decimal d6));
+        Assert.Equal(8.10m, d6);
+    }
+
+    [Fact]
+    public void NormalizeStyleCode_ShouldStripPoAndHashSeparators()
+    {
+        Assert.Equal("40700-007", CustomsDeclarationService.NormalizeStyleCode("40700-007 (KM3.PO5.26)#&Giày nữ vải dệt"));
+        Assert.Equal("40700-007", CustomsDeclarationService.NormalizeStyleCode("40700-007(KM3.PO5.26)#&Giày nữ vải dệt"));
+        Assert.Equal("45428-2LX", CustomsDeclarationService.NormalizeStyleCode("45428-2LX.G (KM3.PO5.26)#&Giày nam Gò không may"));
+        Assert.Equal("45428-2LX", CustomsDeclarationService.NormalizeStyleCode("45428-2LX.G"));
+        Assert.Equal("40700-007", CustomsDeclarationService.NormalizeStyleCode("40700-007"));
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_WhenInvoiceMismatch_ShouldWarnAndNotMatch()
+    {
+        using var context = new AppDbContext(_dbOptions);
+        var dummyEnv = new DummyWebHostEnvironment();
+        var service = new CustomsDeclarationService(context, NullLogger<CustomsDeclarationService>.Instance, dummyEnv);
+
+        // Đơn hàng mục tiêu là 0238
+        var order = new ShipmentOrder
+        {
+            InvoiceNo = "KMHD-NEW2026-0238",
+            InvoiceDate = DateTime.UtcNow,
+            CustomerName = "Kingmaker III",
+            Items = new List<ShipmentOrderItem>
+            {
+                new() { StyleCode = "40700-007", FullItemCode = "40700-007", Quantity = 204, UnitPriceDAP = 8.10m, UnitPriceCMT = 3.00m }
+            }
+        };
+        context.ShipmentOrders.Add(order);
+        await context.SaveChangesAsync();
+
+        // Tờ khai nạp vào thuộc về đơn 0219
+        using var stream = CreateSampleVnaccsExcelStream();
+        var parsed = service.ParseDeclarationFile(stream, "TK 308883922820-219.xlsx");
+
+        // Gọi đối soát cho đơn hàng cụ thể #order.Id
+        var result = await service.ReconcileAsync(parsed, specificOrderId: order.Id);
+
+        Assert.True(result.IsOrderFound);
+        Assert.True(result.IsInvoiceMismatch);
+        Assert.NotNull(result.InvoiceMismatchWarning);
+        Assert.Contains("không trùng với hóa đơn hiện tại", result.InvoiceMismatchWarning);
+        Assert.False(result.IsFullyMatched);
+        Assert.Contains(result.InvoiceMismatchWarning, result.Discrepancies);
+    }
+
+    [Fact]
+    public void ParseDeclarationFile_WithRealisticVnaccsLayout_ShouldExtractInvoiceAndMultiRowItemsCorrectly()
+    {
+        using var context = new AppDbContext(_dbOptions);
+        var dummyEnv = new DummyWebHostEnvironment();
+        var service = new CustomsDeclarationService(context, NullLogger<CustomsDeclarationService>.Instance, dummyEnv);
+
+        var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("TKX");
+
+        // Header tại dòng 48 với cấu trúc thực tế của VNACCS:
+        // Cột 11 (K): "Số hóa đơn"
+        // Cột 15 (O): "A" (Mã phân loại)
+        // Cột 16 (P): "-"
+        // Cột 17 (Q): "KMHD-NEW2026-0219" (Số hóa đơn thực tế)
+        ws.Cell(48, 11).Value = "Số hóa đơn";
+        ws.Cell(48, 15).Value = "A";
+        ws.Cell(48, 16).Value = "-";
+        ws.Cell(48, 17).Value = "KMHD-NEW2026-0219";
+
+        ws.Cell(2, 2).Value = "Số tờ khai:";
+        ws.Cell(2, 3).Value = "308883922820";
+
+        // Dòng hàng <01> trải dài trên nhiều hàng (multi-row layout)
+        ws.Cell(52, 1).Value = "<01>";
+        ws.Cell(52, 2).Value = "64041990";
+        ws.Cell(53, 5).Value = "Mô tả hàng hóa";
+        ws.Cell(53, 6).Value = "40700-007 (KM3.PO5.26)#&Giày nữ vải dệt đế cao su (Đơn giá gia công: 3,00 USD/đôi)";
+        ws.Cell(55, 15).Value = "Số lượng (1)";
+        ws.Cell(55, 16).Value = "204";
+        ws.Cell(55, 17).Value = "PRS";
+        ws.Cell(56, 15).Value = "Đơn giá hóa đơn";
+        ws.Cell(56, 17).Value = "8,1";
+        ws.Cell(57, 15).Value = "Trị giá hóa đơn";
+        ws.Cell(57, 17).Value = "1.652,40";
+
+        // Dòng hàng <02>
+        ws.Cell(58, 1).Value = "<02>";
+        ws.Cell(58, 2).Value = "64041990";
+        ws.Cell(59, 5).Value = "Mô tả hàng hóa";
+        ws.Cell(59, 6).Value = "45187-1WQ (KM3.PO5.26)#&Giày thể thao nam vải dệt (Đơn giá gia công: 3,01 USD/đôi)";
+        ws.Cell(61, 15).Value = "Số lượng (1)";
+        ws.Cell(61, 16).Value = "480";
+        ws.Cell(61, 17).Value = "PRS";
+        ws.Cell(62, 15).Value = "Đơn giá hóa đơn";
+        ws.Cell(62, 17).Value = "8,2";
+        ws.Cell(63, 15).Value = "Trị giá hóa đơn";
+        ws.Cell(63, 17).Value = "3.936,00";
+
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        ms.Position = 0;
+
+        var parsed = service.ParseDeclarationFile(ms, "VNACCS_TKX_TEST.xlsx");
+
+        // Kiểm tra trích xuất số hóa đơn: KHÔNG được lấy chữ "A", PHẢI lấy "KMHD-NEW2026-0219"
+        Assert.Equal("KMHD-NEW2026-0219", parsed.InvoiceNo);
+        Assert.Equal("308883922820", parsed.DeclarationNo);
+
+        // Kiểm tra bóc tách các dòng hàng
+        Assert.Equal(2, parsed.Items.Count);
+
+        var item1 = parsed.Items[0];
+        Assert.Equal("40700-007", item1.StyleCode);
+        Assert.Equal(204, item1.Quantity);
+        Assert.Equal(8.1m, item1.UnitPriceDap);
+        Assert.Equal(1652.40m, item1.AmountDap);
+        Assert.Equal(3.00m, item1.UnitPriceCmt);
+
+        var item2 = parsed.Items[1];
+        Assert.Equal("45187-1WQ", item2.StyleCode);
+        Assert.Equal(480, item2.Quantity);
+        Assert.Equal(8.2m, item2.UnitPriceDap);
+        Assert.Equal(3936.00m, item2.AmountDap);
+        Assert.Equal(3.01m, item2.UnitPriceCmt);
+    }
+
+    [Fact]
+    public async Task ConfirmSyncAsync_WhenFullyMatched_LocksOrder_And_ArchivesCustomsFile()
+    {
+        var tempFolder = Path.Combine(Path.GetTempPath(), "ShoeCustomsTest_" + Guid.NewGuid());
+        Directory.CreateDirectory(tempFolder);
+
+        try
+        {
+            var env = new DummyWebHostEnvironment { ContentRootPath = tempFolder };
+            using var context = new AppDbContext(_dbOptions);
+            var service = new CustomsDeclarationService(context, new NullLogger<CustomsDeclarationService>(), env);
+
+            var order = new ShipmentOrder
+            {
+                InvoiceNo = "KMHD-NEW2026-0219",
+                CustomerName = "TEST CUSTOMER",
+                Status = ShipmentStatus.Exported,
+                IsLocked = false
+            };
+            using var fileStream = CreateSampleVnaccsExcelStream();
+            var fakeFileContent = fileStream.ToArray();
+            using var parseCopy = new MemoryStream(fakeFileContent);
+            var parsed = service.ParseDeclarationFile(parseCopy, "sample.xlsx");
+            foreach (var item in parsed.Items)
+                order.Items.Add(new ShipmentOrderItem { StyleCode = item.StyleCode, Quantity = item.Quantity,
+                    ProcessType = item.ProcessType, UnitPriceDAP = item.UnitPriceDap, UnitPriceCMT = item.UnitPriceCmt });
+            context.ShipmentOrders.Add(order);
+            await context.SaveChangesAsync();
+
+            var request = new ConfirmCustomsSyncRequestDto
+            {
+                OrderId = order.Id,
+                DeclarationNo = "308883922820",
+                ClearanceDate = new DateTime(2026, 8, 24, 13, 4, 12),
+                CustomsDeclarationType = "E52",
+                CustomsChannel = 1,
+                CustomsOffice = "HQHGCT",
+                CustomsPackageQty = 140,
+                CustomsGrossWeight = 456m,
+                CustomsTotalDap = 13585.20m,
+                CustomsTotalCmt = 5043.96m,
+                IsFullyMatched = true
+            };
+
+            var updatedOrder = await service.ConfirmSyncAsync(order.Id, request, fileStream, "test_vnaccs.xls");
+
+            Assert.Equal(ShipmentStatus.Cleared, updatedOrder.Status);
+            Assert.True(updatedOrder.IsLocked);
+            Assert.Equal("308883922820", updatedOrder.DeclarationNo);
+            Assert.Equal("E52", updatedOrder.CustomsDeclarationType);
+            Assert.Equal(1, updatedOrder.CustomsChannel);
+            Assert.NotNull(updatedOrder.CustomsAttachmentFileName);
+            Assert.NotNull(updatedOrder.CustomsAttachmentFilePath);
+            Assert.Contains("308883922820", updatedOrder.CustomsAttachmentFileName);
+
+            // Verify physical file was archived in Uploads/Customs
+            var expectedFilePath = Path.Combine(tempFolder, updatedOrder.CustomsAttachmentFilePath);
+            Assert.True(File.Exists(expectedFilePath));
+            var savedContent = await File.ReadAllBytesAsync(expectedFilePath);
+            Assert.Equal(fakeFileContent, savedContent);
+
+            // Verify GetAttachmentAsync retrieves the file correctly
+            var attachment = await service.GetAttachmentAsync(order.Id);
+            Assert.NotNull(attachment);
+            Assert.Equal(fakeFileContent.Length, attachment.Value.Bytes.Length);
+            Assert.Equal(updatedOrder.CustomsAttachmentFileName, attachment.Value.FileName);
+        }
+        finally
+        {
+            if (Directory.Exists(tempFolder))
+            {
+                Directory.Delete(tempFolder, true);
+            }
+        }
     }
 }

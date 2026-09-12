@@ -26,10 +26,13 @@ import { ocrApi } from '../api/ocrApi';
 import type { CreateShipmentItem, OcrItem, ProductMaster } from '../types';
 import { ProcessType } from '../types';
 
+import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
+
 interface OcrUploadModalProps {
   visible: boolean;
   onClose: () => void;
   products: ProductMaster[];
+  selectedPartnerId?: number | null;
   onApply: (items: CreateShipmentItem[], mode: 'replace' | 'append') => void;
 }
 
@@ -37,6 +40,7 @@ export const OcrUploadModal: React.FC<OcrUploadModalProps> = ({
   visible,
   onClose,
   products,
+  selectedPartnerId,
   onApply,
 }) => {
   const [file, setFile] = useState<File | null>(null);
@@ -54,10 +58,12 @@ export const OcrUploadModal: React.FC<OcrUploadModalProps> = ({
   const productMap = React.useMemo(() => {
     const map = new Map<string, ProductMaster>();
     products.forEach((p) => {
-      map.set(p.styleCode.trim().toUpperCase(), p);
+      if (!selectedPartnerId || !p.folderId || p.folderId === selectedPartnerId) {
+        map.set(p.styleCode.trim().toUpperCase(), p);
+      }
     });
     return map;
-  }, [products]);
+  }, [products, selectedPartnerId]);
 
   const calculatedTotal = React.useMemo(() => {
     return extractedItems.reduce((acc, item) => acc + (item.quantity || 0), 0);
@@ -84,13 +90,15 @@ export const OcrUploadModal: React.FC<OcrUploadModalProps> = ({
       setSimulationMessage(res.message || '');
 
       const enrichedItems: OcrItem[] = res.items.map((item) => {
-        const cleanCode = item.styleCode.toUpperCase().endsWith('.G')
-          ? item.styleCode.toUpperCase().slice(0, -2).trim()
-          : item.styleCode.toUpperCase().trim();
+        const normalizedCode = normalizeOcrStyleCode(item.styleCode);
+        const cleanCode = normalizedCode.toUpperCase().endsWith('.G')
+          ? normalizedCode.toUpperCase().slice(0, -2).trim()
+          : normalizedCode.toUpperCase().trim();
         const pm = productMap.get(cleanCode);
 
         return {
           ...item,
+          styleCode: normalizedCode,
           unitPriceCMT: pm?.unitPriceCMT ?? item.unitPriceCMT,
           unitPriceDAP: pm?.unitPriceDAP ?? item.unitPriceDAP,
           pairPerCarton: (pm?.pairPerCarton && pm.pairPerCarton > 0) ? pm.pairPerCarton : item.pairPerCarton || 12,

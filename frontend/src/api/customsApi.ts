@@ -1,4 +1,4 @@
-﻿import { apiClient } from './client';
+import { apiClient } from './client';
 import type {
   CustomsReconciliationResult,
   ConfirmCustomsSyncRequest,
@@ -9,6 +9,17 @@ export interface ConfirmSyncResponse {
   orderId: number;
   invoiceNo: string;
   declarationNo: string;
+  clearanceDate?: string;
+  customsDeclarationType?: string;
+  customsChannel?: number;
+  customsOffice?: string;
+  customsPackageQty?: number;
+  customsGrossWeight?: number;
+  customsTotalDap?: number;
+  customsTotalCmt?: number;
+  customsAttachmentFileName?: string;
+  customsAttachmentFilePath?: string;
+  isLocked?: boolean;
   status: number;
   statusName: string;
 }
@@ -51,6 +62,7 @@ export const customsApi = {
     file?: File
   ): Promise<ConfirmSyncResponse> => {
     const formData = new FormData();
+    formData.append('orderId', String(orderId));
     formData.append('declarationNo', data.declarationNo);
     if (data.clearanceDate) {
       formData.append('clearanceDate', data.clearanceDate);
@@ -61,17 +73,22 @@ export const customsApi = {
       formData.append('customsOffice', data.customsOffice);
     }
     formData.append('packageQty', String(data.packageQty || 0));
+    formData.append('customsPackageQty', String(data.packageQty || 0));
     formData.append('grossWeight', String(data.grossWeight || 0));
+    formData.append('customsGrossWeight', String(data.grossWeight || 0));
     formData.append('totalDap', String(data.totalDap || 0));
+    formData.append('customsTotalDap', String(data.totalDap || 0));
     formData.append('totalCmt', String(data.totalCmt || 0));
+    formData.append('customsTotalCmt', String(data.totalCmt || 0));
     formData.append('isFullyMatched', String(data.isFullyMatched));
 
     if (file) {
       formData.append('file', file);
+      formData.append('customsFile', file);
     }
 
     const response = await apiClient.post<ConfirmSyncResponse>(
-      `/customs/confirm-sync/${orderId}`,
+      '/customs/confirm-sync',
       formData,
       {
         headers: {

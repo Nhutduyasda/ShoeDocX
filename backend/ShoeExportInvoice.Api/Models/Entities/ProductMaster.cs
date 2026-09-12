@@ -39,6 +39,16 @@ public class ProductMaster
     [Range(0, 999999999.9999)]
     public decimal? UnitPriceDAP_Go { get; set; }
 
+    /// <summary>
+    /// Cờ nhận diện mã có đơn giá riêng cho Gò không may hay không.
+    /// </summary>
+    [NotMapped]
+    public bool HasGoOption
+    {
+        get => (UnitPriceCMT_Go.HasValue && UnitPriceCMT_Go.Value > 0) || (UnitPriceDAP_Go.HasValue && UnitPriceDAP_Go.Value > 0);
+        set { }
+    }
+
     [Required]
     [MaxLength(30)]
     public string HsCode { get; set; } = "64041990";
@@ -49,6 +59,11 @@ public class ProductMaster
 
     [Range(1, 1000)]
     public int PairPerCarton { get; set; } = 12;
+
+    public int? FolderId { get; set; }
+
+    [ForeignKey(nameof(FolderId))]
+    public MasterDataFolder? Folder { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

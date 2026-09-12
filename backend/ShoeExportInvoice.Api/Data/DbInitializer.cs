@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using ShoeExportInvoice.Api.Models.Entities;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace ShoeExportInvoice.Api.Data;
 
@@ -7,83 +8,86 @@ public static class DbInitializer
 {
     public static async Task InitializeAsync(AppDbContext context, ILogger logger)
     {
-        try
+        const string baseline = "20260910074757_AddCustomsSettlementTables";
+        var applied = (await context.Database.GetAppliedMigrationsAsync()).ToList();
+        if (!applied.Contains(baseline))
+            await context.GetService<IMigrator>().MigrateAsync(baseline);
+        // Earlier releases added these fields at startup without a migration.
+        // Adopt those fields without dropping or overwriting existing values.
+        await context.Database.OpenConnectionAsync();
+        var connection = context.Database.GetDbConnection();
+        using (var cmd = connection.CreateCommand())
         {
-            // Apply any pending migrations or create database
-            await context.Database.MigrateAsync();
-
-            if (!await context.ProductMasters.AnyAsync())
+            cmd.CommandText = """
+                CREATE TABLE IF NOT EXISTS MasterDataFolders (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT NOT NULL, ParentId INTEGER NULL,
+                    CustomerName TEXT NULL, DeliveryAddress TEXT NULL, ContractNo TEXT NULL, PoSuffix TEXT NULL,
+                    DefaultPairsPerCarton INTEGER NOT NULL DEFAULT 12, DefaultUnit TEXT NOT NULL DEFAULT 'đôi',
+                    DisplayOrder INTEGER NOT NULL DEFAULT 0, CreatedAt TEXT NOT NULL, UpdatedAt TEXT NULL,
+                    FOREIGN KEY (ParentId) REFERENCES MasterDataFolders(Id) ON DELETE RESTRICT);
+                """;
+            await cmd.ExecuteNonQueryAsync();
+        }
+        async Task EnsureColumn(string table, string column, string definition)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = $"PRAGMA table_info({table});";
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var reader = await cmd.ExecuteReaderAsync())
+                while (await reader.ReadAsync()) columns.Add(reader.GetString(1));
+            if (!columns.Contains(column))
             {
-                logger.LogInformation("Seeding initial ProductMaster data...");
-
-                var seedProducts = new List<ProductMaster>
-                {
-                    new()
-                    {
-                        StyleCode = "42072-030",
-                        Description = "Giày thể thao nữ buộc dây đế cao su (Women's Athletic Shoes Rubber Sole)",
-                        UnitPriceCMT = 2.4500m,
-                        UnitPriceDAP = 18.5000m,
-                        HsCode = "64041990",
-                        Unit = "đôi",
-                        PairPerCarton = 12,
-                        CreatedAt = DateTime.UtcNow
-                    },
-                    new()
-                    {
-                        StyleCode = "45428-2LX",
-                        Description = "Giày chạy bộ nam cổ thấp vải dệt (Men's Low-top Mesh Running Shoes)",
-                        UnitPriceCMT = 2.8000m,
-                        UnitPriceDAP = 21.0000m,
-                        HsCode = "64041990",
-                        Unit = "đôi",
-                        PairPerCarton = 12,
-                        CreatedAt = DateTime.UtcNow
-                    },
-                    new()
-                    {
-                        StyleCode = "51200-1BK",
-                        Description = "Giày búp bê nữ có quai dán (Women's Mary Jane Casual Shoes)",
-                        UnitPriceCMT = 1.9500m,
-                        UnitPriceDAP = 15.2000m,
-                        HsCode = "64041990",
-                        Unit = "đôi",
-                        PairPerCarton = 12,
-                        CreatedAt = DateTime.UtcNow
-                    },
-                    new()
-                    {
-                        StyleCode = "33109-08A",
-                        Description = "Giày lười nam da tổng hợp (Men's Slip-on PU Leather Shoes)",
-                        UnitPriceCMT = 3.1000m,
-                        UnitPriceDAP = 24.5000m,
-                        HsCode = "64029990",
-                        Unit = "đôi",
-                        PairPerCarton = 12,
-                        CreatedAt = DateTime.UtcNow
-                    },
-                    new()
-                    {
-                        StyleCode = "68001-9TR",
-                        Description = "Giày leo núi cổ lửng chống nước (Outdoor Hiking Mid-cut Waterproof Shoes)",
-                        UnitPriceCMT = 4.2000m,
-                        UnitPriceDAP = 32.0000m,
-                        HsCode = "64039190",
-                        Unit = "đôi",
-                        PairPerCarton = 10,
-                        CreatedAt = DateTime.UtcNow
-                    }
-                };
-
-                await context.ProductMasters.AddRangeAsync(seedProducts);
-                await context.SaveChangesAsync();
-                logger.LogInformation("Seeded {Count} initial products successfully.", seedProducts.Count);
+                cmd.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
+                await cmd.ExecuteNonQueryAsync();
             }
         }
-        catch (Exception ex)
+        await EnsureColumn("ShipmentOrders", "IsLocked", "INTEGER NOT NULL DEFAULT 0");
+        await EnsureColumn("ShipmentOrders", "CustomsAttachmentFilePath", "TEXT NULL");
+        await EnsureColumn("ProductMasters", "FolderId", "INTEGER NULL REFERENCES MasterDataFolders(Id) ON DELETE RESTRICT");
+        await EnsureColumn("CustomsSettlementPeriods", "CustomsOffice", "TEXT NOT NULL DEFAULT ''");
+        await EnsureColumn("CustomsSettlementPeriods", "Status", "TEXT NOT NULL DEFAULT 'Draft'");
+        await EnsureColumn("CustomsSettlementItems", "HsCode", "TEXT NOT NULL DEFAULT ''");
+        await EnsureColumn("MasterDataFolders", "DeliveryAddress", "TEXT NULL");
+        await EnsureColumn("MasterDataFolders", "PoSuffix", "TEXT NULL");
+        await context.Database.CloseConnectionAsync();
+        await context.Database.MigrateAsync();
+        var unresolved = await context.ShipmentOrders.CountAsync(o => o.ContractFolderId == null);
+        if (unresolved > 0) logger.LogWarning("{Count} historical orders have no unambiguous contract folder; review before editing.", unresolved);
+    }
+
+    public static async Task SeedUsersAsync(Microsoft.AspNetCore.Identity.UserManager<ShoeExportInvoice.Api.Models.Entities.ApplicationUser> userManager, ILogger logger)
+    {
+        var defaultUsers = new List<(string Username, string Password, string FullName, ShoeExportInvoice.Api.Models.Entities.Department Dept)>
         {
-            logger.LogError(ex, "Lỗi xảy ra trong quá trình khởi tạo dữ liệu ban đầu.");
-            throw;
+            ("admin", "@Admin123", "Ban Giám Đốc (Quản Trị)", ShoeExportInvoice.Api.Models.Entities.Department.Admin),
+            ("xnk", "@Xnk123", "Nhân Viên Xuất Nhập Khẩu", ShoeExportInvoice.Api.Models.Entities.Department.Xnk),
+            ("kho", "@Kho123", "Thủ Kho Thành Phẩm", ShoeExportInvoice.Api.Models.Entities.Department.Kho),
+            ("ketoan", "@KeToan123", "Kế Toán Doanh Thu CMT", ShoeExportInvoice.Api.Models.Entities.Department.KeToan)
+        };
+
+        foreach (var (username, password, fullName, dept) in defaultUsers)
+        {
+            var existing = await userManager.FindByNameAsync(username);
+            if (existing == null)
+            {
+                var user = new ShoeExportInvoice.Api.Models.Entities.ApplicationUser
+                {
+                    UserName = username,
+                    FullName = fullName,
+                    Department = dept,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                var result = await userManager.CreateAsync(user, password);
+                if (result.Succeeded)
+                {
+                    logger.LogInformation("Đã khởi tạo tài khoản mặc định: {Username} ({FullName})", username, fullName);
+                }
+                else
+                {
+                    logger.LogWarning("Không thể tạo tài khoản mặc định {Username}: {Errors}", username, string.Join(", ", result.Errors.Select(e => e.Description)));
+                }
+            }
         }
     }
 }

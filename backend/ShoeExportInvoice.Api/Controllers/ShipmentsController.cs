@@ -46,10 +46,14 @@ public class ShipmentsController : ControllerBase
             var preview = _excelService.CalculatePklBreakdown(request);
             return Ok(preview);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi tính toán phân rã kiện đóng gói.");
-            return StatusCode(500, new { message = "Lỗi khi tính toán phân rã đóng gói", detail = ex.Message });
+            return StatusCode(500, new { message = "Lỗi khi tính toán phân rã đóng gói" });
         }
     }
 
@@ -67,8 +71,46 @@ public class ShipmentsController : ControllerBase
             return BadRequest(new { message = "Đơn hàng phải có ít nhất 1 mặt hàng." });
         }
 
+        // Chốt chặn nghiệp vụ (Business Rule Validation Guard):
+        // Tuyệt đối không cho xuất file nếu còn bất kỳ mã nào chưa tồn tại trong Master Data (ProductMaster).
+        var distinctCodes = request.Items
+            .Select(i => (i.StyleCode ?? string.Empty).Trim())
+            .Where(c => !string.IsNullOrEmpty(c))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var lookupCodes = distinctCodes
+            .Select(c => c.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? c[..^2].Trim() : c)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var existingCodes = await _context.ProductMasters.Where(p => p.FolderId == request.ContractFolderId)
+            .AsNoTracking()
+            .Where(p => lookupCodes.Contains(p.StyleCode) || distinctCodes.Contains(p.StyleCode))
+            .Select(p => p.StyleCode.ToUpper())
+            .ToListAsync();
+
+        var existingSet = new HashSet<string>(existingCodes, StringComparer.OrdinalIgnoreCase);
+
+        var missingCodes = distinctCodes.Where(code =>
+        {
+            var clean = code.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? code[..^2].Trim() : code;
+            return !existingSet.Contains(code) && !existingSet.Contains(clean);
+        }).ToList();
+
+        if (missingCodes.Count > 0)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                message = $"Không thể xuất file! Các mã sau chưa được đăng ký trong Master Data: [{string.Join(", ", missingCodes)}]",
+                missingCodes
+            });
+        }
+
         try
         {
+            await using var transaction = await _context.Database.BeginTransactionAsync();
             // Phân loại items theo loại công đoạn
             var goItems = request.Items.Where(i => i.ProcessType == ProcessType.GoKhongMay).ToList();
             var standardItems = request.Items.Where(i => i.ProcessType == ProcessType.Standard).ToList();
@@ -78,9 +120,42 @@ public class ShipmentsController : ControllerBase
             if (hasBothTypes)
             {
                 // ===== TÁCH 2 FILE: Lấy 2 số thứ tự liên tiếp =====
-                var seqNumbers = await _sequenceService.GetNextSequenceNumbersAsync(2);
-                int goSeq = seqNumbers[0];      // File Gò lấy số nhỏ hơn
-                int standardSeq = seqNumbers[1]; // File Thành hình lấy số tiếp theo
+                int firstSeq, secondSeq;
+                if (request.StartInvoiceNumber.HasValue && request.StartInvoiceNumber.Value > 0)
+                {
+                    firstSeq = request.StartInvoiceNumber.Value;
+                    secondSeq = firstSeq + 1;
+                    await _sequenceService.SetNextSequenceNumberAsync(secondSeq + 1);
+                }
+                else
+                {
+                    var extractedSeq = _sequenceService.ExtractSequenceNumber(request.InvoiceNo);
+                    if (extractedSeq.HasValue)
+                    {
+                        firstSeq = extractedSeq.Value;
+                        secondSeq = firstSeq + 1;
+                        await _sequenceService.SetNextSequenceNumberAsync(secondSeq + 1);
+                    }
+                    else
+                    {
+                        var seqNumbers = await _sequenceService.GetNextSequenceNumbersAsync(2);
+                        firstSeq = seqNumbers[0];
+                        secondSeq = seqNumbers[1];
+                    }
+                }
+
+                int standardSeq, goSeq;
+                if (request.Priority == ExportSequencePriority.GoFirst)
+                {
+                    goSeq = firstSeq;
+                    standardSeq = secondSeq;
+                }
+                else
+                {
+                    // Mặc định: StandardFirst (Thành hình trước, Gò sau)
+                    standardSeq = firstSeq;
+                    goSeq = secondSeq;
+                }
 
                 string goInvoiceNo = _sequenceService.ToInvoiceNo(goSeq);
                 string standardInvoiceNo = _sequenceService.ToInvoiceNo(standardSeq);
@@ -92,18 +167,14 @@ public class ShipmentsController : ControllerBase
                 var standardRequest = CloneRequestWithItems(request, standardItems, standardInvoiceNo);
 
                 // Lưu CẢ HAI đơn hàng thực tế vào DB với trạng thái Exported (Chờ thông quan)
-                try
-                {
                     await SaveOrUpdateShipmentInternalAsync(goRequest, ShipmentStatus.Exported);
                     await SaveOrUpdateShipmentInternalAsync(standardRequest, ShipmentStatus.Exported);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Lỗi khi tự động lưu 2 đơn hàng tách khi xuất Excel: {Message}", ex.Message);
-                }
 
-                // Xuất 2 file và đóng gói ZIP
-                var zipBytes = await _excelService.ExportSplitToZipAsync(goRequest, goFileName, standardRequest, standardFileName);
+
+                // Xuất 2 file và đóng gói ZIP (thứ tự ưu tiên theo cấu hình)
+                var zipBytes = request.Priority == ExportSequencePriority.GoFirst
+                    ? await _excelService.ExportSplitToZipAsync(goRequest, goFileName, standardRequest, standardFileName)
+                    : await _excelService.ExportSplitToZipAsync(standardRequest, standardFileName, goRequest, goFileName);
 
                 // Thông tin tổng kết để frontend hiển thị
                 var exportResult = new ExportResultDto
@@ -119,8 +190,8 @@ public class ShipmentsController : ControllerBase
                     StandardSequenceNumber = standardSeq,
                 };
 
-                // Đặt tên file ZIP theo cặp số thứ tự
-                string zipName = $"KM3-26-DH{goSeq}-{standardSeq}.zip";
+                // Đặt tên file ZIP theo thứ tự ưu tiên
+                string zipName = $"KM3-26-DH{firstSeq}-{secondSeq}.zip";
 
                 Response.Headers["X-Export-Info"] = JsonSerializer.Serialize(exportResult, new JsonSerializerOptions
                 {
@@ -128,43 +199,54 @@ public class ShipmentsController : ControllerBase
                 });
                 Response.Headers["Access-Control-Expose-Headers"] = "X-Export-Info";
 
-                _logger.LogInformation("Xuất 2 file tách: {GoFile} ({GoQty} đôi) + {StdFile} ({StdQty} đôi) → ZIP: {ZipName}",
-                    goFileName, exportResult.GoTotalQuantity, standardFileName, exportResult.StandardTotalQuantity, zipName);
+                _logger.LogInformation("Xuất 2 file tách ({Priority}): {FirstFile} → {SecondFile} → ZIP: {ZipName}",
+                    request.Priority,
+                    request.Priority == ExportSequencePriority.GoFirst ? goFileName : standardFileName,
+                    request.Priority == ExportSequencePriority.GoFirst ? standardFileName : goFileName,
+                    zipName);
 
+                await transaction.CommitAsync();
                 return File(zipBytes, "application/zip", zipName);
             }
             else
             {
                 // ===== 1 FILE DUY NHẤT =====
-                // Ưu tiên dùng Invoice No từ request nếu hợp lệ, ngược lại cấp số mới
                 string invoiceNo = request.InvoiceNo?.Trim() ?? string.Empty;
-                string fileName;
+                int seq;
 
-                var extractedSeq = _sequenceService.ExtractSequenceNumber(invoiceNo);
-                if (extractedSeq.HasValue)
+                if (request.StartInvoiceNumber.HasValue && request.StartInvoiceNumber.Value > 0)
                 {
-                    // Invoice No đã có số hợp lệ → dùng luôn, không tiêu thụ số mới
-                    fileName = _sequenceService.ToFileName(extractedSeq.Value);
+                    seq = request.StartInvoiceNumber.Value;
+                    if (string.IsNullOrWhiteSpace(invoiceNo) || _sequenceService.ExtractSequenceNumber(invoiceNo) != seq)
+                    {
+                        invoiceNo = _sequenceService.ToInvoiceNo(seq);
+                        request.InvoiceNo = invoiceNo;
+                    }
                 }
                 else
                 {
-                    // Invoice No không theo chuẩn → cấp 1 số mới
-                    var seqNumbers = await _sequenceService.GetNextSequenceNumbersAsync(1);
-                    int seq = seqNumbers[0];
-                    invoiceNo = _sequenceService.ToInvoiceNo(seq);
-                    request.InvoiceNo = invoiceNo;
-                    fileName = _sequenceService.ToFileName(seq);
+                    var extractedSeq = _sequenceService.ExtractSequenceNumber(invoiceNo);
+                    if (extractedSeq.HasValue)
+                    {
+                        seq = extractedSeq.Value;
+                    }
+                    else
+                    {
+                        // Invoice No không theo chuẩn → cấp 1 số mới
+                        var seqNumbers = await _sequenceService.GetNextSequenceNumbersAsync(1);
+                        seq = seqNumbers[0];
+                        invoiceNo = _sequenceService.ToInvoiceNo(seq);
+                        request.InvoiceNo = invoiceNo;
+                    }
                 }
 
+                string fileName = _sequenceService.ToFileName(seq);
+                // Cập nhật LastSequenceNumber trong CSDL theo số lớn nhất của đợt xuất này
+                await _sequenceService.SetNextSequenceNumberAsync(seq + 1);
+
                 // Lưu đơn hàng 1 file vào DB với trạng thái Exported (Chờ thông quan)
-                try
-                {
                     await SaveOrUpdateShipmentInternalAsync(request, ShipmentStatus.Exported);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Lỗi khi tự động lưu đơn hàng 1 file khi xuất Excel: {Message}", ex.Message);
-                }
+
 
                 var excelBytes = await _excelService.ExportShipmentMultiSheetExcelAsync(request);
 
@@ -184,16 +266,21 @@ public class ShipmentsController : ControllerBase
 
                 _logger.LogInformation("Xuất 1 file: {FileName} ({Qty} đôi)", fileName, exportResult.SingleTotalQuantity);
 
+                await transaction.CommitAsync();
                 return File(
                     excelBytes,
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     fileName);
             }
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi xuất file Excel đa sheet cho đơn hàng.");
-            return StatusCode(500, new { message = "Lỗi khi xuất file Excel", detail = ex.Message });
+            return StatusCode(500, new { message = "Lỗi khi xuất file Excel" });
         }
     }
 
@@ -213,10 +300,14 @@ public class ShipmentsController : ControllerBase
                 previewFileName = _sequenceService.ToFileName(nextNumber)
             });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi đọc số thứ tự hiện tại.");
-            return StatusCode(500, new { message = "Lỗi khi đọc số thứ tự", detail = ex.Message });
+            return StatusCode(500, new { message = "Lỗi khi đọc số thứ tự" });
         }
     }
 
@@ -242,10 +333,14 @@ public class ShipmentsController : ControllerBase
                 previewFileName = _sequenceService.ToFileName(body.NextNumber)
             });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi ghi đè số thứ tự.");
-            return StatusCode(500, new { message = "Lỗi khi ghi đè số thứ tự", detail = ex.Message });
+            return StatusCode(500, new { message = "Lỗi khi ghi đè số thứ tự" });
         }
     }
 
@@ -267,7 +362,19 @@ public class ShipmentsController : ControllerBase
 
         try
         {
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            // Đồng bộ sequence: nếu người dùng lưu với số cụ thể (hoặc startInvoiceNumber), cập nhật LastSequenceNumber
+            int? seq = request.StartInvoiceNumber.HasValue && request.StartInvoiceNumber.Value > 0
+                ? request.StartInvoiceNumber.Value
+                : _sequenceService.ExtractSequenceNumber(request.InvoiceNo);
+
+            if (seq.HasValue)
+            {
+                await _sequenceService.SetNextSequenceNumberAsync(seq.Value + 1);
+            }
+
             var shipment = await SaveOrUpdateShipmentInternalAsync(request);
+            await transaction.CommitAsync();
 
             return CreatedAtAction(nameof(GetShipmentById), new { id = shipment.Id }, new
             {
@@ -281,10 +388,72 @@ public class ShipmentsController : ControllerBase
                 ItemCount = shipment.Items.Count
             });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi lưu đơn hàng.");
-            return StatusCode(500, new { message = "Lỗi khi lưu đơn hàng", detail = ex.Message });
+            return StatusCode(500, new { message = "Lỗi khi lưu đơn hàng" });
+        }
+    }
+
+    /// <summary>
+    /// Cập nhật thông tin một đơn hàng theo Id (bảo vệ bởi Lock Guard: Không cho phép sửa đơn đã thông quan hoặc bị khóa)
+    /// </summary>
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> UpdateShipment(int id, [FromBody] CreateShipmentRequestDto request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        if (request.Items == null || request.Items.Count == 0)
+        {
+            return BadRequest(new { message = "Đơn hàng phải có ít nhất 1 mặt hàng." });
+        }
+
+        request.OrderId = id;
+
+        var existing = await _context.ShipmentOrders.FindAsync(id);
+        if (existing == null)
+        {
+            return NotFound(new { message = $"Không tìm thấy đơn hàng #{id}" });
+        }
+
+        if (existing.IsLocked || existing.Status == ShipmentStatus.Cleared)
+        {
+            return BadRequest(new { message = "Đơn hàng đã thông quan hải quan, không thể chỉnh sửa hoặc xóa!" });
+        }
+
+        try
+        {
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            var shipment = await SaveOrUpdateShipmentInternalAsync(request);
+            await transaction.CommitAsync();
+
+            return Ok(new
+            {
+                shipment.Id,
+                shipment.InvoiceNo,
+                shipment.InvoiceDate,
+                shipment.PoSuffix,
+                shipment.ContractNo,
+                shipment.CustomerName,
+                shipment.CreatedAt,
+                ItemCount = shipment.Items.Count
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi cập nhật đơn hàng #{Id}", id);
+            return StatusCode(500, new { message = "Lỗi khi cập nhật đơn hàng" });
         }
     }
 
@@ -297,12 +466,20 @@ public class ShipmentsController : ControllerBase
 
         // Kiểm tra và bổ sung giá trị từ Master Data nếu chưa có
         var styleCodes = request.Items.Select(x => x.StyleCode.Trim().ToUpperInvariant()).Distinct().ToList();
-        var dbProducts = await _context.ProductMasters
+        var dbProducts = await _context.ProductMasters.Where(p => p.FolderId == request.ContractFolderId)
             .Where(p => styleCodes.Contains(p.StyleCode.ToUpper()))
             .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p);
 
         if (existing != null)
         {
+            if (existing.IsLocked || existing.Status == ShipmentStatus.Cleared)
+            {
+                throw new InvalidOperationException("Đơn hàng đã thông quan hải quan, không thể chỉnh sửa hoặc xóa!");
+            }
+
+            if (request.OrderId != existing.Id)
+                throw new InvalidOperationException("Số hóa đơn đã được sử dụng. Tải đơn hiện có để chỉnh sửa hoặc cấp số mới.");
+            existing.ContractFolderId = request.ContractFolderId;
             existing.InvoiceDate = request.InvoiceDate;
             existing.PoSuffix = request.PoSuffix?.Trim();
             existing.ContractNo = request.ContractNo.Trim();
@@ -333,7 +510,10 @@ public class ShipmentsController : ControllerBase
                 _context.ShipmentOrderItems.Add(new ShipmentOrderItem
                 {
                     ShipmentOrderId = existing.Id,
-                    StyleCode = item.StyleCode.Trim(),
+                    StyleCode = item.StyleCode.Trim().ToUpperInvariant(),
+                    Description = item.Description ?? pm?.Description ?? "",
+                    Unit = item.Unit,
+                    PairPerCarton = item.PairPerCarton ?? pm?.PairPerCarton ?? 12,
                     FullItemCode = fullCode,
                     Quantity = item.Quantity,
                     ProcessType = item.ProcessType,
@@ -348,6 +528,7 @@ public class ShipmentsController : ControllerBase
 
         var shipment = new ShipmentOrder
         {
+            ContractFolderId = request.ContractFolderId,
             InvoiceNo = invoiceNo,
             InvoiceDate = request.InvoiceDate,
             PoSuffix = request.PoSuffix?.Trim(),
@@ -373,7 +554,10 @@ public class ShipmentsController : ControllerBase
 
             shipment.Items.Add(new ShipmentOrderItem
             {
-                StyleCode = item.StyleCode.Trim(),
+                StyleCode = item.StyleCode.Trim().ToUpperInvariant(),
+                    Description = item.Description ?? pm?.Description ?? "",
+                    Unit = item.Unit,
+                    PairPerCarton = item.PairPerCarton ?? pm?.PairPerCarton ?? 12,
                 FullItemCode = fullCode,
                 Quantity = item.Quantity,
                 ProcessType = item.ProcessType,
@@ -399,22 +583,13 @@ public class ShipmentsController : ControllerBase
             .OrderByDescending(s => s.CreatedAt)
             .ToListAsync();
 
-        var allStyleCodes = dbShipments
-            .SelectMany(s => s.Items.Select(i => i.StyleCode.ToUpper()))
-            .Distinct()
-            .ToList();
-
-        var productsMap = await _context.ProductMasters
-            .AsNoTracking()
-            .Where(p => allStyleCodes.Contains(p.StyleCode.ToUpper()))
-            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p.PairPerCarton > 0 ? p.PairPerCarton : 12);
-
         var shipments = dbShipments.Select(s => new
         {
             s.Id,
             s.InvoiceNo,
             s.InvoiceDate,
             s.PoSuffix,
+            s.ContractFolderId,
             s.ContractNo,
             s.CustomerName,
             s.DeliveryTerms,
@@ -432,13 +607,15 @@ public class ShipmentsController : ControllerBase
             s.CustomsTotalDap,
             s.CustomsTotalCmt,
             s.CustomsAttachmentFileName,
+            s.CustomsAttachmentFilePath,
+            IsLocked = s.IsLocked || s.Status == ShipmentStatus.Cleared,
             ItemCount = s.Items.Count,
             TotalQuantity = s.Items.Sum(i => i.Quantity),
             TotalAmountCMT = s.Items.Sum(i => i.UnitPriceCMT * i.Quantity),
             TotalAmountDAP = s.Items.Sum(i => i.UnitPriceDAP * i.Quantity),
             TotalCartons = s.Items.Sum(i =>
             {
-                int ppc = productsMap.TryGetValue(i.StyleCode.ToUpper(), out var ctn) ? ctn : 12;
+                int ppc = i.PairPerCarton > 0 ? i.PairPerCarton : 12;
                 return (int)Math.Ceiling((double)i.Quantity / (double)ppc);
             })
         }).ToList();
@@ -466,6 +643,35 @@ public class ShipmentsController : ControllerBase
     }
 
     /// <summary>
+    /// Xóa một đơn hàng theo Id (bảo vệ bởi Lock Guard: Không cho phép xóa đơn đã thông quan)
+    /// </summary>
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> DeleteShipment(int id)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        var shipment = await _context.ShipmentOrders
+            .Include(s => s.Items)
+            .FirstOrDefaultAsync(s => s.Id == id);
+
+        if (shipment == null)
+        {
+            return NotFound(new { message = $"Không tìm thấy đơn hàng #{id}" });
+        }
+
+        if (shipment.IsLocked || shipment.Status == ShipmentStatus.Cleared)
+        {
+            return BadRequest(new { message = "Đơn hàng đã thông quan hải quan, không thể chỉnh sửa hoặc xóa!" });
+        }
+
+        _context.ShipmentOrderItems.RemoveRange(shipment.Items);
+        _context.ShipmentOrders.Remove(shipment);
+        await _context.SaveChangesAsync();
+
+        await transaction.CommitAsync();
+        return Ok(new { message = $"Đã xóa đơn hàng {shipment.InvoiceNo} thành công." });
+    }
+
+    /// <summary>
     /// Xuất file Excel từ một đơn hàng đã lưu trong cơ sở dữ liệu
     /// </summary>
     [HttpGet("{id}/export-excel")]
@@ -481,13 +687,37 @@ public class ShipmentsController : ControllerBase
             return NotFound(new { message = $"Không tìm thấy đơn hàng #{id}" });
         }
 
-        var styleCodes = shipment.Items.Select(x => x.StyleCode.Trim().ToUpperInvariant()).Distinct().ToList();
-        var dbProducts = await _context.ProductMasters
-            .Where(p => styleCodes.Contains(p.StyleCode.ToUpper()))
-            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p);
+        var distinctCodes = shipment.Items
+            .Select(x => x.StyleCode.Trim())
+            .Where(c => !string.IsNullOrEmpty(c))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var lookupCodes = distinctCodes
+            .Select(c => c.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? c[..^2].Trim() : c)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var dbProductList = await _context.ProductMasters.Where(p => p.FolderId == shipment.ContractFolderId)
+            .Where(p => lookupCodes.Contains(p.StyleCode) || distinctCodes.Contains(p.StyleCode))
+            .ToListAsync();
+
+        var dbProducts = new Dictionary<string, ProductMaster>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in dbProductList)
+        {
+            dbProducts[p.StyleCode] = p;
+        }
+
+        var missingCodes = distinctCodes.Where(code =>
+        {
+            var clean = code.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? code[..^2].Trim() : code;
+            return !dbProducts.ContainsKey(code) && !dbProducts.ContainsKey(clean);
+        }).ToList();
 
         var request = new CreateShipmentRequestDto
         {
+            UseSavedSnapshot = true,
+            ContractFolderId = shipment.ContractFolderId,
             InvoiceNo = shipment.InvoiceNo,
             InvoiceDate = shipment.InvoiceDate,
             PoSuffix = shipment.PoSuffix ?? string.Empty,
@@ -503,13 +733,13 @@ public class ShipmentsController : ControllerBase
                 {
                     StyleCode = i.StyleCode,
                     FullItemCode = i.FullItemCode,
-                    Description = pm?.Description ?? string.Empty,
+                    Description = i.Description,
                     Quantity = i.Quantity,
                     ProcessType = i.ProcessType,
                     UnitPriceCMT = i.UnitPriceCMT,
                     UnitPriceDAP = i.UnitPriceDAP,
-                    Unit = pm?.Unit ?? "đôi",
-                    PairPerCarton = pm?.PairPerCarton ?? 12
+                    Unit = i.Unit,
+                    PairPerCarton = i.PairPerCarton
                 };
             }).ToList()
         };
@@ -540,6 +770,8 @@ public class ShipmentsController : ControllerBase
     {
         return new CreateShipmentRequestDto
         {
+            OrderId = original.OrderId,
+            ContractFolderId = original.ContractFolderId,
             InvoiceNo = newInvoiceNo,
             InvoiceDate = original.InvoiceDate,
             PoSuffix = original.PoSuffix,

@@ -48,13 +48,16 @@ public class CustomsController : ControllerBase
             var reconciliation = await _customsService.ReconcileAsync(parsedDeclaration, orderId);
             return Ok(reconciliation);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi bóc tách và đối soát file tờ khai: {FileName}", file.FileName);
             return StatusCode(500, new
             {
-                message = "Không thể bóc tách file tờ khai hải quan. Vui lòng kiểm tra định dạng file kết xuất từ VNACCS.",
-                detail = ex.Message
+                message = "Không thể bóc tách file tờ khai hải quan. Vui lòng kiểm tra định dạng file kết xuất từ VNACCS."
             });
         }
     }
@@ -62,35 +65,56 @@ public class CustomsController : ControllerBase
     /// <summary>
     /// Xác nhận đồng bộ dữ liệu hải quan vào đơn hàng và lưu trữ file tờ khai thực tế vào server.
     /// Cập nhật trạng thái đơn hàng sang Cleared (Đã thông quan) hoặc Discrepancy (Sai lệch).
+    /// Khóa chỉnh sửa hồ sơ (IsLocked = true) khi thông quan thành công.
     /// </summary>
+    [HttpPost("confirm-sync")]
     [HttpPost("confirm-sync/{orderId:int}")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> ConfirmSync(
-        int orderId,
+        [FromRoute] int? orderId,
         [FromForm] ConfirmCustomsSyncRequestDto request,
-        [FromForm] IFormFile? file = null)
+        [FromForm] IFormFile? file = null,
+        [FromForm] IFormFile? customsFile = null)
     {
+        int targetOrderId = orderId.HasValue && orderId.Value > 0 ? orderId.Value : request.OrderId;
+        if (targetOrderId <= 0)
+        {
+            return BadRequest(new { message = "Vui lòng cung cấp OrderId hợp lệ để đồng bộ hồ sơ hải quan." });
+        }
+
         try
         {
-            Stream? fileStream = null;
+            var actualFile = file ?? customsFile ?? request.CustomsFile;
+            using Stream? fileStream = actualFile?.OpenReadStream();
             string? fileName = null;
 
-            if (file != null && file.Length > 0)
+            if (actualFile != null && actualFile.Length > 0)
             {
-                fileStream = file.OpenReadStream();
-                fileName = file.FileName;
+
+                fileName = actualFile.FileName;
             }
 
-            var updatedOrder = await _customsService.ConfirmSyncAsync(orderId, request, fileStream, fileName);
+            var updatedOrder = await _customsService.ConfirmSyncAsync(targetOrderId, request, fileStream, fileName);
 
             return Ok(new
             {
-                message = request.IsFullyMatched
-                    ? "Đã đồng bộ hồ sơ hải quan và thông quan đơn hàng thành công."
+                message = updatedOrder.IsLocked
+                    ? $"Đồng bộ tờ khai {updatedOrder.DeclarationNo} thành công! Đơn hàng đã chuyển sang trạng thái Đã thông quan."
                     : "Đã cập nhật thông tin tờ khai. Đơn hàng được ghi nhận có sai lệch số liệu so với tờ khai hải quan.",
                 orderId = updatedOrder.Id,
                 invoiceNo = updatedOrder.InvoiceNo,
                 declarationNo = updatedOrder.DeclarationNo,
+                clearanceDate = updatedOrder.ClearanceDate,
+                customsDeclarationType = updatedOrder.CustomsDeclarationType,
+                customsChannel = updatedOrder.CustomsChannel,
+                customsOffice = updatedOrder.CustomsOffice,
+                customsPackageQty = updatedOrder.CustomsPackageQty,
+                customsGrossWeight = updatedOrder.CustomsGrossWeight,
+                customsTotalDap = updatedOrder.CustomsTotalDap,
+                customsTotalCmt = updatedOrder.CustomsTotalCmt,
+                customsAttachmentFileName = updatedOrder.CustomsAttachmentFileName,
+                customsAttachmentFilePath = updatedOrder.CustomsAttachmentFilePath,
+                isLocked = updatedOrder.IsLocked,
                 status = updatedOrder.Status,
                 statusName = updatedOrder.Status.ToString()
             });
@@ -99,13 +123,16 @@ public class CustomsController : ControllerBase
         {
             return NotFound(new { message = knf.Message });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Lỗi khi xác nhận đồng bộ hải quan cho đơn hàng #{OrderId}", orderId);
+            _logger.LogError(ex, "Lỗi khi xác nhận đồng bộ hải quan cho đơn hàng #{OrderId}", targetOrderId);
             return StatusCode(500, new
             {
-                message = "Lỗi khi lưu thông tin hải quan vào đơn hàng.",
-                detail = ex.Message
+                message = "Lỗi khi lưu thông tin hải quan vào đơn hàng."
             });
         }
     }
@@ -126,10 +153,14 @@ public class CustomsController : ControllerBase
 
             return File(attachment.Value.Bytes, attachment.Value.ContentType, attachment.Value.FileName);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi tải file tờ khai đính kèm đơn hàng #{OrderId}", orderId);
-            return StatusCode(500, new { message = "Lỗi khi tải file tờ khai.", detail = ex.Message });
+            return StatusCode(500, new { message = "Lỗi khi tải file tờ khai." });
         }
     }
 }

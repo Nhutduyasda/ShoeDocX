@@ -21,6 +21,7 @@ public class BatchOcrScanResultDto
 
 public class BatchOcrConfirmRequestDto
 {
+    public int? ContractFolderId { get; set; }
     [MaxLength(100)]
     public string PoSuffix { get; set; } = "(KM3.PO5.26)";
 
@@ -40,6 +41,12 @@ public class BatchOcrConfirmRequestDto
     public string PaymentTerms { get; set; } = "T/T";
 
     public DateTime InvoiceDate { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Số thứ tự hóa đơn bắt đầu cấp phát (nếu người dùng chỉ định cụ thể, ví dụ: 233)</summary>
+    public int? StartInvoiceNumber { get; set; }
+
+    /// <summary>Thứ tự ưu tiên cấp số khi đơn hàng có cả Thành hình và Gò không may</summary>
+    public ExportSequencePriority Priority { get; set; } = ExportSequencePriority.StandardFirst;
 
     [Required]
     [MinLength(1, ErrorMessage = "Danh sách lô xuất không được để trống")]

@@ -33,11 +33,15 @@ import type {
   BatchScanItemExport,
   OcrItem,
   ProductMaster,
+  MasterDataFolder,
   CreateShipmentItem,
 } from '../types';
-import { ProcessType } from '../types';
+import { ProcessType, ExportSequencePriority } from '../types';
+import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
 
 interface BatchOcrModalProps {
+  contractFolderId?: number | null;
+  profile?: MasterDataFolder | null;
   visible: boolean;
   onClose: () => void;
   products: ProductMaster[];
@@ -54,6 +58,8 @@ interface ImageQueueItem {
 }
 
 export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
+  contractFolderId,
+  profile,
   visible,
   onClose,
   products,
@@ -76,16 +82,19 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const [customerName, setCustomerName] = useState<string>(
     'CÔNG TY TNHH KINGMAKER III (VIỆT NAM) FOOTWEAR'
   );
+  const [batchPriority, setBatchPriority] = useState<ExportSequencePriority>(
+    ExportSequencePriority.StandardFirst
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // AutoComplete options from master products
   const productOptions = React.useMemo(() => {
-    return (products || []).map((p) => ({
+    return (products || []).filter(p => p.folderId === contractFolderId).map((p) => ({
       value: p.styleCode,
       label: `${p.styleCode} - ${p.description}`,
     }));
-  }, [products]);
+  }, [products, contractFolderId]);
 
   // Clean up object URLs on unmount
   useEffect(() => {
@@ -251,7 +260,6 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
 
       message.success('Đã hoàn thành bóc tách hàng loạt ảnh phiếu kho.');
     } catch (err: any) {
-      console.error('Lỗi khi bóc tách batch OCR:', err);
       message.error(err.response?.data?.message || 'Có lỗi xảy ra trong quá trình bóc tách ảnh.');
       setImageQueue((prev) =>
         prev.map((item) =>
@@ -278,7 +286,11 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const handleSaveEditCard = () => {
     if (!editingCard || !editingCard.result) return;
 
-    const newCalculatedTotal = editItems.reduce((acc, i) => acc + (i.quantity || 0), 0);
+    const cleanedItems = editItems.map((i) => ({
+      ...i,
+      styleCode: normalizeOcrStyleCode(i.styleCode),
+    }));
+    const newCalculatedTotal = cleanedItems.reduce((acc, i) => acc + (i.quantity || 0), 0);
     const updatedResult: BatchOcrScanResult = {
       ...editingCard.result,
       title: editTitle.trim() || editingCard.result.title,
@@ -286,9 +298,9 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       calculatedTotal: newCalculatedTotal,
       isMatched: editReportedTotal > 0 && editReportedTotal === newCalculatedTotal,
       discrepancy: newCalculatedTotal - editReportedTotal,
-      items: editItems,
-      hasStandardItems: editItems.some((i) => i.processType === ProcessType.Standard),
-      hasGoItems: editItems.some((i) => i.processType === ProcessType.GoKhongMay),
+      items: cleanedItems,
+      hasStandardItems: cleanedItems.some((i) => i.processType === ProcessType.Standard),
+      hasGoItems: cleanedItems.some((i) => i.processType === ProcessType.GoKhongMay),
     };
 
     setImageQueue((prev) =>
@@ -332,9 +344,12 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       });
 
       const requestPayload: BatchOcrConfirmRequest = {
-        contractNo: contractNo.trim(),
-        poSuffix: poSuffix.trim(),
-        customerName: customerName.trim(),
+        contractFolderId,
+        contractNo: profile?.contractNo || contractNo.trim(),
+        address: profile?.deliveryAddress || "",
+        poSuffix: profile?.poSuffix || poSuffix.trim(),
+        customerName: profile?.customerName || customerName.trim(),
+        priority: batchPriority,
         batches: batchesPayload,
       };
 
@@ -352,7 +367,6 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       onSuccess();
       onClose();
     } catch (err: any) {
-      console.error('Lỗi khi xuất gói ZIP:', err);
       message.error(err.response?.data?.message || 'Không thể xuất gói file ZIP.');
     } finally {
       setIsExporting(false);
@@ -627,7 +641,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
 
         {/* Global Export Config & Final Action Button */}
         <div className="border-t border-slate-200 pt-3 bg-slate-50 p-4 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 flex-1 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 text-xs">
             <div>
               <span className="text-slate-500 block mb-0.5">Số Hợp đồng:</span>
               <Input
@@ -653,6 +667,19 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 className="text-xs"
+              />
+            </div>
+            <div>
+              <span className="text-slate-500 block mb-0.5">Thứ tự xuất (nếu tách 2 file):</span>
+              <Select
+                size="small"
+                value={batchPriority}
+                onChange={setBatchPriority}
+                className="w-full text-xs"
+                options={[
+                  { value: ExportSequencePriority.StandardFirst, label: 'Thành hình trước, Gò sau' },
+                  { value: ExportSequencePriority.GoFirst, label: 'Gò trước, Thành hình sau' },
+                ]}
               />
             </div>
           </div>

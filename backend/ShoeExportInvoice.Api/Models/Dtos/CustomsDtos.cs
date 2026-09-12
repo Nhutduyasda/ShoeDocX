@@ -15,6 +15,7 @@ public class CustomsDeclarationItemDto
     public string Unit { get; set; } = "đôi";
     public decimal UnitPriceDap { get; set; }
     public decimal AmountDap { get; set; }
+    public bool HasCmt { get; set; }
     public decimal UnitPriceCmt { get; set; }
     public ProcessType ProcessType { get; set; } = ProcessType.Standard;
 }
@@ -60,9 +61,10 @@ public class CustomsComparisonRowDto
     public decimal InvoicePriceDap { get; set; }
     public decimal CustomsPriceDap { get; set; }
     public decimal InvoicePriceCmt { get; set; }
+    public bool CustomsHasCmt { get; set; }
     public decimal CustomsPriceCmt { get; set; }
     public bool IsQuantityMatched => DifferenceQuantity == 0;
-    public bool IsPriceMatched => Math.Abs(InvoicePriceDap - CustomsPriceDap) < 0.005m;
+    public bool IsPriceMatched => Math.Round(InvoicePriceDap, 4, MidpointRounding.AwayFromZero) == Math.Round(CustomsPriceDap, 4, MidpointRounding.AwayFromZero) && ((!CustomsHasCmt && CustomsPriceCmt == 0) || Math.Round(InvoicePriceCmt, 4, MidpointRounding.AwayFromZero) == Math.Round(CustomsPriceCmt, 4, MidpointRounding.AwayFromZero));
     public bool IsMatched => IsQuantityMatched && IsPriceMatched;
     public string StatusText { get; set; } = string.Empty;
 }
@@ -74,6 +76,8 @@ public class CustomsReconciliationResultDto
 {
     public bool IsOrderFound { get; set; }
     public bool IsFullyMatched { get; set; }
+    public bool IsInvoiceMismatch { get; set; }
+    public string? InvoiceMismatchWarning { get; set; }
     public string Message { get; set; } = string.Empty;
 
     public CustomsDeclarationParsedDto Declaration { get; set; } = new();
@@ -104,15 +108,21 @@ public class MatchedOrderSummaryDto
 
 public class ConfirmCustomsSyncRequestDto
 {
+    public int OrderId { get; set; }
     public string DeclarationNo { get; set; } = string.Empty;
     public DateTime? ClearanceDate { get; set; }
     public string? CustomsDeclarationType { get; set; }
     public int? CustomsChannel { get; set; }
     public string? CustomsOffice { get; set; }
     public int? CustomsPackageQty { get; set; }
+    public int? PackageQty { get => CustomsPackageQty; set => CustomsPackageQty = value; }
     public decimal? CustomsGrossWeight { get; set; }
+    public decimal? GrossWeight { get => CustomsGrossWeight; set => CustomsGrossWeight = value; }
     public decimal? CustomsTotalDap { get; set; }
+    public decimal? TotalDap { get => CustomsTotalDap; set => CustomsTotalDap = value; }
     public decimal? CustomsTotalCmt { get; set; }
+    public decimal? TotalCmt { get => CustomsTotalCmt; set => CustomsTotalCmt = value; }
     public string? TempAttachmentFileName { get; set; }
     public bool IsFullyMatched { get; set; }
+    public Microsoft.AspNetCore.Http.IFormFile? CustomsFile { get; set; }
 }

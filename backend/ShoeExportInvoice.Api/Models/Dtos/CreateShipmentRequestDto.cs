@@ -5,6 +5,10 @@ namespace ShoeExportInvoice.Api.Models.Dtos;
 
 public class CreateShipmentRequestDto
 {
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool UseSavedSnapshot { get; set; }
+    public int? OrderId { get; set; }
+    public int? ContractFolderId { get; set; }
     [Required(ErrorMessage = "Số hóa đơn (Invoice No) không được để trống")]
     [MaxLength(100)]
     public string InvoiceNo { get; set; } = "KMHD-NEW2026-0233";
@@ -29,9 +33,21 @@ public class CreateShipmentRequestDto
     [MaxLength(100)]
     public string PaymentTerms { get; set; } = "T/T";
 
+    /// <summary>Số thứ tự hóa đơn bắt đầu cấp phát (nếu người dùng chỉ định cụ thể, ví dụ: 233)</summary>
+    public int? StartInvoiceNumber { get; set; }
+
+    /// <summary>Thứ tự ưu tiên cấp số khi đơn hàng có cả Thành hình và Gò không may</summary>
+    public ExportSequencePriority Priority { get; set; } = ExportSequencePriority.StandardFirst;
+
     [Required]
     [MinLength(1, ErrorMessage = "Đơn hàng phải có ít nhất 1 mặt hàng")]
     public List<CreateShipmentItemDto> Items { get; set; } = new();
+}
+
+public enum ExportSequencePriority
+{
+    StandardFirst = 1, // Thành hình trước, Gò sau
+    GoFirst = 2        // Gò trước, Thành hình sau
 }
 
 public class CreateShipmentItemDto

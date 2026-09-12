@@ -69,5 +69,10 @@ export interface ProductLookupItem {
   folderId?: number | null;
   folderName?: string | null;
   unitPriceCMT?: number;
+  unitPriceDAP?: number;
+  unitPriceCMT_Go?: number;
+  unitPriceDAP_Go?: number;
   unitPriceGoKhongMay?: number;
+  hasStandardPrice?: boolean;
+  hasGoPrice?: boolean;
 }

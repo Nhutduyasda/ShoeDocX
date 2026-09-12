@@ -1,4 +1,4 @@
-import { useState, useEffect, useEffectEvent, useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
 import {
   Form,
   Input,
@@ -52,6 +52,8 @@ import { masterDataFolderApi } from '../api/masterDataFolderApi';
 import { warehouseApi } from '../api/warehouseApi';
 import { hasCompletedTour, startOnboardingTour } from '../services/tourService';
 import { customsApi } from '../api/customsApi';
+import { useAuth } from '../contexts/AuthContext';
+import { isKeToanUser } from '../types/auth';
 import type { NavTabKey } from '../layouts/AppLayout';
 import type { WarehouseBatchSummary } from '../types/warehouse';
 import type {
@@ -89,6 +91,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   onTabChange,
   initialOrderIdToLoad,
 }, ref) => {
+  const { user } = useAuth();
+  const isKeToan = isKeToanUser(user);
   const [form] = Form.useForm();
   const [quickPasteVisible, setQuickPasteVisible] = useState<boolean>(false);
   const [ocrModalVisible, setOcrModalVisible] = useState<boolean>(false);
@@ -308,7 +312,11 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [savedShipments, setSavedShipments] = useState<SavedShipmentSummary[]>([]);
   const [historySearchText, setHistorySearchText] = useState<string>('');
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<string>(activeNavTab === 'history' ? 'history' : 'create');
+  const [activeTab, setActiveTabState] = useState<string>(activeNavTab === 'history' || isKeToan ? 'history' : 'create');
+  const setActiveTab = (tab: string) => {
+    if (isKeToan && tab === 'create') return;
+    setActiveTabState(tab);
+  };
 
   // Hậu kiểm & Đối soát Hải quan
   const [customsModalOpen, setCustomsModalOpen] = useState<boolean>(false);
@@ -333,33 +341,36 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     },
   }));
 
-  const syncNavigation = useEffectEvent(() => {
-    if (activeNavTab === 'history') {
+  useEffect(() => {
+    if (activeNavTab === 'history' || isKeToan) {
       setActiveTab('history');
       void loadShipmentsHistory();
     } else if (activeNavTab === 'shipment' || activeNavTab === 'ocr') {
-      setActiveTab('create');
-      if (activeNavTab === 'ocr') setOcrModalVisible(true);
+      if (!isKeToan) {
+        setActiveTab('create');
+        if (activeNavTab === 'ocr') {
+          setOcrModalVisible(true);
+        }
+      }
     }
-  });
-  const initialize = useEffectEvent(() => {
+  }, [activeNavTab, isKeToan]);
+
+  useEffect(() => {
     void loadPartnerFolders();
     void loadProducts();
     void loadShipmentsHistory();
     void loadSequence();
-  });
-  const openInitialOrder = useEffectEvent(() => {
-    if (initialOrderIdToLoad) void handleLoadHistoricalOrder(initialOrderIdToLoad);
-  });
-  useEffect(() => { const timer = setTimeout(() => syncNavigation(), 0); return () => clearTimeout(timer); }, [activeNavTab]);
-  useEffect(() => {
-    initialize();
     if (!hasCompletedTour()) {
       const timer = setTimeout(startOnboardingTour, 800);
       return () => clearTimeout(timer);
     }
   }, []);
-  useEffect(() => { openInitialOrder(); }, [initialOrderIdToLoad]);
+
+  useEffect(() => {
+    if (initialOrderIdToLoad) {
+      void handleLoadHistoricalOrder(initialOrderIdToLoad);
+    }
+  }, [initialOrderIdToLoad]);
 
   async function loadSequence() {
     try {
@@ -864,6 +875,10 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   async function handleLoadHistoricalOrder(id: number) {
+    if (isKeToan) {
+      message.warning('Tài khoản Kế toán chỉ có quyền tra cứu và tải Excel đối soát.');
+      return;
+    }
     try {
       message.loading({ content: 'Đang tải lại dữ liệu đơn hàng...', key: 'load-order' });
       const order = await shipmentApi.getShipmentById(id);
@@ -1103,15 +1118,49 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       const defaultUnit = selectedPartner?.defaultUnit || 'đôi';
 
       const mapped: CreateShipmentItem[] = batch.items.map((item) => {
-        const p = products.find((x) => x.styleCode.trim().toUpperCase() === item.styleCode.trim().toUpperCase());
-        const isGo = item.processType === 2;
+        // 1. Nhận diện chuẩn xác công đoạn Gò không may (chấp nhận cả number 2, string "GoKhongMay", hoặc đuôi .G)
+        const rawProcess = String(item.processType || '');
+        const rawCode = (item.styleCode || '').trim().toUpperCase();
+        const isGo =
+          (item.processType as unknown) === 2 ||
+          rawProcess === 'GoKhongMay' ||
+          rawProcess.toLowerCase().includes('go') ||
+          rawCode.endsWith('.G');
+
+        // 2. Tách mã gốc để tra cứu Master Data
+        const baseCode = rawCode.endsWith('.G') ? rawCode.slice(0, -2).trim() : rawCode;
+
+        // 3. Tra cứu sản phẩm trong Master Data
+        const p = products.find((x) => {
+          const pmCode = x.styleCode.trim().toUpperCase();
+          return pmCode === baseCode || pmCode === rawCode;
+        });
+
+        // Safeguard kép: Nếu mã này trong Master Data CHỈ có đơn giá Gò không may (CMT==0 và CMT_Go>0),
+        // tự động nhận diện chính xác là Gò không may để bảo toàn đơn giá, không bao giờ bị 0
+        const isGoOnlyInMaster = !!(p && (!p.unitPriceCMT || p.unitPriceCMT === 0) && (p.unitPriceCMT_Go && p.unitPriceCMT_Go > 0));
+        const effectiveIsGo = isGo || isGoOnlyInMaster;
+
+        // 4. Lấy đúng đơn giá CMT/DAP theo công đoạn
+        const cmt = p
+          ? effectiveIsGo && p.unitPriceCMT_Go && p.unitPriceCMT_Go > 0
+            ? p.unitPriceCMT_Go
+            : p.unitPriceCMT
+          : 0;
+
+        const dap = p
+          ? effectiveIsGo && p.unitPriceDAP_Go && p.unitPriceDAP_Go > 0
+            ? p.unitPriceDAP_Go
+            : p.unitPriceDAP
+          : 0;
+
         return {
-          styleCode: item.styleCode,
+          styleCode: baseCode, // Giữ mã gốc sạch để hệ thống tự ghép hậu tố khi xuất
           description: p?.description || '',
           quantity: item.quantity,
-          processType: item.processType === 2 ? ProcessType.GoKhongMay : ProcessType.Standard,
-          unitPriceCMT: p ? ((isGo && p.unitPriceCMT_Go && p.unitPriceCMT_Go > 0) ? p.unitPriceCMT_Go : p.unitPriceCMT) : 0,
-          unitPriceDAP: p ? ((isGo && p.unitPriceDAP_Go && p.unitPriceDAP_Go > 0) ? p.unitPriceDAP_Go : p.unitPriceDAP) : 0,
+          processType: effectiveIsGo ? ProcessType.GoKhongMay : ProcessType.Standard,
+          unitPriceCMT: cmt,
+          unitPriceDAP: dap,
           unit: p?.unit || defaultUnit,
           pairPerCarton: p?.pairPerCarton || defaultPairs,
         };
@@ -1124,7 +1173,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       }
       setActiveWarehouseBatchId(batch.id);
       setReceiveBatchModalVisible(false);
-      message.success(`Đã tiếp nhận thành công lô hàng ${batch.batchName} (${mapped.length} mã, ${batch.totalQuantity.toLocaleString()} đôi) từ kho!`);
+      message.success(
+        `Đã tiếp nhận thành công lô ${batch.batchName} (${mapped.length} mã, ${batch.totalQuantity.toLocaleString()} đôi) từ kho! Đã bảo toàn chính xác các mã Gò không may.`
+      );
     } catch (err) {
       console.error(err);
       message.error('Không thể tải chi tiết lô hàng từ kho.');
@@ -1163,14 +1214,12 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     checkPartnerMismatch(combined);
   };
 
-  const checkLatestMismatch = useEffectEvent(() => { void checkPartnerMismatch(items); });
-
   // Tự động kích hoạt kiểm tra chéo khi bảng có từ 2 dòng báo đỏ "Mã chưa có trong Master Data"
   useEffect(() => {
     if (items.length === 0) return;
     if (missingMasterCodes.length >= 2 && !isDismissedMismatch && !suggestionBannerData) {
       const timer = setTimeout(() => {
-        checkLatestMismatch();
+        void checkPartnerMismatch(items);
       }, 500);
       return () => clearTimeout(timer);
     }
@@ -1693,6 +1742,21 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       width: 320,
       fixed: 'right',
       render: (_, record) => {
+        if (isKeToan) {
+          return (
+            <Space size={4}>
+              <Button
+                size="small"
+                icon={<DownloadOutlined className="text-xs" />}
+                className="text-xs border-slate-300 text-slate-700 hover:text-blue-600"
+                onClick={() => handleDownloadHistorical(record.id, record.invoiceNo)}
+              >
+                Tải Excel
+              </Button>
+            </Space>
+          );
+        }
+
         const isLocked = Boolean(record.isLocked || record.status === ShipmentStatus.Cleared);
 
         return (
@@ -1748,7 +1812,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
   return (
     <div className="space-y-6">
-      {activeTab === 'history' ? (
+      {activeNavTab === 'history' || activeTab === 'history' || isKeToan ? (
         /* ================= MÀN HÌNH LỊCH SỬ CHỨNG TỪ ================= */
         <div className="space-y-6">
           {/* Header */}
@@ -1763,13 +1827,15 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             </div>
 
             <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
-              <Button
-                icon={<AuditOutlined className="text-blue-600" />}
-                onClick={() => handleOpenCustomsSync()}
-                className="text-xs h-9 px-3.5 border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-50 font-medium"
-              >
-                Đối Soát Tờ Khai Hải Quan
-              </Button>
+              {!isKeToan && (
+                <Button
+                  icon={<AuditOutlined className="text-blue-600" />}
+                  onClick={() => handleOpenCustomsSync()}
+                  className="text-xs h-9 px-3.5 border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-50 font-medium"
+                >
+                  Đối Soát Tờ Khai Hải Quan
+                </Button>
+              )}
               <Button
                 icon={<ReloadOutlined />}
                 onClick={loadShipmentsHistory}
@@ -1778,17 +1844,19 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               >
                 Làm mới
               </Button>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => {
-                  setActiveTab('create');
-                  onTabChange?.('shipment');
-                }}
-                className="bg-blue-600 hover:bg-blue-700 text-xs h-9 px-4 font-medium shadow-sm"
-              >
-                Lập hóa đơn mới
-              </Button>
+              {!isKeToan && (
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => {
+                    setActiveTab('create');
+                    onTabChange?.('shipment');
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-xs h-9 px-4 font-medium shadow-sm"
+                >
+                  Lập hóa đơn mới
+                </Button>
+              )}
             </div>
           </div>
 

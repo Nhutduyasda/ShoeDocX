@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Services;
@@ -6,6 +7,7 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/master-data-folders")]
+[Authorize]
 public class MasterDataFoldersController : ControllerBase
 {
     private readonly IMasterDataFolderService _folderService;
@@ -23,6 +25,7 @@ public class MasterDataFoldersController : ControllerBase
     /// Lấy toàn bộ cây thư mục Master Data kèm số lượng sản phẩm
     /// </summary>
     [HttpGet("tree")]
+    [Authorize(Roles = "Admin,Xnk,Kho,KeToan")]
     public async Task<ActionResult<List<MasterDataFolderDto>>> GetTree()
     {
         var tree = await _folderService.GetTreeAsync();
@@ -33,6 +36,7 @@ public class MasterDataFoldersController : ControllerBase
     /// Lấy thông tin chi tiết một thư mục theo ID
     /// </summary>
     [HttpGet("{id:int}")]
+    [Authorize(Roles = "Admin,Xnk,Kho,KeToan")]
     public async Task<ActionResult<MasterDataFolderDto>> GetById(int id)
     {
         var folder = await _folderService.GetByIdAsync(id);
@@ -47,6 +51,7 @@ public class MasterDataFoldersController : ControllerBase
     /// Tạo mới một thư mục Master Data
     /// </summary>
     [HttpPost]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<ActionResult<MasterDataFolderDto>> Create([FromBody] CreateFolderDto dto)
     {
         if (!ModelState.IsValid)
@@ -74,6 +79,7 @@ public class MasterDataFoldersController : ControllerBase
     /// Cập nhật thông tin thư mục (Tên, đối tác, hợp đồng, quy cách đóng gói, ĐVT mặc định)
     /// </summary>
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<ActionResult<MasterDataFolderDto>> Update(int id, [FromBody] UpdateFolderDto dto)
     {
         if (!ModelState.IsValid)
@@ -105,6 +111,7 @@ public class MasterDataFoldersController : ControllerBase
     /// Di chuyển thư mục sang thư mục cha mới hoặc thay đổi thứ tự
     /// </summary>
     [HttpPut("{id:int}/move")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> Move(int id, [FromBody] MoveFolderDto dto)
     {
         try
@@ -131,6 +138,7 @@ public class MasterDataFoldersController : ControllerBase
     /// Xóa thư mục (tùy chọn cascade: xóa cả cây con và sản phẩm, hoặc giải phóng sản phẩm về null)
     /// </summary>
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> Delete(int id, [FromQuery] bool cascade = false)
     {
         try
@@ -157,6 +165,7 @@ public class MasterDataFoldersController : ControllerBase
     /// Di chuyển danh sách sản phẩm sang thư mục đích
     /// </summary>
     [HttpPost("bulk-move-products")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> BulkMoveProducts([FromBody] BulkMoveProductsDto dto)
     {
         try

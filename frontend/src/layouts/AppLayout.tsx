@@ -21,7 +21,7 @@ import {
 import { CheatsheetModal } from '../components/CheatsheetModal';
 import { startOnboardingTour } from '../services/tourService';
 import { useAuth } from '../contexts/AuthContext';
-import { isKhoUser, isKeToanUser, isXnkUser, isAdminUser, type NavTabKey } from '../types/auth';
+import { isKhoUser, isKeToanUser, isXnkUser, isAdminUser, getDefaultTabForUser, type NavTabKey } from '../types/auth';
 
 export type { NavTabKey };
 
@@ -94,12 +94,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
               icon: <FileTextOutlined className="text-base" />,
             },
             {
-              key: 'ocr',
-              label: 'Quét ảnh phiếu kho',
-              icon: <CameraOutlined className="text-base" />,
-              badge: 'OCR',
-            },
-            {
               key: 'products',
               label: 'Tra cứu mã giày & Quy cách',
               icon: <DatabaseOutlined className="text-base" />,
@@ -121,14 +115,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             },
             {
               key: 'history',
-              label: 'Lịch sử chứng từ XNK',
+              label: 'Lịch sử chứng từ',
               icon: <HistoryOutlined className="text-base" />,
             },
             {
               key: 'ocr',
-              label: 'Quét tài liệu & Tờ khai OCR',
+              label: 'Quét ảnh phiếu kho',
               icon: <CameraOutlined className="text-base" />,
-              badge: 'Vision',
+              badge: 'OCR',
             },
           ],
         },
@@ -196,12 +190,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             label: 'Giám sát xuất kho (Fast-Grid)',
             icon: <RocketOutlined className="text-base" />,
           },
-          {
-            key: 'ocr',
-            label: 'Quét ảnh phiếu kho',
-            icon: <CameraOutlined className="text-base" />,
-            badge: 'OCR',
-          },
         ],
       },
       {
@@ -216,6 +204,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             key: 'history',
             label: 'Lịch sử chứng từ',
             icon: <HistoryOutlined className="text-base" />,
+          },
+          {
+            key: 'ocr',
+            label: 'Quét ảnh phiếu kho',
+            icon: <CameraOutlined className="text-base" />,
+            badge: 'OCR',
           },
         ],
       },
@@ -332,7 +326,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             <div
               className="flex items-center space-x-3 cursor-pointer min-w-0"
               onClick={() => {
-                onTabChange('shipment');
+                onTabChange(getDefaultTabForUser(user));
                 setMobileDrawerOpen(false);
               }}
             >

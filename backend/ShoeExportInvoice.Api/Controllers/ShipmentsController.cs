@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShoeExportInvoice.Api.Data;
@@ -10,6 +11,7 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class ShipmentsController : ControllerBase
 {
     private readonly AppDbContext _context;
@@ -34,6 +36,7 @@ public class ShipmentsController : ControllerBase
     /// Tự động chia thùng chẵn (12 đôi/thùng) và thùng lẻ, tính dải số kiện lũy kế và trọng lượng Net/Gross
     /// </summary>
     [HttpPost("preview-pkl")]
+    [Authorize(Roles = "Admin,Xnk")]
     public ActionResult<PklPreviewResponseDto> PreviewPklBreakdown([FromBody] CreateShipmentRequestDto request)
     {
         if (request.Items == null || request.Items.Count == 0)
@@ -64,6 +67,7 @@ public class ShipmentsController : ControllerBase
     /// - Tên file đồng bộ với số cuối của Invoice No.
     /// </summary>
     [HttpPost("export-excel")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> ExportExcel([FromBody] CreateShipmentRequestDto request)
     {
         if (request.Items == null || request.Items.Count == 0)
@@ -288,6 +292,7 @@ public class ShipmentsController : ControllerBase
     /// Lấy số thứ tự Invoice tiếp theo sẽ được cấp (chưa tiêu thụ)
     /// </summary>
     [HttpGet("sequence/current")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> GetCurrentSequence()
     {
         try
@@ -315,6 +320,7 @@ public class ShipmentsController : ControllerBase
     /// Ghi đè số thứ tự bắt đầu. Lần xuất tiếp theo sẽ bắt đầu từ nextNumber.
     /// </summary>
     [HttpPut("sequence")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> SetSequence([FromBody] SetSequenceRequest body)
     {
         if (body == null || body.NextNumber <= 0)
@@ -348,6 +354,7 @@ public class ShipmentsController : ControllerBase
     /// Lưu đơn hàng / hóa đơn xuất khẩu vào cơ sở dữ liệu
     /// </summary>
     [HttpPost]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<ActionResult<ShipmentOrder>> CreateShipment([FromBody] CreateShipmentRequestDto request)
     {
         if (!ModelState.IsValid)
@@ -403,6 +410,7 @@ public class ShipmentsController : ControllerBase
     /// Cập nhật thông tin một đơn hàng theo Id (bảo vệ bởi Lock Guard: Không cho phép sửa đơn đã thông quan hoặc bị khóa)
     /// </summary>
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> UpdateShipment(int id, [FromBody] CreateShipmentRequestDto request)
     {
         if (!ModelState.IsValid)
@@ -575,6 +583,7 @@ public class ShipmentsController : ControllerBase
     /// Lấy danh sách các đơn hàng đã lưu
     /// </summary>
     [HttpGet]
+    [Authorize(Roles = "Admin,Xnk,KeToan")]
     public async Task<ActionResult<IEnumerable<object>>> GetShipments()
     {
         var dbShipments = await _context.ShipmentOrders
@@ -627,6 +636,7 @@ public class ShipmentsController : ControllerBase
     /// Lấy chi tiết một đơn hàng theo Id
     /// </summary>
     [HttpGet("{id}")]
+    [Authorize(Roles = "Admin,Xnk,KeToan")]
     public async Task<ActionResult<ShipmentOrder>> GetShipmentById(int id)
     {
         var shipment = await _context.ShipmentOrders
@@ -646,6 +656,7 @@ public class ShipmentsController : ControllerBase
     /// Xóa một đơn hàng theo Id (bảo vệ bởi Lock Guard: Không cho phép xóa đơn đã thông quan)
     /// </summary>
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> DeleteShipment(int id)
     {
         await using var transaction = await _context.Database.BeginTransactionAsync();
@@ -675,6 +686,7 @@ public class ShipmentsController : ControllerBase
     /// Xuất file Excel từ một đơn hàng đã lưu trong cơ sở dữ liệu
     /// </summary>
     [HttpGet("{id}/export-excel")]
+    [Authorize(Roles = "Admin,Xnk,KeToan")]
     public async Task<IActionResult> ExportShipmentById(int id)
     {
         var shipment = await _context.ShipmentOrders

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Models.Entities;
@@ -7,6 +8,7 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/customs-settlement")]
+[Authorize(Roles = "Admin,Xnk,KeToan")]
 public class CustomsSettlementController : ControllerBase
 {
     private readonly ICustomsSettlementService _settlementService;

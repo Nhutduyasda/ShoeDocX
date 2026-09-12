@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useEffectEvent, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table,
   Button,
@@ -32,8 +32,13 @@ import { masterDataFolderApi } from '../api/masterDataFolderApi';
 import { ProductModal } from '../components/ProductModal';
 import { ProductImportModal } from '../components/ProductImportModal';
 import { FolderTreePanel } from '../components/FolderTreePanel';
+import { useAuth } from '../contexts/AuthContext';
+import { isAdminUser, isXnkUser } from '../types/auth';
 
 export const ProductMasterPage: React.FC = () => {
+  const { user } = useAuth();
+  const canManageMasterData = isAdminUser(user) || isXnkUser(user);
+
   // Folder tree states
   const [treeData, setTreeData] = useState<MasterDataFolder[]>([]);
   const [selectedFolder, setSelectedFolder] = useState<MasterDataFolder | null>(null);
@@ -111,11 +116,13 @@ export const ProductMasterPage: React.FC = () => {
     }
   }, [searchText, page, pageSize, selectedFolder]);
 
-  const loadTree = useEffectEvent(() => { void fetchTree(); });
-  useEffect(() => { const timer = setTimeout(() => loadTree(), 0); return () => clearTimeout(timer); }, []);
+  useEffect(() => {
+    void fetchTree();
+  }, [fetchTree]);
 
-  const loadList = useEffectEvent(() => { void fetchProducts(); });
-  useEffect(() => { const timer = setTimeout(() => loadList(), 0); return () => clearTimeout(timer); }, [fetchProducts]);
+  useEffect(() => {
+    void fetchProducts();
+  }, [fetchProducts]);
 
   // Tính tổng tất cả sản phẩm từ cây thư mục
   const totalAllProducts = treeData.reduce((acc, f) => acc + f.totalProductCount, 0);
@@ -415,6 +422,10 @@ export const ProductMasterPage: React.FC = () => {
     },
   ];
 
+  const displayColumns = canManageMasterData
+    ? columns
+    : columns.filter((col) => col.key !== 'actions');
+
   return (
     <div className="space-y-4">
       {/* 1. Page Header */}
@@ -429,7 +440,13 @@ export const ProductMasterPage: React.FC = () => {
         </div>
 
         <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
-          {selectedRowKeys.length > 0 && (
+          {!canManageMasterData && (
+            <Tag color="default" className="text-xs">
+              👁️ Chế độ chỉ xem (Tra cứu danh mục)
+            </Tag>
+          )}
+
+          {canManageMasterData && selectedRowKeys.length > 0 && (
             <Button
               icon={<ArrowRightOutlined />}
               onClick={() => {
@@ -451,91 +468,97 @@ export const ProductMasterPage: React.FC = () => {
             Xuất Excel
           </Button>
 
-          <Tooltip title={selectedFolder ? `Nhập Excel vào thư mục "${selectedFolder.name}"` : 'Nhập Excel vào danh mục'}>
-            <Button
-              icon={<UploadOutlined />}
-              onClick={() => setImportModalVisible(true)}
-              className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
-            >
-              Nhập Excel
-            </Button>
-          </Tooltip>
+          {canManageMasterData && (
+            <Tooltip title={selectedFolder ? `Nhập Excel vào thư mục "${selectedFolder.name}"` : 'Nhập Excel vào danh mục'}>
+              <Button
+                icon={<UploadOutlined />}
+                onClick={() => setImportModalVisible(true)}
+                className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+              >
+                Nhập Excel
+              </Button>
+            </Tooltip>
+          )}
 
           {/* Menu Thao tác khác: Gom Đổi ĐVT và Xóa tất cả */}
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'bulk-unit',
-                  icon: <SwapOutlined />,
-                  label: 'Đổi ĐVT hàng loạt',
-                  disabled: totalCount === 0,
-                  onClick: () => {
-                    setNewBulkUnit('PRS');
-                    setBulkUnitModalVisible(true);
+          {canManageMasterData && (
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'bulk-unit',
+                    icon: <SwapOutlined />,
+                    label: 'Đổi ĐVT hàng loạt',
+                    disabled: totalCount === 0,
+                    onClick: () => {
+                      setNewBulkUnit('PRS');
+                      setBulkUnitModalVisible(true);
+                    },
                   },
-                },
-                {
-                  type: 'divider',
-                },
-                {
-                  key: 'delete-folder-products',
-                  danger: true,
-                  icon: <DeleteOutlined />,
-                  label: selectedFolder
-                    ? `Xóa tất cả sản phẩm trong "${selectedFolder.name}"`
-                    : 'Xóa tất cả sản phẩm trong thư mục (Chưa chọn thư mục)',
-                  disabled: !selectedFolder || totalCount === 0,
-                  onClick: () => {
-                    if (!selectedFolder) {
-                      message.warning('Vui lòng chọn một thư mục từ cây thư mục bên trái để thực hiện xóa sản phẩm.');
-                      return;
-                    }
-                    Modal.confirm({
-                      title: `Xóa tất cả sản phẩm trong thư mục "${selectedFolder.name}"?`,
-                      content: (
-                        <div className="space-y-2">
-                          <p className="m-0">
-                            Bạn có chắc chắn muốn xóa toàn bộ <strong>{totalCount}</strong> sản phẩm thuộc thư mục{' '}
-                            <strong>"{selectedFolder.name}"</strong>?
-                          </p>
-                          <p className="text-rose-600 text-xs m-0">
-                            Lưu ý: Thao tác này chỉ xóa các sản phẩm bên trong thư mục này (giữ nguyên cấu trúc thư mục) và không thể hoàn tác!
-                          </p>
-                        </div>
-                      ),
-                      okText: `Xóa sản phẩm trong "${selectedFolder.name}"`,
-                      okType: 'danger',
-                      cancelText: 'Hủy',
-                      onOk: handleDeleteFolderProducts,
-                    });
+                  {
+                    type: 'divider',
                   },
-                },
-              ],
-            }}
-            trigger={['click']}
-          >
-            <Button
-              icon={<EllipsisOutlined />}
-              loading={clearing}
-              className="text-xs h-8 px-2.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+                  {
+                    key: 'delete-folder-products',
+                    danger: true,
+                    icon: <DeleteOutlined />,
+                    label: selectedFolder
+                      ? `Xóa tất cả sản phẩm trong "${selectedFolder.name}"`
+                      : 'Xóa tất cả sản phẩm trong thư mục (Chưa chọn thư mục)',
+                    disabled: !selectedFolder || totalCount === 0,
+                    onClick: () => {
+                      if (!selectedFolder) {
+                        message.warning('Vui lòng chọn một thư mục từ cây thư mục bên trái để thực hiện xóa sản phẩm.');
+                        return;
+                      }
+                      Modal.confirm({
+                        title: `Xóa tất cả sản phẩm trong thư mục "${selectedFolder.name}"?`,
+                        content: (
+                          <div className="space-y-2">
+                            <p className="m-0">
+                              Bạn có chắc chắn muốn xóa toàn bộ <strong>{totalCount}</strong> sản phẩm thuộc thư mục{' '}
+                              <strong>"{selectedFolder.name}"</strong>?
+                            </p>
+                            <p className="text-rose-600 text-xs m-0">
+                              Lưu ý: Thao tác này chỉ xóa các sản phẩm bên trong thư mục này (giữ nguyên cấu trúc thư mục) và không thể hoàn tác!
+                            </p>
+                          </div>
+                        ),
+                        okText: `Xóa sản phẩm trong "${selectedFolder.name}"`,
+                        okType: 'danger',
+                        cancelText: 'Hủy',
+                        onOk: handleDeleteFolderProducts,
+                      });
+                    },
+                  },
+                ],
+              }}
+              trigger={['click']}
             >
-              Thao tác khác
-            </Button>
-          </Dropdown>
+              <Button
+                icon={<EllipsisOutlined />}
+                loading={clearing}
+                className="text-xs h-8 px-2.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+              >
+                Thao tác khác
+              </Button>
+            </Dropdown>
+          )}
 
           {/* Primary Action Button: Chỉ để icon + text "Thêm mã hàng" (bỏ dấu + trong string) */}
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setSelectedProduct(null);
-              setModalVisible(true);
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs h-8 px-3.5 shadow-sm"
-          >
-            Thêm mã hàng
-          </Button>
+          {canManageMasterData && (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setSelectedProduct(null);
+                setModalVisible(true);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs h-8 px-3.5 shadow-sm"
+            >
+              Thêm mã hàng
+            </Button>
+          )}
         </div>
       </div>
 
@@ -555,6 +578,7 @@ export const ProductMasterPage: React.FC = () => {
               fetchProducts();
             }}
             totalAllProducts={totalAllProducts}
+            canManage={canManageMasterData}
           />
         </div>
 
@@ -692,15 +716,19 @@ export const ProductMasterPage: React.FC = () => {
             {/* Ant Design Products Table */}
             <div className="w-full overflow-x-auto">
               <Table
-                columns={columns}
+                columns={displayColumns}
                 dataSource={products}
                 rowKey="id"
                 loading={loading}
                 size="small"
-                rowSelection={{
-                  selectedRowKeys,
-                  onChange: (keys) => setSelectedRowKeys(keys),
-                }}
+                rowSelection={
+                  canManageMasterData
+                    ? {
+                        selectedRowKeys,
+                        onChange: (keys) => setSelectedRowKeys(keys),
+                      }
+                    : undefined
+                }
                 pagination={{
                   current: page,
                   pageSize: pageSize,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useEffectEvent, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Table,
   Button,
@@ -164,10 +164,13 @@ export const CustomsSettlementPage: React.FC = () => {
     }
   }, []);
 
-  const refreshHistory = useEffectEvent(() => { void loadSavedPeriods(); });
-  const refreshAnalytics = useEffectEvent(() => { void loadAnalytics(analyticsYear); });
-  useEffect(() => { const timer = setTimeout(() => refreshHistory(), 0); return () => clearTimeout(timer); }, []);
-  useEffect(() => { const timer = setTimeout(() => refreshAnalytics(), 0); return () => clearTimeout(timer); }, [analyticsYear]);
+  useEffect(() => {
+    void loadSavedPeriods();
+  }, [loadSavedPeriods]);
+
+  useEffect(() => {
+    void loadAnalytics(analyticsYear);
+  }, [loadAnalytics, analyticsYear]);
 
   // Calculate / aggregate settlement data
   const handleCalculate = async () => {

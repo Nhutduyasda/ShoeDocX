@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShoeExportInvoice.Api.Data;
@@ -8,6 +9,7 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "Admin,Kho,Xnk")]
 public class WarehouseController : ControllerBase
 {
     private readonly AppDbContext _context;
@@ -145,20 +147,28 @@ public class WarehouseController : ControllerBase
             return BadRequest(new { message = "Lô hàng phải có ít nhất 1 dòng mã giày." });
         }
 
-        // Lấy danh sách mã giày cần kiểm tra
+        // Lấy danh sách mã giày cần kiểm tra (bao gồm cả mã bỏ đuôi .G)
         var rawCodes = request.Items
             .Select(i => (i.StyleCode ?? string.Empty).Trim())
             .Where(c => !string.IsNullOrEmpty(c))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Lấy các mã đã có trong ProductMaster
-        var existingCodes = await _context.ProductMasters
+        var lookupCodes = rawCodes
+            .Select(c => c.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? c[..^2].Trim() : c)
+            .Concat(rawCodes)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Lấy các mã đã có trong ProductMaster kèm thông tin giá để đối chiếu và bảo toàn logic
+        var masterProducts = await _context.ProductMasters
             .AsNoTracking()
-            .Where(p => rawCodes.Contains(p.StyleCode))
-            .Select(p => p.StyleCode.ToUpper())
+            .Where(p => lookupCodes.Contains(p.StyleCode))
             .ToListAsync();
-        var existingSet = new HashSet<string>(existingCodes, StringComparer.OrdinalIgnoreCase);
+
+        var productMap = masterProducts
+            .GroupBy(p => p.StyleCode.ToUpperInvariant())
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         // Sinh tên lô nếu chưa có
         var batchNum = string.IsNullOrWhiteSpace(request.BatchNumber) ? "LẦN X" : request.BatchNumber.Trim();
@@ -218,17 +228,43 @@ public class WarehouseController : ControllerBase
             var styleCode = (item.StyleCode ?? string.Empty).Trim().ToUpper();
             if (string.IsNullOrEmpty(styleCode)) continue;
 
-            // Tự động nhận diện nếu người dùng gõ đuôi .G hoặc chọn Gò không may
+            var baseCode = styleCode.EndsWith(".G", StringComparison.OrdinalIgnoreCase)
+                ? styleCode[..^2].Trim()
+                : styleCode;
+
+            productMap.TryGetValue(styleCode, out var matchedProduct);
+            if (matchedProduct == null)
+            {
+                productMap.TryGetValue(baseCode, out matchedProduct);
+            }
+
+            var isKnown = matchedProduct != null;
+            var isPendingReview = !isKnown || item.IsPendingReview;
+
+            // Failsafe Auto-Correction:
+            // 1. Có đuôi .G -> Chắc chắn là Gò không may
+            // 2. Không có đuôi .G nhưng Master Data CHỈ có đơn giá Gò -> Tự động sửa về Gò không may
+            // 3. Master Data CHỈ có đơn giá Thành hình -> Tự động sửa về Standard (Thành hình)
             var processType = item.ProcessType;
             if (styleCode.EndsWith(".G", StringComparison.OrdinalIgnoreCase))
             {
                 processType = ProcessType.GoKhongMay;
             }
+            else if (matchedProduct != null)
+            {
+                bool hasStandard = matchedProduct.UnitPriceCMT > 0 || matchedProduct.UnitPriceDAP > 0;
+                bool hasGo = (matchedProduct.UnitPriceCMT_Go.HasValue && matchedProduct.UnitPriceCMT_Go.Value > 0) ||
+                             (matchedProduct.UnitPriceDAP_Go.HasValue && matchedProduct.UnitPriceDAP_Go.Value > 0);
 
-            // Kiểm tra xem mã đã có trong Master Data chưa
-            var isKnown = existingSet.Contains(styleCode) || 
-                          (styleCode.EndsWith(".G") && existingSet.Contains(styleCode[..^2].Trim()));
-            var isPendingReview = !isKnown || item.IsPendingReview;
+                if (!hasStandard && hasGo)
+                {
+                    processType = ProcessType.GoKhongMay;
+                }
+                else if (hasStandard && !hasGo)
+                {
+                    processType = ProcessType.Standard;
+                }
+            }
 
             var batchItem = new WarehouseBatchItem
             {
@@ -338,7 +374,7 @@ public class WarehouseController : ControllerBase
 
         var products = await query
             .OrderBy(p => p.StyleCode)
-            .Take(folderId.HasValue ? 100 : 25)
+            .Take(folderId.HasValue ? 500 : 50)
             .Select(p => new
             {
                 p.Id,
@@ -348,7 +384,12 @@ public class WarehouseController : ControllerBase
                 p.FolderId,
                 FolderName = p.Folder != null ? p.Folder.Name : null,
                 UnitPriceCMT = p.UnitPriceCMT,
+                UnitPriceDAP = p.UnitPriceDAP,
+                UnitPriceCMT_Go = p.UnitPriceCMT_Go,
+                UnitPriceDAP_Go = p.UnitPriceDAP_Go,
                 UnitPriceGoKhongMay = p.UnitPriceCMT_Go,
+                HasStandardPrice = p.UnitPriceCMT > 0 || p.UnitPriceDAP > 0,
+                HasGoPrice = (p.UnitPriceCMT_Go.HasValue && p.UnitPriceCMT_Go.Value > 0) || (p.UnitPriceDAP_Go.HasValue && p.UnitPriceDAP_Go.Value > 0),
                 PairPerCarton = p.PairPerCarton,
                 Unit = p.Unit
             })

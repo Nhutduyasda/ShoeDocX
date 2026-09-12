@@ -43,14 +43,17 @@ import {
   QuestionCircleOutlined,
   ShopOutlined,
   EllipsisOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { shipmentApi, invoiceNoToFileName, extractSequenceNumber, toStandardFileName } from '../api/shipmentApi';
 import { productMasterApi } from '../api/productMasterApi';
 import { masterDataFolderApi } from '../api/masterDataFolderApi';
+import { warehouseApi } from '../api/warehouseApi';
 import { hasCompletedTour, startOnboardingTour } from '../services/tourService';
 import { customsApi } from '../api/customsApi';
 import type { NavTabKey } from '../layouts/AppLayout';
+import type { WarehouseBatchSummary } from '../types/warehouse';
 import type {
   CreateShipmentRequest,
   CreateShipmentItem,
@@ -91,8 +94,13 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [ocrModalVisible, setOcrModalVisible] = useState<boolean>(false);
   const [batchOcrModalVisible, setBatchOcrModalVisible] = useState<boolean>(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const isSubmittingRef = useRef<boolean>(false);
 
   const [items, setItems] = useState<CreateShipmentItem[]>([]);
+  const [receiveBatchModalVisible, setReceiveBatchModalVisible] = useState<boolean>(false);
+  const [warehouseBatches, setWarehouseBatches] = useState<WarehouseBatchSummary[]>([]);
+  const [loadingWarehouseBatches, setLoadingWarehouseBatches] = useState<boolean>(false);
+  const [activeWarehouseBatchId, setActiveWarehouseBatchId] = useState<number | null>(null);
 
   const [products, setProducts] = useState<ProductMaster[]>([]);
 
@@ -575,8 +583,21 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     }
   };
 
+  const handleResetToNewOrder = async () => {
+    setReadOnly(false);
+    setEditingOrderId(undefined);
+    setActiveWarehouseBatchId(null);
+    setItems([]);
+    form.resetFields();
+    await handleGenerateInvoiceNo();
+    form.setFieldValue('invoiceDate', dayjs());
+    message.success('Đã làm sạch bảng để sẵn sàng lập hóa đơn mới!');
+  };
+
   const executeExport = async (req: CreateShipmentRequest) => {
+    if (isSubmittingRef.current || exporting) return;
     try {
+      isSubmittingRef.current = true;
       setExporting(true);
       const result = await shipmentApi.exportShipmentExcel(req);
       const { blob, contentType, exportSummary } = result;
@@ -618,30 +639,28 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           ? `• ${exportSummary.goInvoiceNo} (${exportSummary.goFileName}) — Gò: ${(exportSummary.goTotalQuantity ?? 0).toLocaleString()} đôi`
           : `• ${exportSummary.standardInvoiceNo} (${exportSummary.standardFileName}) — Thành hình: ${(exportSummary.standardTotalQuantity ?? 0).toLocaleString()} đôi`;
 
-        message.success({
+        Modal.success({
+          title: 'Xuất file ZIP & Lưu hóa đơn thành công!',
           content: (
-            <div className="space-y-1">
+            <div className="space-y-2 mt-2 text-sm text-slate-700">
               <div>
-                Đã xuất file ZIP và tự động lưu <strong>2 hóa đơn</strong> vào Lịch sử chứng từ:
+                Đã xuất file <strong>{zipName}</strong> và lưu <strong>2 hóa đơn</strong> vào hệ thống:
               </div>
-              <div className="text-xs text-slate-600 pl-2">
+              <div className="text-xs text-slate-600 pl-2 space-y-1 bg-slate-50 p-2 rounded border border-slate-200">
                 <div>{line1}</div>
                 <div>{line2}</div>
               </div>
-              <Button
-                type="link"
-                size="small"
-                className="p-0 text-blue-600 underline text-xs mt-1 block"
-                onClick={() => {
-                  setActiveTab('history');
-                  onTabChange?.('history');
-                }}
-              >
-                Xem trong Lịch sử chứng từ &rarr;
-              </Button>
+              <div className="text-xs text-slate-500">
+                Bạn có muốn làm sạch bảng để chuẩn bị soạn đơn xuất tiếp theo ngay bây giờ không?
+              </div>
             </div>
           ),
-          duration: 10,
+          okText: '➕ Soạn đơn xuất tiếp theo',
+          cancelText: 'Giữ xem đơn này',
+          okCancel: true,
+          onOk: () => {
+            void handleResetToNewOrder();
+          },
         });
       } else {
         const fileName = exportSummary?.singleFileName ?? invoiceNoToFileName(req.invoiceNo);
@@ -655,27 +674,24 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         a.remove();
         window.URL.revokeObjectURL(url);
 
-        message.success({
+        Modal.success({
+          title: 'Xuất file Excel & Lưu đơn thành công!',
           content: (
-            <div>
-              <span>
+            <div className="space-y-2 mt-2 text-sm text-slate-700">
+              <div>
                 Đã xuất file <strong>{fileName}</strong> và tự động lưu hóa đơn <strong>{savedInvoiceNo}</strong> vào Lịch sử.
-              </span>
-              <br />
-              <Button
-                type="link"
-                size="small"
-                className="p-0 text-blue-600 underline text-xs mt-1"
-                onClick={() => {
-                  setActiveTab('history');
-                  onTabChange?.('history');
-                }}
-              >
-                Xem trong Lịch sử chứng từ &rarr;
-              </Button>
+              </div>
+              <div className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded border border-slate-200">
+                Bạn có muốn làm sạch bảng để soạn đơn xuất tiếp theo không?
+              </div>
             </div>
           ),
-          duration: 8,
+          okText: '➕ Soạn đơn xuất tiếp theo',
+          cancelText: 'Giữ xem đơn này',
+          okCancel: true,
+          onOk: () => {
+            void handleResetToNewOrder();
+          },
         });
       }
     } catch (err: unknown) {
@@ -696,6 +712,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       message.error({ content: errMsg, duration: 8 });
     } finally {
       setExporting(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -737,13 +754,31 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleSaveShipment = async () => {
+    if (isSubmittingRef.current || saving) return;
     const req = await buildRequestData();
     if (!req) return;
 
     try {
+      isSubmittingRef.current = true;
       setSaving(true);
-      const saved = await shipmentApi.createShipment(req);
+      const isUpdating = Boolean(editingOrderId);
+      let savedInvoiceNo = req.invoiceNo;
+      let savedId: number | undefined = editingOrderId;
+
+      if (isUpdating && editingOrderId) {
+        await shipmentApi.updateShipment(editingOrderId, req);
+      } else {
+        const saved = await shipmentApi.createShipment(req);
+        savedId = saved.id;
+        savedInvoiceNo = saved.invoiceNo;
+        setEditingOrderId(saved.id);
+      }
+
       await loadShipmentsHistory();
+
+      if (activeWarehouseBatchId && savedId) {
+        warehouseApi.markProcessed(activeWarehouseBatchId, savedId).catch(() => {});
+      }
 
       // Cập nhật số hóa đơn tiếp theo sau khi lưu
       try {
@@ -753,33 +788,35 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         // Ignored
       }
 
-      message.success({
+      Modal.success({
+        title: isUpdating ? 'Cập nhật đơn hàng thành công!' : 'Lưu đơn hàng thành công!',
         content: (
-          <div>
-            <span>
-              Đã lưu đơn hàng <strong>{saved.invoiceNo}</strong> vào hệ thống thành công.
-            </span>
-            <br />
-            <Button
-              type="link"
-              size="small"
-              className="p-0 text-blue-600 underline text-xs mt-1"
-              onClick={() => {
-                setActiveTab('history');
-                onTabChange?.('history');
-              }}
-            >
-              Chuyển đến Lịch sử chứng từ &rarr;
-            </Button>
+          <div className="space-y-2 mt-2 text-sm text-slate-700">
+            <div>
+              Đã {isUpdating ? 'cập nhật' : 'lưu'} đơn hàng <strong>{savedInvoiceNo}</strong> ({items.length} mặt hàng) vào hệ thống thành công.
+            </div>
+            <div className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded border border-slate-200">
+              Bạn có muốn làm sạch bảng để soạn đơn hàng mới, hay chuyển sang Lịch sử chứng từ?
+            </div>
           </div>
         ),
-        duration: 8,
+        okText: '➕ Soạn đơn hàng mới',
+        cancelText: '📋 Chuyển đến Lịch sử',
+        okCancel: true,
+        onOk: () => {
+          void handleResetToNewOrder();
+        },
+        onCancel: () => {
+          setActiveTab('history');
+          onTabChange?.('history');
+        },
       });
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } }; message?: string };
       message.error(error.response?.data?.message || error.message || 'Lỗi khi lưu đơn hàng vào hệ thống.');
     } finally {
       setSaving(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -1045,6 +1082,53 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     }));
     setItems(mapped);
     message.success(`Đã nạp ${mapped.length} mã sản phẩm từ Master Data.`);
+  };
+
+  const loadPendingWarehouseBatches = async () => {
+    setLoadingWarehouseBatches(true);
+    try {
+      const data = await warehouseApi.getBatches({ status: 'SubmittedToXnk' });
+      setWarehouseBatches(data);
+    } catch (err) {
+      console.error('Lỗi tải danh sách lô hàng từ kho:', err);
+    } finally {
+      setLoadingWarehouseBatches(false);
+    }
+  };
+
+  const handleSelectWarehouseBatch = async (batchId: number) => {
+    try {
+      const batch = await warehouseApi.getBatchById(batchId);
+      const defaultPairs = selectedPartner?.defaultPairsPerCarton || 12;
+      const defaultUnit = selectedPartner?.defaultUnit || 'đôi';
+
+      const mapped: CreateShipmentItem[] = batch.items.map((item) => {
+        const p = products.find((x) => x.styleCode.trim().toUpperCase() === item.styleCode.trim().toUpperCase());
+        const isGo = item.processType === 2;
+        return {
+          styleCode: item.styleCode,
+          description: p?.description || '',
+          quantity: item.quantity,
+          processType: item.processType === 2 ? ProcessType.GoKhongMay : ProcessType.Standard,
+          unitPriceCMT: p ? ((isGo && p.unitPriceCMT_Go && p.unitPriceCMT_Go > 0) ? p.unitPriceCMT_Go : p.unitPriceCMT) : 0,
+          unitPriceDAP: p ? ((isGo && p.unitPriceDAP_Go && p.unitPriceDAP_Go > 0) ? p.unitPriceDAP_Go : p.unitPriceDAP) : 0,
+          unit: p?.unit || defaultUnit,
+          pairPerCarton: p?.pairPerCarton || defaultPairs,
+        };
+      });
+
+      setItems(mapped);
+      if (batch.contractFolderId) {
+        setSelectedPartnerId(batch.contractFolderId);
+        form.setFieldValue('contractFolderId', batch.contractFolderId);
+      }
+      setActiveWarehouseBatchId(batch.id);
+      setReceiveBatchModalVisible(false);
+      message.success(`Đã tiếp nhận thành công lô hàng ${batch.batchName} (${mapped.length} mã, ${batch.totalQuantity.toLocaleString()} đôi) từ kho!`);
+    } catch (err) {
+      console.error(err);
+      message.error('Không thể tải chi tiết lô hàng từ kho.');
+    }
   };
 
   const handleSetSequence = async () => {
@@ -1781,15 +1865,26 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 Xem trước PKL
               </Button>
               <Button
+                type={editingOrderId || readOnly ? 'primary' : 'default'}
+                icon={<PlusOutlined />}
+                onClick={handleResetToNewOrder}
+                className={
+                  editingOrderId || readOnly
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-9 px-3.5 shadow-xs'
+                    : 'text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium'
+                }
+              >
+                ➕ Tạo đơn mới
+              </Button>
+              <Button
                 icon={<SaveOutlined />}
                 loading={saving}
-                disabled={readOnly}
+                disabled={readOnly || saving || exporting}
                 onClick={handleSaveShipment}
                 className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
               >
-                Lưu đơn hàng
+                {editingOrderId ? 'Cập nhật đơn hàng' : 'Lưu đơn hàng'}
               </Button>
-              {readOnly && <Button onClick={() => { setReadOnly(false); setEditingOrderId(undefined); setItems([]); void handleGenerateInvoiceNo(); }}>Tạo đơn mới</Button>}
               <div id="tour-export-button" className="inline-block">
                 <Tooltip
                   title={
@@ -2106,6 +2201,17 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 2. Danh sách Hàng hóa ({items.length} dòng)
               </div>
               <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
+                <Button
+                  icon={<InboxOutlined />}
+                  disabled={readOnly}
+                  onClick={() => {
+                    loadPendingWarehouseBatches();
+                    setReceiveBatchModalVisible(true);
+                  }}
+                  className="text-xs h-8 px-3 border-emerald-400 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 font-semibold"
+                >
+                  📥 Tiếp nhận từ Kho
+                </Button>
                 <Button
                   icon={<CameraOutlined />}
                   disabled={readOnly} onClick={() => setOcrModalVisible(true)}
@@ -2590,6 +2696,62 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               ))}
             </div>
           </div>
+        </div>
+      </Modal>
+
+      {/* Modal Tiếp nhận Lô hàng từ Kho */}
+      <Modal
+        title={
+          <div className="flex items-center space-x-2 text-sm font-bold text-slate-800">
+            <span className="text-base">📥</span>
+            <span>Tiếp nhận Đợt hàng từ Kho Thành Phẩm (成品鞋交接)</span>
+          </div>
+        }
+        open={receiveBatchModalVisible}
+        onCancel={() => setReceiveBatchModalVisible(false)}
+        footer={null}
+        width={700}
+      >
+        <div className="space-y-3 py-2">
+          <p className="text-xs text-slate-500 m-0">
+            Chọn một đợt xuất kho do Thủ kho bàn giao để tự động nạp danh sách mã giày và số lượng:
+          </p>
+          {loadingWarehouseBatches ? (
+            <div className="text-center py-8 text-slate-500 text-xs">Đang tải danh sách lô hàng...</div>
+          ) : warehouseBatches.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 text-xs">
+              Hiện tại không có đợt hàng mới nào đang chờ tiếp nhận từ kho.
+            </div>
+          ) : (
+            warehouseBatches.map((b) => (
+              <div
+                key={b.id}
+                onClick={() => handleSelectWarehouseBatch(b.id)}
+                className="p-3 rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/40 cursor-pointer transition-all flex items-center justify-between"
+              >
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <strong className="text-sm text-slate-800">{b.batchName}</strong>
+                    <Tag color="processing" className="text-[10px]">Đã bàn giao</Tag>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Ngày xuất: {dayjs(b.exportDate).format('DD/MM/YYYY')} • {b.contractNote}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    {b.itemCount} mã giày (Gò: {b.goCount} | Thành hình: {b.thanhHinhCount}) • Bàn giao lúc: {b.submittedAt ? dayjs(b.submittedAt).format('HH:mm DD/MM') : '-'}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-base font-extrabold text-emerald-600 font-mono">
+                    {b.totalQuantity.toLocaleString()} đôi
+                  </div>
+                  <Button size="small" type="primary" className="bg-emerald-600 mt-1 text-xs">
+                    Tiếp nhận
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </Modal>
     </div>

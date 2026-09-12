@@ -54,4 +54,40 @@ public static class DbInitializer
         var unresolved = await context.ShipmentOrders.CountAsync(o => o.ContractFolderId == null);
         if (unresolved > 0) logger.LogWarning("{Count} historical orders have no unambiguous contract folder; review before editing.", unresolved);
     }
+
+    public static async Task SeedUsersAsync(Microsoft.AspNetCore.Identity.UserManager<ShoeExportInvoice.Api.Models.Entities.ApplicationUser> userManager, ILogger logger)
+    {
+        var defaultUsers = new List<(string Username, string Password, string FullName, ShoeExportInvoice.Api.Models.Entities.Department Dept)>
+        {
+            ("admin", "@Admin123", "Ban Giám Đốc (Quản Trị)", ShoeExportInvoice.Api.Models.Entities.Department.Admin),
+            ("xnk", "@Xnk123", "Nhân Viên Xuất Nhập Khẩu", ShoeExportInvoice.Api.Models.Entities.Department.Xnk),
+            ("kho", "@Kho123", "Thủ Kho Thành Phẩm", ShoeExportInvoice.Api.Models.Entities.Department.Kho),
+            ("ketoan", "@KeToan123", "Kế Toán Doanh Thu CMT", ShoeExportInvoice.Api.Models.Entities.Department.KeToan)
+        };
+
+        foreach (var (username, password, fullName, dept) in defaultUsers)
+        {
+            var existing = await userManager.FindByNameAsync(username);
+            if (existing == null)
+            {
+                var user = new ShoeExportInvoice.Api.Models.Entities.ApplicationUser
+                {
+                    UserName = username,
+                    FullName = fullName,
+                    Department = dept,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                var result = await userManager.CreateAsync(user, password);
+                if (result.Succeeded)
+                {
+                    logger.LogInformation("Đã khởi tạo tài khoản mặc định: {Username} ({FullName})", username, fullName);
+                }
+                else
+                {
+                    logger.LogWarning("Không thể tạo tài khoản mặc định {Username}: {Errors}", username, string.Join(", ", result.Errors.Select(e => e.Description)));
+                }
+            }
+        }
+    }
 }

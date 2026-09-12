@@ -10,10 +10,25 @@ export const apiClient = axios.create({
   },
 });
 
+// Request interceptor to attach JWT Bearer token
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('auth_token');
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 // Response interceptor for unified error notification
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('auth_user');
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+
     const errorMsg =
       error.response?.data?.message ||
       error.response?.data?.title ||

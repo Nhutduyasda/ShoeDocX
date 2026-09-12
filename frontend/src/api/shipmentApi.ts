@@ -60,6 +60,11 @@ export const shipmentApi = {
     return response.data;
   },
 
+  // Cập nhật đơn hàng đã có trong database
+  updateShipment: async (id: number, request: CreateShipmentRequest): Promise<void> => {
+    await apiClient.put(`/shipments/${id}`, request);
+  },
+
   // Lấy danh sách lịch sử các đơn hàng đã tạo
   getShipments: async (): Promise<SavedShipmentSummary[]> => {
     const response = await apiClient.get<SavedShipmentSummary[]>('/shipments');

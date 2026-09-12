@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ShoeExportInvoice.Api.Data;
 
@@ -10,9 +11,11 @@ using ShoeExportInvoice.Api.Data;
 namespace ShoeExportInvoice.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260912023155_AddIdentityTables")]
+    partial class AddIdentityTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
@@ -648,94 +651,6 @@ namespace ShoeExportInvoice.Api.Migrations
                     b.ToTable("SystemSettings");
                 });
 
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.WarehouseBatch", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("BatchName")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("BatchNumber")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("ContractFolderId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("ContractNote")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("ExportDate")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("ShipmentOrderId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("SubmittedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("TotalQuantity")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BatchNumber");
-
-                    b.HasIndex("ContractFolderId");
-
-                    b.HasIndex("ExportDate");
-
-                    b.ToTable("WarehouseBatches");
-                });
-
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.WarehouseBatchItem", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("DisplayOrder")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("IsPendingReview")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Note")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("ProcessType")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Quantity")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("StyleCode")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("WarehouseBatchId")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WarehouseBatchId", "StyleCode");
-
-                    b.ToTable("WarehouseBatchItems");
-                });
-
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -845,27 +760,6 @@ namespace ShoeExportInvoice.Api.Migrations
                     b.Navigation("ShipmentOrder");
                 });
 
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.WarehouseBatch", b =>
-                {
-                    b.HasOne("ShoeExportInvoice.Api.Models.Entities.MasterDataFolder", "ContractFolder")
-                        .WithMany()
-                        .HasForeignKey("ContractFolderId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("ContractFolder");
-                });
-
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.WarehouseBatchItem", b =>
-                {
-                    b.HasOne("ShoeExportInvoice.Api.Models.Entities.WarehouseBatch", "WarehouseBatch")
-                        .WithMany("Items")
-                        .HasForeignKey("WarehouseBatchId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("WarehouseBatch");
-                });
-
             modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.CustomsSettlementPeriod", b =>
                 {
                     b.Navigation("Items");
@@ -879,11 +773,6 @@ namespace ShoeExportInvoice.Api.Migrations
                 });
 
             modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.ShipmentOrder", b =>
-                {
-                    b.Navigation("Items");
-                });
-
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.WarehouseBatch", b =>
                 {
                     b.Navigation("Items");
                 });

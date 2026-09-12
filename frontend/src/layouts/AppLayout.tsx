@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Drawer, Breadcrumb, Tooltip, Dropdown, Button } from 'antd';
+import { Drawer, Breadcrumb, Tooltip, Dropdown, Button, Tag } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   FileTextOutlined,
@@ -10,18 +10,20 @@ import {
   MenuOutlined,
   SafetyCertificateOutlined,
   UserOutlined,
-  SettingOutlined,
   CheckCircleFilled,
   AuditOutlined,
   QuestionCircleOutlined,
   RocketOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons';
 import { CheatsheetModal } from '../components/CheatsheetModal';
 import { startOnboardingTour } from '../services/tourService';
+import { useAuth } from '../contexts/AuthContext';
+import { isKhoUser, isKeToanUser, isXnkUser, isAdminUser, type NavTabKey } from '../types/auth';
 
-export type NavTabKey = 'overview' | 'shipment' | 'ocr' | 'history' | 'settlement' | 'products';
+export type { NavTabKey };
 
 interface AppLayoutProps {
   currentTab: NavTabKey;
@@ -46,6 +48,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   onTabChange,
   children,
 }) => {
+  const { user, logout } = useAuth();
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState<boolean>(false);
   const [cheatsheetOpen, setCheatsheetOpen] = useState<boolean>(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -79,55 +82,166 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const menuGroups: MenuGroupDef[] = [
-    {
-      title: 'TỔNG QUAN',
-      items: [
+  const menuGroups: MenuGroupDef[] = (() => {
+    if (isKhoUser(user)) {
+      return [
         {
-          key: 'overview',
-          label: 'Tổng quan & Thống kê',
-          icon: <DashboardOutlined className="text-base" />,
+          title: 'KHO THÀNH PHẨM (成品鞋仓库)',
+          items: [
+            {
+              key: 'warehouse',
+              label: 'Lưới xuất kho (Fast-Grid)',
+              icon: <FileTextOutlined className="text-base" />,
+            },
+            {
+              key: 'ocr',
+              label: 'Quét ảnh phiếu kho',
+              icon: <CameraOutlined className="text-base" />,
+              badge: 'OCR',
+            },
+            {
+              key: 'products',
+              label: 'Tra cứu mã giày & Quy cách',
+              icon: <DatabaseOutlined className="text-base" />,
+            },
+          ],
         },
-      ],
-    },
-    {
-      title: 'NGHIỆP VỤ',
-      items: [
+      ];
+    }
+
+    if (isXnkUser(user)) {
+      return [
         {
-          key: 'shipment',
-          label: 'Lập Invoice / Packing List',
-          icon: <FileTextOutlined className="text-base" />,
+          title: 'NGHIỆP VỤ XUẤT NHẬP KHẨU (进出口)',
+          items: [
+            {
+              key: 'shipment',
+              label: 'Lập Invoice / Packing List',
+              icon: <FileTextOutlined className="text-base" />,
+            },
+            {
+              key: 'history',
+              label: 'Lịch sử chứng từ XNK',
+              icon: <HistoryOutlined className="text-base" />,
+            },
+            {
+              key: 'ocr',
+              label: 'Quét tài liệu & Tờ khai OCR',
+              icon: <CameraOutlined className="text-base" />,
+              badge: 'Vision',
+            },
+          ],
         },
         {
-          key: 'ocr',
-          label: 'OCR Phiếu kho',
-          icon: <CameraOutlined className="text-base" />,
-          badge: 'Vision',
+          title: 'DANH MỤC & HỢP ĐỒNG',
+          items: [
+            {
+              key: 'products',
+              label: 'Master Data mã giày & Hợp đồng',
+              icon: <DatabaseOutlined className="text-base" />,
+            },
+          ],
         },
+      ];
+    }
+
+    if (isKeToanUser(user)) {
+      return [
         {
-          key: 'history',
-          label: 'Lịch sử chứng từ',
-          icon: <HistoryOutlined className="text-base" />,
+          title: 'KẾ TOÁN DOANH THU (财务核算)',
+          items: [
+            {
+              key: 'overview',
+              label: 'Thống kê Doanh thu CMT',
+              icon: <DashboardOutlined className="text-base" />,
+            },
+            {
+              key: 'settlement',
+              label: 'Quyết toán đối chiếu nội bộ',
+              icon: <AuditOutlined className="text-base" />,
+              badge: 'BCQT',
+            },
+            {
+              key: 'history',
+              label: 'Lô hàng đã thông quan (HĐ)',
+              icon: <HistoryOutlined className="text-base" />,
+            },
+            {
+              key: 'products',
+              label: 'Bảng giá gia công CMT/DAP',
+              icon: <DatabaseOutlined className="text-base" />,
+            },
+          ],
         },
-        {
-          key: 'settlement',
-          label: 'Quyết toán Hải quan (đối chiếu nội bộ)',
-          icon: <AuditOutlined className="text-base" />,
-          badge: 'đối chiếu nội bộ',
-        },
-      ],
-    },
-    {
-      title: 'DANH MỤC',
-      items: [
-        {
-          key: 'products',
-          label: 'Master Data hàng hóa',
-          icon: <DatabaseOutlined className="text-base" />,
-        },
-      ],
-    },
-  ];
+      ];
+    }
+
+    // Ban Giám Đốc / Quản trị viên (Admin)
+    return [
+      {
+        title: 'TỔNG QUAN',
+        items: [
+          {
+            key: 'overview',
+            label: 'Tổng quan điều hành',
+            icon: <DashboardOutlined className="text-base" />,
+          },
+        ],
+      },
+      {
+        title: 'BỘ PHẬN KHO',
+        items: [
+          {
+            key: 'warehouse',
+            label: 'Giám sát xuất kho (Fast-Grid)',
+            icon: <RocketOutlined className="text-base" />,
+          },
+          {
+            key: 'ocr',
+            label: 'Quét ảnh phiếu kho',
+            icon: <CameraOutlined className="text-base" />,
+            badge: 'OCR',
+          },
+        ],
+      },
+      {
+        title: 'BỘ PHẬN XNK',
+        items: [
+          {
+            key: 'shipment',
+            label: 'Lập Invoice / Packing List',
+            icon: <FileTextOutlined className="text-base" />,
+          },
+          {
+            key: 'history',
+            label: 'Lịch sử chứng từ',
+            icon: <HistoryOutlined className="text-base" />,
+          },
+        ],
+      },
+      {
+        title: 'BỘ PHẬN KẾ TOÁN',
+        items: [
+          {
+            key: 'settlement',
+            label: 'Báo cáo Quyết toán BCQT',
+            icon: <AuditOutlined className="text-base" />,
+            badge: 'BCQT',
+          },
+        ],
+      },
+      {
+        title: 'HỆ THỐNG',
+        items: [
+          {
+            key: 'products',
+            label: 'Master Data & Cấu hình',
+            icon: <DatabaseOutlined className="text-base" />,
+          },
+        ],
+      },
+    ];
+  })();
 
   const getBreadcrumbItems = () => {
     switch (currentTab) {
@@ -135,6 +249,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         return [
           { title: <span className="text-slate-400">Hệ thống</span> },
           { title: <span className="text-slate-700 font-medium">Tổng quan nghiệp vụ</span> },
+        ];
+      case 'warehouse':
+        return [
+          { title: <span className="text-slate-400">Kho & Giao nhận</span> },
+          { title: <span className="text-slate-700 font-medium">Lưới xuất kho thành phẩm (Fast-Grid / 成品鞋出货交接)</span> },
         ];
       case 'shipment':
         return [
@@ -168,20 +287,33 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
   const userMenuItems: MenuProps['items'] = [
     {
-      key: 'org',
+      key: 'user-profile',
       label: (
         <div className="py-1">
-          <div className="font-semibold text-xs text-slate-800">Kingmaker III (VN) Footwear</div>
-          <div className="text-[11px] text-slate-400">KCN VSIP Quảng Ngãi</div>
+          <div className="font-semibold text-xs text-slate-800">{user?.fullName || 'Người dùng'}</div>
+          <div className="text-[11px] text-blue-600 font-medium">{user?.departmentName || 'Hệ thống'}</div>
+          <div className="text-[10px] text-slate-400 font-mono">@{user?.username}</div>
         </div>
       ),
       disabled: true,
     },
     { type: 'divider' },
     {
-      key: 'settings',
-      icon: <SettingOutlined />,
-      label: <span className="text-xs">Cấu hình hệ thống</span>,
+      key: 'org',
+      label: (
+        <div className="py-0.5">
+          <div className="text-xs text-slate-700 font-medium">Hải An New Material / KM3</div>
+          <div className="text-[10px] text-slate-400">Gia công xuất khẩu E52 CMT/DAP</div>
+        </div>
+      ),
+      disabled: true,
+    },
+    { type: 'divider' },
+    {
+      key: 'logout',
+      icon: <LogoutOutlined className="text-rose-500" />,
+      label: <span className="text-xs text-rose-600 font-medium">Đăng xuất tài khoản</span>,
+      onClick: () => logout(),
     },
   ];
 
@@ -449,14 +581,32 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             <Dropdown menu={{ items: userMenuItems }} trigger={['click']}>
               <button
                 type="button"
-                className="flex items-center space-x-2 pl-2 border-l border-slate-200 cursor-pointer bg-transparent border-none text-left p-1 rounded hover:bg-slate-50"
+                className="flex items-center space-x-2.5 pl-2.5 border-l border-slate-200 cursor-pointer bg-transparent border-none text-left p-1 rounded-lg hover:bg-slate-100 transition-colors"
               >
-                <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs font-semibold border border-slate-200">
+                <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-semibold border border-blue-200 shadow-xs">
                   <UserOutlined />
                 </div>
-                <div className="hidden md:block text-left leading-none">
-                  <span className="text-xs font-medium text-slate-800 block">XNK Officer</span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">Xuất khẩu</span>
+                <div className="hidden md:flex flex-col text-left leading-tight">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-xs font-semibold text-slate-800">{user?.fullName || 'Người dùng'}</span>
+                    <Tag
+                      color={
+                        isKhoUser(user)
+                          ? 'green'
+                          : isXnkUser(user)
+                          ? 'blue'
+                          : isKeToanUser(user)
+                          ? 'gold'
+                          : isAdminUser(user)
+                          ? 'purple'
+                          : 'default'
+                      }
+                      className="m-0 text-[10px] leading-4 px-1.5 py-0 border-0 font-medium"
+                    >
+                      {user?.departmentName || 'Phòng ban'}
+                    </Tag>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono">@{user?.username}</span>
                 </div>
               </button>
             </Dropdown>

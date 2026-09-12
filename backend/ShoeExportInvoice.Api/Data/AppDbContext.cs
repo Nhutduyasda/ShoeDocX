@@ -1,9 +1,10 @@
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using ShoeExportInvoice.Api.Models.Entities;
 
 namespace ShoeExportInvoice.Api.Data;
 
-public class AppDbContext : DbContext
+public class AppDbContext : IdentityDbContext<ApplicationUser>
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -16,6 +17,8 @@ public class AppDbContext : DbContext
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
     public DbSet<CustomsSettlementPeriod> CustomsSettlementPeriods => Set<CustomsSettlementPeriod>();
     public DbSet<CustomsSettlementItem> CustomsSettlementItems => Set<CustomsSettlementItem>();
+    public DbSet<WarehouseBatch> WarehouseBatches => Set<WarehouseBatch>();
+    public DbSet<WarehouseBatchItem> WarehouseBatchItems => Set<WarehouseBatchItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -97,6 +100,27 @@ public class AppDbContext : DbContext
             entity.Property(e => e.InPeriodExport).HasPrecision(18, 2);
             entity.Property(e => e.OtherExport).HasPrecision(18, 2);
             entity.Property(e => e.ClosingBalance).HasPrecision(18, 2);
+        });
+
+        // WarehouseBatch configuration
+        modelBuilder.Entity<WarehouseBatch>(entity =>
+        {
+            entity.HasIndex(e => e.BatchNumber);
+            entity.HasIndex(e => e.ExportDate);
+            entity.HasOne(e => e.ContractFolder)
+                  .WithMany()
+                  .HasForeignKey(e => e.ContractFolderId)
+                  .OnDelete(DeleteBehavior.Restrict);
+            entity.HasMany(e => e.Items)
+                  .WithOne(e => e.WarehouseBatch)
+                  .HasForeignKey(e => e.WarehouseBatchId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // WarehouseBatchItem configuration
+        modelBuilder.Entity<WarehouseBatchItem>(entity =>
+        {
+            entity.HasIndex(e => new { e.WarehouseBatchId, e.StyleCode });
         });
     }
 }

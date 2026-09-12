@@ -11,13 +11,16 @@ public class CustomsSettlementService : ICustomsSettlementService
 {
     private readonly AppDbContext _context;
     private readonly ILogger<CustomsSettlementService> _logger;
+    private readonly XnkOptions _options;
 
     public CustomsSettlementService(
         AppDbContext context,
-        ILogger<CustomsSettlementService> logger)
+        ILogger<CustomsSettlementService> logger,
+        Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null)
     {
         _context = context;
         _logger = logger;
+        _options = options?.Value ?? new XnkOptions();
     }
 
     /// <summary>
@@ -25,6 +28,7 @@ public class CustomsSettlementService : ICustomsSettlementService
     /// </summary>
     public async Task<SettlementReportDto> CalculateSettlementAsync(CalculateSettlementRequestDto request)
     {
+        if (request.FromDate.Date > request.ToDate.Date) throw new InvalidOperationException("Ngày bắt đầu phải trước ngày kết thúc.");
         // 1. Chuẩn hóa khoảng thời gian
         var fromDate = request.FromDate.Date;
         var toDate = request.ToDate.Date.AddDays(1).AddTicks(-1);
@@ -38,23 +42,27 @@ public class CustomsSettlementService : ICustomsSettlementService
             .Where(s => s.CustomsDeclarationType == "E52")
             .Where(s => (s.ClearanceDate ?? s.InvoiceDate) >= fromDate && (s.ClearanceDate ?? s.InvoiceDate) <= toDate);
 
+        if (request.ContractFolderId.HasValue) query = query.Where(s => s.ContractFolderId == request.ContractFolderId);
         if (!string.IsNullOrWhiteSpace(request.ContractNo))
         {
             string contract = request.ContractNo.Trim().ToUpperInvariant();
-            query = query.Where(s => s.ContractNo != null && s.ContractNo.ToUpper().Contains(contract));
+            query = query.Where(s => s.ContractNo != null && s.ContractNo.ToUpper() == contract);
         }
 
         var clearedOrders = await query.ToListAsync();
 
         // 3. Tải toàn bộ ProductMasters để lấy thông tin Tên sản phẩm, ĐVT chuẩn
-        var productMasters = await _context.ProductMasters
+        var masterRows = await _context.ProductMasters
+            .Where(p => !request.ContractFolderId.HasValue || p.FolderId == request.ContractFolderId)
             .AsNoTracking()
-            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p);
+            .ToListAsync();
+        var productMasters = masterRows.GroupBy(p => p.StyleCode.ToUpperInvariant()).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
 
         // 4. Tìm kỳ quyết toán trước đó gần nhất để lấy số dư cuối kỳ làm số dư đầu kỳ này
         var previousPeriod = await _context.CustomsSettlementPeriods
             .AsNoTracking()
             .Include(p => p.Items)
+            .Where(p => p.ContractFolderId == request.ContractFolderId && p.ContractNo == request.ContractNo)
             .Where(p => p.ToDate < fromDate)
             .OrderByDescending(p => p.ToDate)
             .FirstOrDefaultAsync();
@@ -149,15 +157,37 @@ public class CustomsSettlementService : ICustomsSettlementService
             Year = request.Year > 0 ? request.Year : fromDate.Year,
             FromDate = fromDate,
             ToDate = request.ToDate.Date,
-            ContractNo = request.ContractNo ?? latestOrder?.ContractNo ?? "KM-HANEW/01-2025",
-            CustomsOffice = latestOrder?.CustomsOffice ?? "Chi cục Hải quan Quản lý Hàng gia công",
+            ContractFolderId = request.ContractFolderId,
+            ContractNo = request.ContractNo,
+            CustomsOffice = latestOrder?.CustomsOffice ?? _options.DefaultCustomsOffice,
             Status = "Draft",
-            CompanyName = "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG",
-            TaxCode = "4300326888",
-            Address = latestOrder?.Address ?? "KCN VSIP Quảng Ngãi, Xã Tịnh Phong, Huyện Sơn Tịnh, Tỉnh Quảng Ngãi",
+            CompanyName = _options.DefaultCompanyName,
+            TaxCode = _options.DefaultTaxCode,
+            Address = latestOrder?.Address ?? _options.DefaultAddress,
             Items = items,
             ClearedOrderCount = clearedOrders.Count
         };
+    }
+
+    private async Task<List<SettlementItemDto>> RefreshExportQuantitiesAsync(int year, DateTime from, DateTime to,
+        int? folderId, string? contractNo, List<SettlementItemDto> input)
+    {
+        var calculated = await CalculateSettlementAsync(new CalculateSettlementRequestDto {
+            Year = year, FromDate = from, ToDate = to, ContractFolderId = folderId, ContractNo = contractNo });
+        if (input.GroupBy(i => NormalizeProductCode(i.ProductCode)).Any(g => g.Count() > 1))
+            throw new InvalidOperationException("Danh sách kho chứa mã trùng sau chuẩn hóa.");
+        var actual = calculated.Items.ToDictionary(i => NormalizeProductCode(i.ProductCode));
+        foreach (var item in input)
+        {
+            if (item.OpeningBalance < 0 || item.InPeriodProduction < 0 || item.OtherExport < 0)
+                throw new InvalidOperationException("Số liệu kho đầu vào không được âm.");
+            var code = NormalizeProductCode(item.ProductCode);
+            item.InPeriodExport = actual.TryGetValue(code, out var row) ? row.InPeriodExport : 0;
+            item.ClosingBalance = item.OpeningBalance + item.InPeriodProduction - item.InPeriodExport - item.OtherExport;
+            actual.Remove(code);
+        }
+        input.AddRange(actual.Values.Where(i => i.InPeriodExport > 0));
+        return input;
     }
 
     /// <summary>
@@ -165,6 +195,8 @@ public class CustomsSettlementService : ICustomsSettlementService
     /// </summary>
     public async Task<CustomsSettlementPeriod> SaveSettlementPeriodAsync(SaveSettlementPeriodRequestDto request)
     {
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        request.Items = await RefreshExportQuantitiesAsync(request.Year, request.FromDate, request.ToDate, request.ContractFolderId, request.ContractNo, request.Items);
         CustomsSettlementPeriod? period = null;
 
         if (request.Id.HasValue && request.Id.Value > 0)
@@ -181,12 +213,13 @@ public class CustomsSettlementService : ICustomsSettlementService
                 Year = request.Year,
                 FromDate = request.FromDate.Date,
                 ToDate = request.ToDate.Date,
-                ContractNo = request.ContractNo?.Trim(),
-                CustomsOffice = string.IsNullOrWhiteSpace(request.CustomsOffice) ? "Chi cục Hải quan Quản lý Hàng gia công" : request.CustomsOffice.Trim(),
+                ContractFolderId = request.ContractFolderId,
+            ContractNo = request.ContractNo?.Trim(),
+                CustomsOffice = string.IsNullOrWhiteSpace(request.CustomsOffice) ? _options.DefaultCustomsOffice : request.CustomsOffice.Trim(),
                 Status = string.IsNullOrWhiteSpace(request.Status) ? "Draft" : request.Status.Trim(),
-                CompanyName = string.IsNullOrWhiteSpace(request.CompanyName) ? "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG" : request.CompanyName.Trim(),
-                TaxCode = request.TaxCode?.Trim(),
-                Address = request.Address?.Trim(),
+                CompanyName = string.IsNullOrWhiteSpace(request.CompanyName) ? _options.DefaultCompanyName : request.CompanyName.Trim(),
+                TaxCode = string.IsNullOrWhiteSpace(request.TaxCode) ? _options.DefaultTaxCode : request.TaxCode.Trim(),
+                Address = string.IsNullOrWhiteSpace(request.Address) ? _options.DefaultAddress : request.Address.Trim(),
                 Note = request.Note?.Trim(),
                 CreatedAt = DateTime.UtcNow
             };
@@ -194,6 +227,8 @@ public class CustomsSettlementService : ICustomsSettlementService
         }
         else
         {
+            if (period.Status == "Finalized") throw new InvalidOperationException("Kỳ quyết toán đã chốt, không thể sửa.");
+            period.ContractFolderId = request.ContractFolderId;
             period.Year = request.Year;
             period.FromDate = request.FromDate.Date;
             period.ToDate = request.ToDate.Date;
@@ -207,6 +242,7 @@ public class CustomsSettlementService : ICustomsSettlementService
             period.UpdatedAt = DateTime.UtcNow;
 
             _context.CustomsSettlementItems.RemoveRange(period.Items);
+            period.Items.Clear();
         }
 
         // Thêm danh sách items mới
@@ -230,6 +266,7 @@ public class CustomsSettlementService : ICustomsSettlementService
         }
 
         await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
         return period;
     }
 
@@ -250,6 +287,7 @@ public class CustomsSettlementService : ICustomsSettlementService
             Year = p.Year,
             FromDate = p.FromDate,
             ToDate = p.ToDate,
+            ContractFolderId = p.ContractFolderId,
             ContractNo = p.ContractNo,
             CustomsOffice = p.CustomsOffice,
             Status = p.Status,
@@ -279,12 +317,13 @@ public class CustomsSettlementService : ICustomsSettlementService
             Year = period.Year,
             FromDate = period.FromDate,
             ToDate = period.ToDate,
+            ContractFolderId = period.ContractFolderId,
             ContractNo = period.ContractNo,
             CustomsOffice = period.CustomsOffice,
             Status = period.Status,
-            CompanyName = period.CompanyName ?? "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG",
-            TaxCode = period.TaxCode ?? "4300326888",
-            Address = period.Address ?? string.Empty,
+            CompanyName = period.CompanyName ?? _options.DefaultCompanyName,
+            TaxCode = period.TaxCode ?? _options.DefaultTaxCode,
+            Address = period.Address ?? _options.DefaultAddress,
             Note = period.Note,
             Items = period.Items.Select(i => new SettlementItemDto
             {
@@ -304,12 +343,13 @@ public class CustomsSettlementService : ICustomsSettlementService
     }
 
     /// <summary>
-    /// Xuất file Excel chuẩn Mẫu 16/BCQT-SP-GSQL (Thông tư 39/2018/TT-BTC) kèm Sheet Drill-down
+    /// Xuất file Excel chuẩn đối chiếu nội bộ (Cần xác minh mẫu pháp lý trước khi nộp) kèm Sheet Drill-down
     /// </summary>
     public async Task<byte[]> ExportSettlementExcelAsync(SettlementReportDto report)
     {
+        report.Items = await RefreshExportQuantitiesAsync(report.Year, report.FromDate, report.ToDate, report.ContractFolderId, report.ContractNo, report.Items);
         using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("Mau_16_BCQT_SP");
+        var ws = workbook.Worksheets.Add("Doi_Chieu_Noi_Bo");
 
         // Thiết lập trang in: khổ ngang A4
         ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
@@ -320,13 +360,13 @@ public class CustomsSettlementService : ICustomsSettlementService
         ws.Style.Font.FontSize = 11;
 
         // 1. Header cơ quan & Doanh nghiệp (Rows 1-4)
-        ws.Cell("A1").Value = "Tên tổ chức, cá nhân: " + (report.CompanyName ?? "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG");
+        ws.Cell("A1").Value = "Tên tổ chức, cá nhân: " + (report.CompanyName ?? _options.DefaultCompanyName);
         ws.Cell("A1").Style.Font.Bold = true;
-        ws.Cell("A2").Value = "Mã số thuế: " + report.TaxCode;
-        ws.Cell("A3").Value = "Chi cục Hải quan tiếp nhận: " + (report.CustomsOffice ?? "Chi cục Hải quan Quản lý Hàng gia công");
-        ws.Cell("A4").Value = "Số hợp đồng gia công: " + (report.ContractNo ?? "KM-HANEW/01-2025");
+        ws.Cell("A2").Value = "Mã số thuế: " + (report.TaxCode ?? _options.DefaultTaxCode);
+        ws.Cell("A3").Value = "Chi cục Hải quan tiếp nhận: " + (report.CustomsOffice ?? _options.DefaultCustomsOffice);
+        ws.Cell("A4").Value = "Số hợp đồng gia công: " + (report.ContractNo ?? "");
 
-        ws.Cell("G1").Value = "Mẫu số: 16/BCQT-SP-GSQL";
+        ws.Cell("G1").Value = "BÁO CÁO NỘI BỘ";
         ws.Cell("G1").Style.Font.Bold = true;
         ws.Cell("G1").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
         ws.Range("G1:J1").Merge();
@@ -347,13 +387,13 @@ public class CustomsSettlementService : ICustomsSettlementService
         ws.Range("G4:J4").Merge();
 
         // 2. Tiêu đề báo cáo (Rows 5-7)
-        ws.Cell("A5").Value = "BÁO CÁO QUYẾT TOÁN TÌNH HÌNH SỬ DỤNG NGUYÊN LIỆU, VẬT TƯ NHẬP KHẨU, HÀNG HÓA XUẤT KHẨU";
+        ws.Cell("A5").Value = "BÁO CÁO ĐỐI CHIẾU NỘI BỘ NHẬP – XUẤT – TỒN SẢN PHẨM";
         ws.Cell("A5").Style.Font.FontSize = 14;
         ws.Cell("A5").Style.Font.Bold = true;
         ws.Cell("A5").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         ws.Range("A5:J5").Merge();
 
-        ws.Cell("A6").Value = "Mẫu số 16/BCQT-SP-GSQL - Phụ lục II Thông tư số 39/2018/TT-BTC";
+        ws.Cell("A6").Value = "Đối chiếu nội bộ — Cần xác minh mẫu pháp lý trước khi nộp";
         ws.Cell("A6").Style.Font.FontSize = 12;
         ws.Cell("A6").Style.Font.Italic = true;
         ws.Cell("A6").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -568,10 +608,10 @@ public class CustomsSettlementService : ICustomsSettlementService
         ws2.Style.Font.FontName = "Times New Roman";
         ws2.Style.Font.FontSize = 11;
 
-        ws2.Cell("A1").Value = "Tên tổ chức, cá nhân: " + (report.CompanyName ?? "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG");
+        ws2.Cell("A1").Value = "Tên tổ chức, cá nhân: " + (report.CompanyName ?? _options.DefaultCompanyName);
         ws2.Cell("A1").Style.Font.Bold = true;
-        ws2.Cell("A2").Value = "Mã số thuế: " + report.TaxCode;
-        ws2.Cell("A3").Value = "Chi cục HQ: " + (report.CustomsOffice ?? "Chi cục Hải quan Quản lý Hàng gia công");
+        ws2.Cell("A2").Value = "Mã số thuế: " + (report.TaxCode ?? _options.DefaultTaxCode);
+        ws2.Cell("A3").Value = "Chi cục HQ: " + (report.CustomsOffice ?? _options.DefaultCustomsOffice);
 
         ws2.Cell("A5").Value = "BẢNG KÊ CHI TIẾT TỜ KHAI HẢI QUAN XUẤT KHẨU GIA CÔNG (E52) ĐÃ THÔNG QUAN";
         ws2.Cell("A5").Style.Font.FontSize = 13;
@@ -617,10 +657,11 @@ public class CustomsSettlementService : ICustomsSettlementService
             .Where(s => s.CustomsDeclarationType == "E52")
             .Where(s => (s.ClearanceDate ?? s.InvoiceDate) >= fromDate && (s.ClearanceDate ?? s.InvoiceDate) <= toDate);
 
+        if (report.ContractFolderId.HasValue) queryOrders = queryOrders.Where(s => s.ContractFolderId == report.ContractFolderId);
         if (!string.IsNullOrWhiteSpace(report.ContractNo))
         {
             string contract = report.ContractNo.Trim().ToUpperInvariant();
-            queryOrders = queryOrders.Where(s => s.ContractNo != null && s.ContractNo.ToUpper().Contains(contract));
+            queryOrders = queryOrders.Where(s => s.ContractNo != null && s.ContractNo.ToUpper() == contract);
         }
 
         var clearedOrders = await queryOrders.ToListAsync();
@@ -702,7 +743,7 @@ public class CustomsSettlementService : ICustomsSettlementService
     }
 
     /// <summary>
-    /// Xuất file Excel Mẫu 16 theo ID kỳ đã lưu
+    /// Xuất file Excel đối chiếu nội bộ theo ID kỳ đã lưu
     /// </summary>
     public async Task<byte[]> ExportSettlementExcelByIdAsync(int id)
     {
@@ -737,7 +778,7 @@ public class CustomsSettlementService : ICustomsSettlementService
         if (!string.IsNullOrWhiteSpace(contractNo))
         {
             string contract = contractNo.Trim().ToUpperInvariant();
-            query = query.Where(s => s.ContractNo != null && s.ContractNo.ToUpper().Contains(contract));
+            query = query.Where(s => s.ContractNo != null && s.ContractNo.ToUpper() == contract);
         }
 
         var orders = await query.ToListAsync();
@@ -816,9 +857,10 @@ public class CustomsSettlementService : ICustomsSettlementService
             .Where(s => (s.ClearanceDate ?? s.InvoiceDate) >= fromDate && (s.ClearanceDate ?? s.InvoiceDate) <= toDate)
             .ToListAsync();
 
-        var productMasters = await _context.ProductMasters
+        var masterRows = await _context.ProductMasters
             .AsNoTracking()
-            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p);
+            .ToListAsync();
+        var productMasters = masterRows.GroupBy(p => p.StyleCode.ToUpperInvariant()).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
 
         // Thống kê 12 tháng
         var monthlyList = new List<MonthlyExportStatDto>();
@@ -896,7 +938,7 @@ public class CustomsSettlementService : ICustomsSettlementService
         if (green == 0 && yellow == 0 && red == 0 && totalDeclarations > 0)
         {
             // Mặc định phân bổ nếu chưa có phân luồng cụ thể
-            green = totalDeclarations;
+            // Missing channel remains unknown.
         }
 
         return new AnalyticsExportStatsDto
@@ -992,18 +1034,42 @@ public class CustomsSettlementService : ICustomsSettlementService
             {
                 var cellVal = ws.Cell(r, openingCol);
                 if (cellVal.DataType == XLDataType.Number)
+                {
                     opening = Convert.ToDecimal(cellVal.GetDouble());
+                }
                 else
-                    decimal.TryParse(cellVal.GetString().Replace(",", "").Trim(), out opening);
+                {
+                    var text = cellVal.GetString()?.Trim();
+                    if (string.IsNullOrWhiteSpace(text))
+                    {
+                        opening = 0;
+                    }
+                    else if (!CustomsDeclarationService.TryParseCustomsDecimal(text, out opening))
+                    {
+                        throw new InvalidOperationException($"Số tồn đầu không hợp lệ tại dòng {r}, cột {openingCol}.");
+                    }
+                }
             }
 
             if (productionCol > 0 && productionCol <= lastCol)
             {
                 var cellVal = ws.Cell(r, productionCol);
                 if (cellVal.DataType == XLDataType.Number)
+                {
                     production = Convert.ToDecimal(cellVal.GetDouble());
+                }
                 else
-                    decimal.TryParse(cellVal.GetString().Replace(",", "").Trim(), out production);
+                {
+                    var text = cellVal.GetString()?.Trim();
+                    if (string.IsNullOrWhiteSpace(text))
+                    {
+                        production = 0;
+                    }
+                    else if (!CustomsDeclarationService.TryParseCustomsDecimal(text, out production))
+                    {
+                        throw new InvalidOperationException($"Số nhập sản xuất không hợp lệ tại dòng {r}, cột {productionCol}.");
+                    }
+                }
             }
 
             rows.Add(new WarehouseDataRowDto
@@ -1025,9 +1091,10 @@ public class CustomsSettlementService : ICustomsSettlementService
     /// </summary>
     public async Task<WarehouseImportResultDto> MatchWarehouseRowsAsync(List<WarehouseDataRowDto> rows, List<SettlementItemDto> currentItems)
     {
-        var productMasters = await _context.ProductMasters
+        var masterRows = await _context.ProductMasters
             .AsNoTracking()
-            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p);
+            .ToListAsync();
+        var productMasters = masterRows.GroupBy(p => p.StyleCode.ToUpperInvariant()).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
 
         // Gom nhóm các dòng kho theo mã chuẩn hóa
         var warehouseMap = new Dictionary<string, (decimal Opening, decimal Production)>();

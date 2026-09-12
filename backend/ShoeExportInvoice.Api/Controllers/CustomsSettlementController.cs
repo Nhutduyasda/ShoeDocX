@@ -21,7 +21,7 @@ public class CustomsSettlementController : ControllerBase
     }
 
     /// <summary>
-    /// Tổng hợp số liệu quyết toán Mẫu 16 từ các đơn hàng E52 đã thông quan trong kỳ.
+    /// Tổng hợp số liệu quyết toán đối chiếu nội bộ từ các đơn hàng E52 đã thông quan trong kỳ.
     /// </summary>
     [HttpPost("calculate")]
     [HttpPost("preview")]
@@ -43,19 +43,22 @@ public class CustomsSettlementController : ControllerBase
             var report = await _settlementService.CalculateSettlementAsync(request);
             return Ok(report);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi tổng hợp báo cáo quyết toán");
             return StatusCode(500, new
             {
-                message = "Không thể tổng hợp báo cáo quyết toán.",
-                detail = ex.Message
+                message = "Không thể tổng hợp báo cáo quyết toán."
             });
         }
     }
 
     /// <summary>
-    /// Lưu kỳ báo cáo quyết toán Mẫu 16 vào hệ thống.
+    /// Lưu kỳ báo cáo quyết toán đối chiếu nội bộ vào hệ thống.
     /// </summary>
     [HttpPost("save")]
     public async Task<ActionResult<CustomsSettlementPeriod>> SaveSettlementPeriod(
@@ -71,13 +74,16 @@ public class CustomsSettlementController : ControllerBase
             var period = await _settlementService.SaveSettlementPeriodAsync(request);
             return Ok(period);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi lưu kỳ báo cáo quyết toán năm {Year}", request?.Year);
             return StatusCode(500, new
             {
-                message = "Không thể lưu kỳ báo cáo quyết toán.",
-                detail = ex.Message
+                message = "Không thể lưu kỳ báo cáo quyết toán."
             });
         }
     }
@@ -94,13 +100,16 @@ public class CustomsSettlementController : ControllerBase
             var list = await _settlementService.GetSettlementPeriodsAsync();
             return Ok(list);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi lấy danh sách kỳ quyết toán");
             return StatusCode(500, new
             {
-                message = "Không thể tải danh sách kỳ quyết toán.",
-                detail = ex.Message
+                message = "Không thể tải danh sách kỳ quyết toán."
             });
         }
     }
@@ -122,19 +131,22 @@ public class CustomsSettlementController : ControllerBase
 
             return Ok(detail);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi lấy chi tiết kỳ quyết toán ID {Id}", id);
             return StatusCode(500, new
             {
-                message = "Không thể tải chi tiết kỳ quyết toán.",
-                detail = ex.Message
+                message = "Không thể tải chi tiết kỳ quyết toán."
             });
         }
     }
 
     /// <summary>
-    /// Xuất file Excel Báo cáo Quyết toán chuẩn Mẫu 16/BCQT-SP-GSQL (Thông tư 39/2018/TT-BTC).
+    /// Xuất file Excel Báo cáo Quyết toán chuẩn đối chiếu nội bộ (Cần xác minh mẫu pháp lý trước khi nộp).
     /// </summary>
     [HttpPost("export-excel")]
     public async Task<IActionResult> ExportSettlementExcel(
@@ -149,26 +161,29 @@ public class CustomsSettlementController : ControllerBase
         {
             var excelBytes = await _settlementService.ExportSettlementExcelAsync(report);
             var periodDesc = $"{report.FromDate:yyyyMMdd}_{report.ToDate:yyyyMMdd}";
-            var fileName = $"Mau16_BCQT_SP_GSQL_{periodDesc}_{DateTime.Now:yyyyMMddHHmmss}.xlsx";
+            var fileName = $"DoiChieuNoiBo_XNK_{periodDesc}_{DateTime.Now:yyyyMMddHHmmss}.xlsx";
 
             return File(
                 excelBytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 fileName);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Lỗi khi xuất file Excel Mẫu 16");
+            _logger.LogError(ex, "Lỗi khi xuất file Excel đối chiếu nội bộ");
             return StatusCode(500, new
             {
-                message = "Không thể xuất file Excel Mẫu 16.",
-                detail = ex.Message
+                message = "Không thể xuất file Excel đối chiếu nội bộ."
             });
         }
     }
 
     /// <summary>
-    /// Xuất file Excel Báo cáo Quyết toán Mẫu 16 theo ID kỳ đã lưu.
+    /// Xuất file Excel Báo cáo Quyết toán đối chiếu nội bộ theo ID kỳ đã lưu.
     /// </summary>
     [HttpGet("export-excel/{id}")]
     public async Task<IActionResult> ExportSettlementExcelById(int id)
@@ -176,20 +191,23 @@ public class CustomsSettlementController : ControllerBase
         try
         {
             var excelBytes = await _settlementService.ExportSettlementExcelByIdAsync(id);
-            var fileName = $"Mau16_BCQT_SP_GSQL_Ky_{id}_{DateTime.Now:yyyyMMddHHmmss}.xlsx";
+            var fileName = $"DoiChieuNoiBo_XNK_Ky_{id}_{DateTime.Now:yyyyMMddHHmmss}.xlsx";
 
             return File(
                 excelBytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 fileName);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Lỗi khi xuất file Excel Mẫu 16 ID {Id}", id);
+            _logger.LogError(ex, "Lỗi khi xuất file Excel đối chiếu nội bộ ID {Id}", id);
             return StatusCode(500, new
             {
-                message = "Không thể xuất file Excel Mẫu 16.",
-                detail = ex.Message
+                message = "Không thể xuất file Excel đối chiếu nội bộ."
             });
         }
     }
@@ -214,13 +232,16 @@ public class CustomsSettlementController : ControllerBase
             var list = await _settlementService.GetDrillDownAsync(productCode, from, to, contractNo);
             return Ok(list);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi drill-down mã sản phẩm {ProductCode}", productCode);
             return StatusCode(500, new
             {
-                message = "Không thể tải chi tiết tờ khai của mã sản phẩm.",
-                detail = ex.Message
+                message = "Không thể tải chi tiết tờ khai của mã sản phẩm."
             });
         }
     }
@@ -254,13 +275,16 @@ public class CustomsSettlementController : ControllerBase
             var result = await _settlementService.ImportWarehouseExcelAsync(stream, itemsList);
             return Ok(result);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi nạp file số liệu kho Excel");
             return StatusCode(500, new
             {
-                message = "Không thể đọc dữ liệu từ file Excel.",
-                detail = ex.Message
+                message = "Không thể đọc dữ liệu từ file Excel."
             });
         }
     }
@@ -282,13 +306,16 @@ public class CustomsSettlementController : ControllerBase
             var result = await _settlementService.MatchWarehouseRowsAsync(request.Rows ?? new List<WarehouseDataRowDto>(), request.CurrentItems ?? new List<SettlementItemDto>());
             return Ok(result);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi đối soát số liệu kho");
             return StatusCode(500, new
             {
-                message = "Không thể đối soát dữ liệu kho.",
-                detail = ex.Message
+                message = "Không thể đối soát dữ liệu kho."
             });
         }
     }

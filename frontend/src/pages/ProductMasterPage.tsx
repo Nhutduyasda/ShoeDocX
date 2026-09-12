@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useEffectEvent, useCallback } from 'react';
 import {
   Table,
   Button,
@@ -71,7 +71,8 @@ export const ProductMasterPage: React.FC = () => {
       setTreeData(data);
 
       // Nếu đang chọn folder, refresh lại thông tin folder đó
-      if (selectedFolder) {
+      setSelectedFolder(current => {
+        if (!current) return null;
         const findFolder = (nodes: MasterDataFolder[], id: number): MasterDataFolder | null => {
           for (const n of nodes) {
             if (n.id === id) return n;
@@ -82,13 +83,12 @@ export const ProductMasterPage: React.FC = () => {
           }
           return null;
         };
-        const updated = findFolder(data, selectedFolder.id);
-        setSelectedFolder(updated);
-      }
-    } catch (err) {
-      console.error('Lỗi khi tải cây thư mục:', err);
+        return findFolder(data, current.id);
+      });
+    } catch {
+      // ignore or show error
     }
-  }, [selectedFolder]);
+  }, []);
 
   // 2. Fetch product list (filtered by search, page, folderId)
   const fetchProducts = useCallback(async () => {
@@ -104,20 +104,18 @@ export const ProductMasterPage: React.FC = () => {
       setTotalCount(res.totalCount);
       setAvgCmtBackend(res.avgUnitPriceCMT ?? null);
       setAvgDapBackend(res.avgUnitPriceDAP ?? null);
-    } catch (err) {
-      console.error('Lỗi khi tải danh sách sản phẩm:', err);
+    } catch {
+      message.error('Không thể tải danh sách sản phẩm');
     } finally {
       setLoading(false);
     }
   }, [searchText, page, pageSize, selectedFolder]);
 
-  useEffect(() => {
-    fetchTree();
-  }, []);
+  const loadTree = useEffectEvent(() => { void fetchTree(); });
+  useEffect(() => { const timer = setTimeout(() => loadTree(), 0); return () => clearTimeout(timer); }, []);
 
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+  const loadList = useEffectEvent(() => { void fetchProducts(); });
+  useEffect(() => { const timer = setTimeout(() => loadList(), 0); return () => clearTimeout(timer); }, [fetchProducts]);
 
   // Tính tổng tất cả sản phẩm từ cây thư mục
   const totalAllProducts = treeData.reduce((acc, f) => acc + f.totalProductCount, 0);
@@ -129,8 +127,7 @@ export const ProductMasterPage: React.FC = () => {
       message.success(`Đã xóa thành công mã hình thể "${styleCode}"`);
       fetchProducts();
       fetchTree();
-    } catch (err) {
-      console.error(err);
+    } catch {
       message.error('Không thể xóa mã hàng này.');
     }
   };
@@ -149,8 +146,7 @@ export const ProductMasterPage: React.FC = () => {
       setPage(1);
       fetchProducts();
       fetchTree();
-    } catch (err) {
-      console.error(err);
+    } catch {
       message.error('Không thể xóa sản phẩm trong thư mục này.');
     } finally {
       setClearing(false);
@@ -170,7 +166,6 @@ export const ProductMasterPage: React.FC = () => {
       setBulkUnitModalVisible(false);
       fetchProducts();
     } catch (err: any) {
-      console.error(err);
       message.error(err.response?.data?.message || 'Không thể cập nhật ĐVT.');
     } finally {
       setUpdatingUnit(false);
@@ -212,8 +207,7 @@ export const ProductMasterPage: React.FC = () => {
       setExporting(true);
       await productMasterApi.exportExcel();
       message.success('Đã xuất file Excel Master Data thành công!');
-    } catch (err) {
-      console.error(err);
+    } catch {
       message.error('Không thể xuất file Excel.');
     } finally {
       setExporting(false);

@@ -166,6 +166,13 @@ public class CustomsSettlementTests : IDisposable
     [Fact]
     public async Task SaveAndRetrieveSettlementPeriod_ShouldPersistAndInheritBalances()
     {
+        using (var seed = new AppDbContext(_dbOptions))
+        {
+            seed.Add(new ShipmentOrder { InvoiceNo = "INV-Q1", CustomerName = "Test", ContractNo = "HD-01",
+                Status = ShipmentStatus.Cleared, CustomsDeclarationType = "E52", ClearanceDate = new DateTime(2026, 2, 1),
+                Items = [new ShipmentOrderItem { StyleCode = "SP-A", Quantity = 800 }] });
+            await seed.SaveChangesAsync();
+        }
         // 1. Save Period 1 (Q1/2026)
         using (var context = new AppDbContext(_dbOptions))
         {
@@ -247,7 +254,7 @@ public class CustomsSettlementTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportSettlementExcel_ShouldGenerateValidMẫu16Structure()
+    public async Task ExportSettlementExcel_ShouldGenerateInternalReportWithVerifiedQuantities()
     {
         using var context = new AppDbContext(_dbOptions);
         var service = new CustomsSettlementService(context, NullLogger<CustomsSettlementService>.Instance);
@@ -279,6 +286,10 @@ public class CustomsSettlementTests : IDisposable
             }
         };
 
+        context.Add(new ShipmentOrder { InvoiceNo = "INV-REPORT", CustomerName = "Test", ContractNo = "HD-TEST-01",
+            Status = ShipmentStatus.Cleared, CustomsDeclarationType = "E52", ClearanceDate = new DateTime(2026, 2, 1),
+            Items = [new ShipmentOrderItem { StyleCode = "STYLE-X", Quantity = 400 }] });
+        await context.SaveChangesAsync();
         var excelBytes = await service.ExportSettlementExcelAsync(report);
         Assert.NotNull(excelBytes);
         Assert.True(excelBytes.Length > 0);
@@ -290,8 +301,8 @@ public class CustomsSettlementTests : IDisposable
         Assert.NotNull(ws);
 
         // Check Form 16 header
-        Assert.Contains("16/BCQT-SP-GSQL", ws.Cell("G1").GetString());
-        Assert.Contains("BÁO CÁO QUYẾT TOÁN", ws.Cell("A5").GetString());
+        Assert.Contains("BÁO CÁO NỘI BỘ", ws.Cell("G1").GetString());
+        Assert.Contains("BÁO CÁO ĐỐI CHIẾU NỘI BỘ", ws.Cell("A5").GetString());
 
         // Check line item row (row 12)
         Assert.Equal("1", ws.Cell("A12").GetString());
@@ -312,7 +323,7 @@ public class CustomsSettlementTests : IDisposable
 
         // Check Sheet 1 & Sheet 2
         Assert.Equal(2, workbook.Worksheets.Count);
-        Assert.Equal("Mau_16_BCQT_SP", ws.Name);
+        Assert.Equal("Doi_Chieu_Noi_Bo", ws.Name);
         var ws2 = workbook.Worksheet(2);
         Assert.Equal("Bang_Ke_Chi_Tiet_E52", ws2.Name);
         Assert.Contains("BẢNG KÊ CHI TIẾT TỜ KHAI HẢI QUAN XUẤT KHẨU GIA CÔNG (E52)", ws2.Cell("A5").GetString());

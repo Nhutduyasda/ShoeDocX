@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useEffectEvent, useMemo, useCallback } from 'react';
 import {
   Table,
   Button,
@@ -43,6 +43,8 @@ import {
   FilterOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
+import { masterDataFolderApi } from '../api/masterDataFolderApi';
+import type { MasterDataFolder } from '../types';
 import { settlementApi } from '../api/settlementApi';
 import type {
   SettlementItem,
@@ -69,7 +71,15 @@ export const CustomsSettlementPage: React.FC = () => {
     dayjs(`${currentYear}-01-01`),
     dayjs(),
   ]);
-  const [contractNo, setContractNo] = useState<string>('KM-HANEW/01-2025');
+  const [contractNo, setContractNo] = useState<string>('');
+  const [contractFolderId, setContractFolderId] = useState<number | null>(null);
+  const [contractFolders, setContractFolders] = useState<MasterDataFolder[]>([]);
+  useEffect(() => {
+    masterDataFolderApi.getTree().then(tree => {
+      const flatten = (nodes: MasterDataFolder[]): MasterDataFolder[] => nodes.flatMap(f => [f, ...flatten(f.children || [])]);
+      setContractFolders(flatten(tree));
+    }).catch(() => message.error('Không thể tải danh sách hợp đồng.'));
+  }, []);
   const [customsOffice, setCustomsOffice] = useState<string>('Chi cục Hải quan Quản lý Hàng gia công');
   const [tableSearch, setTableSearch] = useState<string>('');
 
@@ -134,8 +144,8 @@ export const CustomsSettlementPage: React.FC = () => {
       setHistoryLoading(true);
       const list = await settlementApi.getSettlementPeriods();
       setSavedPeriods(list);
-    } catch (err) {
-      console.error('Lỗi khi tải lịch sử kỳ quyết toán:', err);
+    } catch {
+      message.error('Không thể tải lịch sử kỳ quyết toán.');
     } finally {
       setHistoryLoading(false);
     }
@@ -147,18 +157,17 @@ export const CustomsSettlementPage: React.FC = () => {
       setAnalyticsLoading(true);
       const data = await settlementApi.getExportAnalytics(year);
       setAnalyticsData(data);
-    } catch (err) {
-      console.error('Lỗi khi tải phân tích kim ngạch:', err);
+    } catch {
       message.error('Không thể tải dữ liệu thống kê kim ngạch.');
     } finally {
       setAnalyticsLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    loadSavedPeriods();
-    loadAnalytics(analyticsYear);
-  }, [loadSavedPeriods, loadAnalytics, analyticsYear]);
+  const refreshHistory = useEffectEvent(() => { void loadSavedPeriods(); });
+  const refreshAnalytics = useEffectEvent(() => { void loadAnalytics(analyticsYear); });
+  useEffect(() => { const timer = setTimeout(() => refreshHistory(), 0); return () => clearTimeout(timer); }, []);
+  useEffect(() => { const timer = setTimeout(() => refreshAnalytics(), 0); return () => clearTimeout(timer); }, [analyticsYear]);
 
   // Calculate / aggregate settlement data
   const handleCalculate = async () => {
@@ -173,6 +182,7 @@ export const CustomsSettlementPage: React.FC = () => {
         year: selectedYear,
         fromDate: dateRange[0].format('YYYY-MM-DD'),
         toDate: dateRange[1].format('YYYY-MM-DD'),
+        contractFolderId,
         contractNo: contractNo.trim() || undefined,
         customsOffice: customsOffice.trim() || undefined,
       });
@@ -183,7 +193,6 @@ export const CustomsSettlementPage: React.FC = () => {
         `Đã tổng hợp thành công ${res.items.length} mã hàng từ ${res.clearedOrderCount} đơn hàng E52 đã thông quan.`
       );
     } catch (err: any) {
-      console.error('Lỗi tổng hợp quyết toán:', err);
       message.error(err.response?.data?.message || 'Không thể tổng hợp số liệu quyết toán.');
     } finally {
       setLoading(false);
@@ -210,7 +219,6 @@ export const CustomsSettlementPage: React.FC = () => {
         `Đã đối soát kho thành công: Khớp ${res.matchedCount} mã, thêm mới ${res.addedFromWarehouseCount} mã.`
       );
     } catch (err: any) {
-      console.error('Lỗi khi nạp file Excel kho:', err);
       message.error(err.response?.data?.message || 'Không thể đối soát file số liệu kho.');
     } finally {
       setImportExcelLoading(false);
@@ -277,7 +285,6 @@ export const CustomsSettlementPage: React.FC = () => {
         `Đã ghép thành công ${rows.length} dòng dữ liệu: Khớp ${res.matchedCount} mã, thêm mới ${res.addedFromWarehouseCount} mã.`
       );
     } catch (err: any) {
-      console.error('Lỗi khi ghép dữ liệu clipboard:', err);
       message.error(err.response?.data?.message || 'Không thể đối soát dữ liệu từ Clipboard.');
     } finally {
       setPasteLoading(false);
@@ -299,8 +306,7 @@ export const CustomsSettlementPage: React.FC = () => {
         contractNo.trim() || undefined
       );
       setDrillDownItems(data);
-    } catch (err) {
-      console.error('Lỗi khi drill-down tờ khai:', err);
+    } catch {
       message.error('Không thể tải chi tiết tờ khai hải quan.');
     } finally {
       setDrillDownLoading(false);
@@ -329,6 +335,7 @@ export const CustomsSettlementPage: React.FC = () => {
         const exp = Number(updated.inPeriodExport) || 0;
         const other = Number(updated.otherExport) || 0;
         updated.closingBalance = op + prod - exp - other;
+        updated.isNegative = updated.closingBalance < 0;
 
         return updated;
       })
@@ -344,13 +351,13 @@ export const CustomsSettlementPage: React.FC = () => {
 
     setSaveStatus(statusToSave);
     saveForm.setFieldsValue({
-      year: selectedYear || dateRange[0].year(),
-      contractNo: contractNo || report.contractNo || 'KM-HANEW/01-2025',
-      customsOffice: customsOffice || report.customsOffice || 'Chi cục Hải quan Quản lý Hàng gia công',
-      companyName: report.companyName || 'CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG',
-      taxCode: report.taxCode || '4300326888',
-      address: report.address || 'KCN VSIP Quảng Ngãi, Xã Tịnh Phong, Huyện Sơn Tịnh, Tỉnh Quảng Ngãi',
-      note: report.note || `Kỳ quyết toán năm ${selectedYear} (${dateRange[0].format('DD/MM/YYYY')} - ${dateRange[1].format('DD/MM/YYYY')})`,
+      year: selectedYear || (dateRange && dateRange[0] ? dateRange[0].year() : dayjs().year()),
+      contractNo: contractNo || report.contractNo || '',
+      customsOffice: customsOffice || report.customsOffice || '',
+      companyName: report.companyName || '',
+      taxCode: report.taxCode || '',
+      address: report.address || '',
+      note: report.note || (dateRange && dateRange[0] && dateRange[1] ? `Kỳ quyết toán năm ${selectedYear} (${dateRange[0].format('DD/MM/YYYY')} - ${dateRange[1].format('DD/MM/YYYY')})` : `Kỳ quyết toán năm ${selectedYear}`),
     });
     setSaveModalOpen(true);
   };
@@ -366,6 +373,7 @@ export const CustomsSettlementPage: React.FC = () => {
         year: values.year,
         fromDate: dateRange[0].format('YYYY-MM-DD'),
         toDate: dateRange[1].format('YYYY-MM-DD'),
+        contractFolderId: report?.contractFolderId ?? contractFolderId,
         contractNo: values.contractNo?.trim() || undefined,
         customsOffice: values.customsOffice?.trim() || undefined,
         status: saveStatus,
@@ -377,18 +385,20 @@ export const CustomsSettlementPage: React.FC = () => {
       };
 
       const saved = await settlementApi.saveSettlement(payload);
-      setReport((prev) => (prev ? { ...prev, periodId: saved.id, status: saveStatus } : null));
+      const refreshed = await settlementApi.getSettlementPeriodById(saved.id);
+      setReport(refreshed);
+      setItems(refreshed.items);
 
       if (saveStatus === 'Finalized') {
         message.success(`Đã CHỐT SỔ & KHÓA KỲ quyết toán năm ${values.year} thành công.`);
       } else {
-        message.success('Đã lưu bản nháp kỳ báo cáo quyết toán thành công vào hệ thống.');
+        message.success(`Đã lưu bản nháp kỳ quyết toán năm ${values.year} thành công.`);
       }
 
       setSaveModalOpen(false);
       loadSavedPeriods();
     } catch (err: any) {
-      console.error('Lỗi khi lưu kỳ quyết toán:', err);
+      if (err.errorFields) return;
       message.error(err.response?.data?.message || 'Không thể lưu kỳ báo cáo.');
     } finally {
       setSaving(false);
@@ -408,6 +418,7 @@ export const CustomsSettlementPage: React.FC = () => {
       if (data.fromDate && data.toDate) {
         setDateRange([dayjs(data.fromDate), dayjs(data.toDate)]);
       }
+      setContractFolderId(data.contractFolderId ?? null);
       if (data.contractNo) {
         setContractNo(data.contractNo);
       }
@@ -416,8 +427,7 @@ export const CustomsSettlementPage: React.FC = () => {
       }
       setHistoryDrawerOpen(false);
       message.success(`Đã tải kỳ quyết toán năm ${data.year} (${data.items.length} mã hàng - ${data.status === 'Finalized' ? 'Đã chốt sổ' : 'Bản nháp'}).`);
-    } catch (err) {
-      console.error('Lỗi khi tải chi tiết kỳ quyết toán:', err);
+    } catch {
       message.error('Không thể tải chi tiết kỳ quyết toán.');
     } finally {
       setLoading(false);
@@ -431,19 +441,18 @@ export const CustomsSettlementPage: React.FC = () => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Mau16_BCQT_SP_GSQL_Nam_${year}_Ky_${periodId}_${dayjs().format('YYYYMMDDHHmmss')}.xlsx`;
+      a.download = `DoiChieuNoiBo_XNK_Nam_${year}_Ky_${periodId}_${dayjs().format('YYYYMMDDHHmmss')}.xlsx`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      message.success(`Đã tải file Excel Mẫu 16 năm ${year}.`);
-    } catch (err) {
-      console.error('Lỗi khi tải file Excel từ kỳ lưu:', err);
+      message.success(`Đã tải file Excel đối chiếu nội bộ năm ${year}.`);
+    } catch {
       message.error('Không thể tải file Excel.');
     }
   };
 
-  // Export Excel Mẫu 16 current report
+  // Export Excel đối chiếu nội bộ current report
   const handleExportExcel = async () => {
     if (!report || items.length === 0) {
       message.warning('Không có dữ liệu để xuất file Excel.');
@@ -457,7 +466,8 @@ export const CustomsSettlementPage: React.FC = () => {
         items,
         fromDate: dateRange[0].format('YYYY-MM-DD'),
         toDate: dateRange[1].format('YYYY-MM-DD'),
-        contractNo: contractNo.trim() || report.contractNo,
+        contractFolderId: report.contractFolderId,
+        contractNo: report.contractNo,
         customsOffice: customsOffice.trim() || report.customsOffice,
       };
 
@@ -465,15 +475,14 @@ export const CustomsSettlementPage: React.FC = () => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Mau16_BCQT_SP_GSQL_Nam_${selectedYear}_${dateRange[0].format('YYYYMMDD')}_${dateRange[1].format('YYYYMMDD')}.xlsx`;
+      a.download = `DoiChieuNoiBo_XNK_Nam_${selectedYear}_${dateRange[0].format('YYYYMMDD')}_${dateRange[1].format('YYYYMMDD')}.xlsx`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      message.success('Xuất file Excel Mẫu 16/BCQT-SP-GSQL (kèm Sheet Drill-down tờ khai) thành công.');
-    } catch (err) {
-      console.error('Lỗi khi xuất file Excel Mẫu 16:', err);
+      message.success('Xuất file Excel đối chiếu nội bộ (kèm Sheet Drill-down tờ khai) thành công.');
+    } catch {
       message.error('Không thể xuất file Excel.');
     } finally {
       setExporting(false);
@@ -506,7 +515,7 @@ export const CustomsSettlementPage: React.FC = () => {
 
   const isFinalized = report?.status === 'Finalized';
 
-  // Columns definition for Mẫu 16
+  // Columns definition for đối chiếu nội bộ
   const columns: ColumnsType<SettlementItem> = [
     {
       title: (
@@ -755,7 +764,7 @@ export const CustomsSettlementPage: React.FC = () => {
               Quyết toán Hải quan & Thống kê Phân tích Kim ngạch
             </h1>
             <Tag className="bg-blue-50 text-blue-700 border-blue-200 text-xs m-0">
-              Thông tư 39/2018/TT-BTC
+              Cần xác minh mẫu pháp lý trước khi nộp
             </Tag>
             {report?.status === 'Finalized' && (
               <Tag color="success" icon={<CheckCircleOutlined />} className="m-0 font-medium">
@@ -769,7 +778,7 @@ export const CustomsSettlementPage: React.FC = () => {
             )}
           </div>
           <p className="text-sm text-slate-500 mt-1 m-0">
-            Tự động tổng hợp số liệu xuất khẩu gia công (E52) từ các đơn hàng Đã thông quan, xuất Excel Mẫu 16 và phân tích doanh thu CMT/DAP
+            Tự động tổng hợp số liệu xuất khẩu gia công (E52) từ các đơn hàng Đã thông quan, xuất Excel đối chiếu nội bộ và phân tích doanh thu CMT/DAP
           </p>
         </div>
 
@@ -820,7 +829,7 @@ export const CustomsSettlementPage: React.FC = () => {
             disabled={items.length === 0}
             className="text-xs bg-emerald-600 hover:bg-emerald-700 border-emerald-600 font-medium"
           >
-            Xuất Excel Mẫu 16 Chuẩn Hải quan
+            Xuất Excel đối chiếu nội bộ
           </Button>
         </div>
       </div>
@@ -837,7 +846,7 @@ export const CustomsSettlementPage: React.FC = () => {
             label: (
               <span className="flex items-center gap-1.5 px-1">
                 <AuditOutlined />
-                <span>Báo cáo Quyết toán Mẫu 16 (BCQT-SP-GSQL)</span>
+                <span>Báo cáo Quyết toán đối chiếu nội bộ (BCQT-SP-GSQL)</span>
               </span>
             ),
             children: (
@@ -882,9 +891,10 @@ export const CustomsSettlementPage: React.FC = () => {
                       <span className="text-xs font-medium text-slate-600 block mb-1">
                         Số hợp đồng gia công:
                       </span>
-                      <Input
-                        value={contractNo}
-                        onChange={(e) => setContractNo(e.target.value)}
+                      <Select
+                        value={contractFolderId}
+                        options={contractFolders.map(f => ({value: f.id, label: f.name + (f.contractNo ? ' / ' + f.contractNo : '')}))}
+                        onChange={(id) => { setContractFolderId(id ?? null); setContractNo(contractFolders.find(f => f.id === id)?.contractNo || ''); }}
                         placeholder="VD: KM-HANEW/01-2025"
                         className="w-full text-xs"
                         allowClear
@@ -955,7 +965,7 @@ export const CustomsSettlementPage: React.FC = () => {
                       icon={<ReloadOutlined />}
                       onClick={() => {
                         handleYearChange(currentYear);
-                        setContractNo('KM-HANEW/01-2025');
+                        setContractNo(''); setContractFolderId(null);
                         setCustomsOffice('Chi cục Hải quan Quản lý Hàng gia công');
                         setItems([]);
                         setReport(null);
@@ -1084,7 +1094,7 @@ export const CustomsSettlementPage: React.FC = () => {
                   <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/50">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-semibold text-slate-800">
-                        Bảng dữ liệu Quyết toán Sản phẩm Xuất khẩu (Mẫu 16/BCQT-SP-GSQL)
+                        Bảng dữ liệu Quyết toán Sản phẩm Xuất khẩu (đối chiếu nội bộ)
                       </span>
                       <Tag className="bg-slate-100 text-slate-600 border-slate-200 text-xs m-0">
                         {filteredItems.length} / {items.length} mã hàng
@@ -1519,7 +1529,7 @@ export const CustomsSettlementPage: React.FC = () => {
                         rowKey="month"
                         size="small"
                         pagination={false}
-                        scroll={{ y: 240 }}
+                        scroll={{ x: 'max-content', y: 240 }}
                         columns={[
                           {
                             title: 'Tháng',
@@ -1719,6 +1729,7 @@ export const CustomsSettlementPage: React.FC = () => {
           rowKey="id"
           loading={historyLoading}
           size="small"
+          scroll={{ x: 'max-content' }}
           pagination={{ defaultPageSize: 10, size: 'small' }}
           columns={[
             {
@@ -1784,6 +1795,7 @@ export const CustomsSettlementPage: React.FC = () => {
               key: 'actions',
               width: 150,
               align: 'center',
+              fixed: 'right',
               render: (_, record) => (
                 <div className="flex items-center justify-center gap-1">
                   <Button
@@ -1887,7 +1899,7 @@ export const CustomsSettlementPage: React.FC = () => {
         title={
           <div className="flex items-center gap-2 text-slate-900">
             <FileExcelOutlined className="text-emerald-600 text-lg" />
-            <span>Nạp File Số liệu Kho (.xlsx) đối soát Mẫu 16</span>
+            <span>Nạp File Số liệu Kho (.xlsx) đối soát đối chiếu nội bộ</span>
           </div>
         }
         open={importExcelModalOpen}

@@ -17,7 +17,7 @@ import {
 } from '@ant-design/icons';
 import type { CreateShipmentItem, ProductMaster } from '../types';
 import { ProcessType } from '../types';
-import { normalizeOcrStyleCode } from './OcrUploadModal';
+import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
 
 const { TextArea } = Input;
 
@@ -155,7 +155,7 @@ export const QuickPasteModal: React.FC<QuickPasteModalProps> = ({
       validCount: validItems.length,
       invalidCount: result.length - validItems.length,
     };
-  }, [pastedText, productMap]);
+  }, [pastedText, productMap, defaultPairsPerCarton]);
 
   const handleApply = () => {
     const validRows = parsedData.items.filter((r) => r.isValid);

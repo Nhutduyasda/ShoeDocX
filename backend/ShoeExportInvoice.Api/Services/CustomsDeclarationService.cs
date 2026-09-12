@@ -15,15 +15,17 @@ public class CustomsDeclarationService : ICustomsDeclarationService
     private readonly AppDbContext _context;
     private readonly ILogger<CustomsDeclarationService> _logger;
     private readonly IWebHostEnvironment _environment;
+    private readonly XnkOptions _options;
 
     public CustomsDeclarationService(
         AppDbContext context,
         ILogger<CustomsDeclarationService> logger,
-        IWebHostEnvironment environment)
+        IWebHostEnvironment environment, Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null)
     {
         _context = context;
         _logger = logger;
         _environment = environment;
+        _options = options?.Value ?? new XnkOptions();
 
         // Đảm bảo đăng ký CodePagesEncodingProvider để đọc các file Excel 97-2003 (.xls) legacy encoding
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -65,7 +67,7 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         {
             if (r < 0 || r >= rowCount || c < 0 || c >= colCount) return string.Empty;
             var val = table.Rows[r][c];
-            return val == null || val == DBNull.Value ? string.Empty : val.ToString()?.Trim() ?? string.Empty;
+            return val == null || val == DBNull.Value ? string.Empty : (val is DateTime dt ? dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) : val is IFormattable number ? number.ToString(null, CultureInfo.GetCultureInfo("vi-VN")) : val.ToString())?.Trim() ?? string.Empty;
         }
 
         string FindValueNear(int r, int c, string labelPrefix = "")
@@ -331,7 +333,7 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         {
             if (r < 0 || r >= totalRows || c < 0 || c >= totalCols) return string.Empty;
             var val = table.Rows[r][c];
-            return val == null || val == DBNull.Value ? string.Empty : val.ToString()?.Trim() ?? string.Empty;
+            return val == null || val == DBNull.Value ? string.Empty : (val is DateTime dt ? dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) : val is IFormattable number ? number.ToString(null, CultureInfo.GetCultureInfo("vi-VN")) : val.ToString())?.Trim() ?? string.Empty;
         }
 
         var item = new CustomsDeclarationItemDto
@@ -506,73 +508,26 @@ public class CustomsDeclarationService : ICustomsDeclarationService
             }
         }
 
-        // Tự động đối soát và khớp bộ ba toán học: Quantity * UnitPriceDap ≈ AmountDap nếu chưa có đủ
-        if (item.Quantity == 0 || item.UnitPriceDap == 0 || item.AmountDap == 0)
+        // A headerless block must have one unambiguous, exact arithmetic interpretation.
+        if (item.Quantity == 0 || item.UnitPriceDap == 0)
         {
-            bool trioFound = false;
-            for (int i = 0; i < numericCandidates.Count; i++)
+            var candidates = new HashSet<(int Quantity, decimal Price, decimal Amount)>();
+            var values = numericCandidates.Distinct().ToArray();
+            foreach (var qty in values.Where(n => n >= 1 && n <= 1_000_000 && n == decimal.Truncate(n)))
+            foreach (var price in values.Where(n => n > 0 && n <= 500))
             {
-                decimal n1 = numericCandidates[i];
-                for (int j = 0; j < numericCandidates.Count; j++)
-                {
-                    if (i == j) continue;
-                    decimal n2 = numericCandidates[j];
-
-                    // Giả định n1 là Quantity (nguyên dương), n2 là UnitPrice (0.1 đến 500)
-                    if (n1 == Math.Floor(n1) && n1 >= 1 && n1 <= 1_000_000 && n2 >= 0.1m && n2 <= 500m)
-                    {
-                        for (int k = 0; k < numericCandidates.Count; k++)
-                        {
-                            if (k == i || k == j) continue;
-                            decimal n3 = numericCandidates[k];
-
-                            // Kiểm tra n1 * n2 ≈ n3
-                            if (Math.Abs((n1 * n2) - n3) <= Math.Max(0.1m, n3 * 0.01m))
-                            {
-                                item.Quantity = (int)n1;
-                                item.UnitPriceDap = n2;
-                                item.AmountDap = n3;
-                                trioFound = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (trioFound) break;
-                }
-                if (trioFound) break;
+                if (item.Quantity > 0 && item.Quantity != qty) continue;
+                if (item.UnitPriceDap > 0 && item.UnitPriceDap != price) continue;
+                var amount = Math.Round(qty * price, 2, MidpointRounding.AwayFromZero);
+                if (values.Contains(amount) && (item.AmountDap == 0 || item.AmountDap == amount))
+                    candidates.Add(((int)qty, price, amount));
             }
-
-            // Nếu không tìm được trọn bộ 3 số theo quan hệ nhân, suy luận từng số theo biên độ giá trị
-            if (!trioFound)
-            {
-                // Số lượng: số nguyên và không nằm trong dải đơn giá thông thường
-                if (item.Quantity == 0)
-                {
-                    var qCand = numericCandidates.FirstOrDefault(n => n == Math.Floor(n) && n >= 1 && (n > 500m || n != item.UnitPriceDap));
-                    if (qCand > 0) item.Quantity = (int)qCand;
-                }
-
-                // Đơn giá DAP: số lẻ hoặc số trong khoảng 0.5 đến 500
-                if (item.UnitPriceDap == 0)
-                {
-                    var pCand = numericCandidates.FirstOrDefault(n => n >= 0.5m && n <= 500m && n != item.Quantity);
-                    if (pCand > 0) item.UnitPriceDap = pCand;
-                }
-
-                // Trị giá DAP: số lớn nhất hoặc tính từ Qty * Price
-                if (item.AmountDap == 0)
-                {
-                    if (item.Quantity > 0 && item.UnitPriceDap > 0)
-                    {
-                        item.AmountDap = Math.Round(item.Quantity * item.UnitPriceDap, 2);
-                    }
-                    else
-                    {
-                        var aCand = numericCandidates.FirstOrDefault(n => n > 500m && n != item.Quantity);
-                        if (aCand > 0) item.AmountDap = aCand;
-                    }
-                }
-            }
+            if (candidates.Count != 1)
+                throw new InvalidOperationException($"Dòng {startRow + 1}, cột {startCol + 1}: số lượng/đơn giá thiếu hoặc không xác định duy nhất.");
+            var match = candidates.Single();
+            item.Quantity = match.Quantity;
+            item.UnitPriceDap = match.Price;
+            item.AmountDap = match.Amount;
         }
 
         // Tự tính giá trị còn thiếu nếu đã có 2 trong 3
@@ -585,6 +540,10 @@ public class CustomsDeclarationService : ICustomsDeclarationService
             item.AmountDap = Math.Round(item.Quantity * item.UnitPriceDap, 2);
         }
 
+        if (string.IsNullOrWhiteSpace(item.StyleCode) || item.Quantity <= 0 || item.UnitPriceDap <= 0)
+            throw new InvalidOperationException($"Dòng {startRow + 1}, cột {startCol + 1}: thiếu mã, số lượng hoặc đơn giá.");
+        if (Math.Round(item.Quantity * item.UnitPriceDap, 2, MidpointRounding.AwayFromZero) != Math.Round(item.AmountDap, 2, MidpointRounding.AwayFromZero))
+            throw new InvalidOperationException($"Dòng {startRow + 1}, cột {startCol + 1}: trị giá không bằng số lượng nhân đơn giá.");
         return item;
     }
 
@@ -642,6 +601,7 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         if (matchCmt.Success && TryParseCustomsDecimal(matchCmt.Groups[1].Value, out decimal cmt))
         {
             item.UnitPriceCmt = cmt;
+            item.HasCmt = true;
         }
     }
 
@@ -655,6 +615,9 @@ public class CustomsDeclarationService : ICustomsDeclarationService
 
         string s = input.Trim().Replace("$", "").Replace("USD", "", StringComparison.OrdinalIgnoreCase).Trim();
 
+        if (!Regex.IsMatch(s, @"^[+-]?\d[\d.,]*$")) return false;
+        if (s.Count(c => c == '.') > 1 && !Regex.IsMatch(s, @"^[+-]?\d{1,3}(\.\d{3})+(,\d+)?$")) return false;
+        if (s.Count(c => c == ',') > 1 && !Regex.IsMatch(s, @"^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$")) return false;
         int lastDot = s.LastIndexOf('.');
         int lastComma = s.LastIndexOf(',');
 
@@ -706,10 +669,12 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         quantity = 0;
         if (string.IsNullOrWhiteSpace(input)) return false;
 
-        string s = Regex.Replace(input.Trim(), @"[^\d,.]", "");
-        if (TryParseCustomsDecimal(s, out decimal d) && d >= 0 && d < 10_000_000m)
+        string s = Regex.Replace(input.Trim(), @"\s*(PRS|PCE|PK|đôi)\s*$", "", RegexOptions.IgnoreCase).Trim();
+        if (Regex.IsMatch(s, @"^\d{1,3}(\.\d{3})+$")) s = s.Replace(".", "");
+        if (!Regex.IsMatch(s, @"^\d[\d,.]*$")) return false;
+        if (TryParseCustomsDecimal(s, out decimal d) && d >= 0 && d < 10_000_000m && d == decimal.Truncate(d))
         {
-            quantity = (int)Math.Round(d);
+            quantity = (int)d;
             return true;
         }
         return false;
@@ -728,10 +693,14 @@ public class CustomsDeclarationService : ICustomsDeclarationService
             "dd/MM/yyyy",
             "d/M/yyyy",
             "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd"
+            "yyyy-MM-ddTHH:mm:ss",
+            "yyyy-MM-dd HH:mm",
+            "yyyy-MM-dd",
+            "yyyy/MM/dd HH:mm:ss",
+            "yyyy/MM/dd"
         };
 
-        // Trích xuất chuỗi có định dạng ngày tháng
+        // 1. Trích xuất chuỗi có định dạng ngày tháng dd/MM/yyyy
         var dateMatch = Regex.Match(input, @"\b(\d{1,2}/\d{1,2}/\d{4}(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?)\b");
         if (dateMatch.Success)
         {
@@ -742,7 +711,24 @@ public class CustomsDeclarationService : ICustomsDeclarationService
             }
         }
 
-        return DateTime.TryParse(input, CultureInfo.GetCultureInfo("vi-VN"), DateTimeStyles.None, out date);
+        // 2. Trích xuất chuỗi có định dạng ISO yyyy-MM-dd hoặc yyyy/MM/dd
+        var isoMatch = Regex.Match(input, @"\b(\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[T\s]\d{1,2}:\d{1,2}(?::\d{1,2})?)?)\b");
+        if (isoMatch.Success)
+        {
+            string clean = isoMatch.Groups[1].Value;
+            if (DateTime.TryParseExact(clean, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+            {
+                return true;
+            }
+        }
+
+        // 3. Thử parse trực tiếp với InvariantCulture và vi-VN
+        if (DateTime.TryParse(input.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+        {
+            return true;
+        }
+
+        return DateTime.TryParse(input.Trim(), CultureInfo.GetCultureInfo("vi-VN"), DateTimeStyles.None, out date);
     }
 
     /// <summary>
@@ -796,7 +782,7 @@ public class CustomsDeclarationService : ICustomsDeclarationService
 
         // Gom nhóm các mặt hàng của đơn hàng theo StyleCode (chuẩn hóa không phân biệt hoa thường)
         var invoiceItemsGrouped = order.Items
-            .GroupBy(i => NormalizeStyleCode(i.StyleCode))
+            .GroupBy(i => $"{NormalizeStyleCode(i.StyleCode)}|{(int)i.ProcessType}")
             .ToDictionary(
                 g => g.Key,
                 g => new
@@ -811,7 +797,7 @@ public class CustomsDeclarationService : ICustomsDeclarationService
 
         // Gom nhóm các mặt hàng trên tờ khai
         var customsItemsGrouped = declaration.Items
-            .GroupBy(i => NormalizeStyleCode(i.StyleCode))
+            .GroupBy(i => $"{NormalizeStyleCode(i.StyleCode)}|{(int)i.ProcessType}")
             .ToDictionary(
                 g => g.Key,
                 g => new
@@ -820,6 +806,7 @@ public class CustomsDeclarationService : ICustomsDeclarationService
                     ProcessType = g.First().ProcessType,
                     Quantity = g.Sum(x => x.Quantity),
                     PriceDap = g.First().UnitPriceDap,
+                    HasCmt = g.Any(i => i.HasCmt || i.UnitPriceCmt != 0),
                     PriceCmt = g.First().UnitPriceCmt
                 }
             );
@@ -847,6 +834,15 @@ public class CustomsDeclarationService : ICustomsDeclarationService
             }
         }
 
+        foreach (var group in order.Items.GroupBy(i => new { Code = NormalizeStyleCode(i.StyleCode), i.ProcessType }))
+            if (group.Select(i => (i.UnitPriceDAP, i.UnitPriceCMT)).Distinct().Count() > 1)
+                discrepancies.Add($"Mã {group.Key.Code}: nhiều đơn giá trong cùng công đoạn, cần đối soát riêng.");
+        foreach (var group in declaration.Items.GroupBy(i => new { Code = NormalizeStyleCode(i.StyleCode), i.ProcessType }))
+            if (group.Select(i => (i.UnitPriceDap, i.UnitPriceCmt)).Distinct().Count() > 1)
+                discrepancies.Add($"Mã {group.Key.Code}: tờ khai có nhiều đơn giá trong cùng công đoạn.");
+        if (string.IsNullOrWhiteSpace(declaration.InvoiceNo)) discrepancies.Add("Thiếu số hóa đơn trên tờ khai.");
+        if (declaration.Items.Any(i => i.Quantity <= 0 || i.UnitPriceDap <= 0 || string.IsNullOrWhiteSpace(i.StyleCode)))
+            discrepancies.Add("Tờ khai có dòng hàng thiếu mã, số lượng hoặc đơn giá.");
         int idx = 1;
 
         foreach (var key in allStyleCodes)
@@ -872,6 +868,7 @@ public class CustomsDeclarationService : ICustomsDeclarationService
                 InvoicePriceDap = invDap,
                 CustomsPriceDap = cusDap,
                 InvoicePriceCmt = invCmt,
+                CustomsHasCmt = cusItem?.HasCmt ?? false,
                 CustomsPriceCmt = cusCmt
             };
 
@@ -917,14 +914,16 @@ public class CustomsDeclarationService : ICustomsDeclarationService
 
         decimal invoiceTotalDap = order.Items.Sum(i => i.Quantity * i.UnitPriceDAP);
         decimal customsTotalDap = declaration.TotalDap > 0 ? declaration.TotalDap : declaration.Items.Sum(i => i.Quantity * i.UnitPriceDap);
-        result.TotalDapMatched = itemsMatched || Math.Abs(invoiceTotalDap - customsTotalDap) <= Math.Max(1.0m, invoiceTotalDap * 0.002m);
+        result.TotalDapMatched = Math.Round(invoiceTotalDap, 2, MidpointRounding.AwayFromZero) == Math.Round(customsTotalDap, 2, MidpointRounding.AwayFromZero);
 
         decimal invoiceTotalCmt = order.Items.Sum(i => i.Quantity * i.UnitPriceCMT);
         decimal customsTotalCmt = declaration.TotalCmt > 0 ? declaration.TotalCmt : declaration.Items.Sum(i => i.Quantity * i.UnitPriceCmt);
-        result.TotalCmtMatched = customsTotalCmt == 0 || Math.Abs(invoiceTotalCmt - customsTotalCmt) <= 0.05m;
+        result.TotalCmtMatched = declaration.Items.Any(i => !i.HasCmt && i.UnitPriceCmt == 0) || customsTotalCmt == 0 || Math.Round(invoiceTotalCmt, 2, MidpointRounding.AwayFromZero) == Math.Round(customsTotalCmt, 2, MidpointRounding.AwayFromZero);
 
         // Đơn hàng được coi là khớp 100% khi:
         // Không bị lệch số hóa đơn, không có điểm sai lệch nào và toàn bộ các dòng hàng đối soát đều khớp
+        if (!result.TotalDapMatched) discrepancies.Add("Tổng DAP không khớp.");
+        if (!result.TotalCmtMatched) discrepancies.Add("Tổng CMT không khớp.");
         result.IsFullyMatched = !result.IsInvoiceMismatch && itemsMatched && discrepancies.Count == 0;
         result.Discrepancies = discrepancies;
 
@@ -967,70 +966,62 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         Stream? fileStream = null,
         string? originalFileName = null)
     {
-        var order = await _context.ShipmentOrders
-            .Include(s => s.Items)
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        var order = await _context.ShipmentOrders.Include(s => s.Items)
             .FirstOrDefaultAsync(s => s.Id == orderId)
-            ?? throw new KeyNotFoundException($"Không tìm thấy đơn hàng #{orderId} trong cơ sở dữ liệu.");
+            ?? throw new KeyNotFoundException($"Không tìm thấy đơn hàng #{orderId}.");
+        if (order.IsLocked || order.Status == ShipmentStatus.Cleared)
+            throw new InvalidOperationException("Đơn hàng đã thông quan và bị khóa.");
+        if (fileStream == null)
+            throw new InvalidOperationException("Phải gửi file tờ khai gốc để xác nhận.");
+        var ext = Path.GetExtension(originalFileName ?? "").ToLowerInvariant();
+        if (ext != ".xls" && ext != ".xlsx")
+            throw new InvalidOperationException("Chỉ chấp nhận file .xls hoặc .xlsx.");
 
-        // Lưu file đính kèm vào thư mục uploads/customs theo yêu cầu lưu trữ điện tử
-        string? savedFileName = null;
-        string? relativeSavedPath = null;
-        if (fileStream != null)
+        using var original = new MemoryStream();
+        await fileStream.CopyToAsync(original);
+        if (original.Length == 0 || original.Length > _options.MaxUploadBytes)
+            throw new InvalidOperationException("File trống hoặc vượt giới hạn dung lượng.");
+        original.Position = 0;
+        // ExcelDataReader may close its input, so parse an independent copy.
+        using var parseStream = new MemoryStream(original.ToArray());
+        var parsed = ParseDeclarationFile(parseStream, originalFileName!);
+        if (string.IsNullOrWhiteSpace(parsed.DeclarationNo) || !parsed.ClearanceDate.HasValue)
+            throw new InvalidOperationException("Tờ khai thiếu số hoặc ngày đăng ký hợp lệ.");
+        var comparison = await ReconcileAsync(parsed, orderId);
+        if (!comparison.IsFullyMatched)
+            throw new InvalidOperationException(string.Join(" ", comparison.Discrepancies.Prepend("Tờ khai chưa khớp với đơn hiện tại.")));
+
+        var storageDir = Path.GetFullPath(Path.Combine(_environment.ContentRootPath, _options.CustomsStoragePath));
+        Directory.CreateDirectory(storageDir);
+        var safeDeclaration = Regex.Replace(parsed.DeclarationNo, @"[^A-Za-z0-9_-]", "_");
+        var savedFileName = $"{safeDeclaration}_{Guid.NewGuid():N}{ext}";
+        var fullPath = Path.Combine(storageDir, savedFileName);
+        try
         {
-            string storageDir = Path.Combine(_environment.ContentRootPath, "Uploads", "Customs");
-            if (!Directory.Exists(storageDir))
-            {
-                Directory.CreateDirectory(storageDir);
-            }
-
-            string ext = !string.IsNullOrWhiteSpace(originalFileName) 
-                ? Path.GetExtension(originalFileName) 
-                : ".xls";
-            if (string.IsNullOrEmpty(ext)) ext = ".xls";
-
-            string declPart = string.IsNullOrWhiteSpace(request.DeclarationNo) ? "TK" : request.DeclarationNo.Trim();
-            savedFileName = $"{declPart}_{DateTime.Now:yyyyMMddHHmmss}{ext}";
-            string fullPath = Path.Combine(storageDir, savedFileName);
-            relativeSavedPath = Path.Combine("Uploads", "Customs", savedFileName).Replace("\\", "/");
-
-            using var targetStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write);
-            await fileStream.CopyToAsync(targetStream);
-        }
-
-        // Cập nhật thông tin pháp lý hải quan vào ShipmentOrder
-        order.DeclarationNo = request.DeclarationNo;
-        order.ClearanceDate = request.ClearanceDate ?? DateTime.UtcNow;
-        order.CustomsDeclarationType = !string.IsNullOrWhiteSpace(request.CustomsDeclarationType)
-            ? request.CustomsDeclarationType
-            : "E52";
-        order.CustomsChannel = request.CustomsChannel;
-        order.CustomsOffice = request.CustomsOffice;
-        order.CustomsPackageQty = request.CustomsPackageQty;
-        order.CustomsGrossWeight = request.CustomsGrossWeight;
-        order.CustomsTotalDap = request.CustomsTotalDap;
-        order.CustomsTotalCmt = request.CustomsTotalCmt;
-
-        if (!string.IsNullOrEmpty(savedFileName))
-        {
+            await File.WriteAllBytesAsync(fullPath, original.ToArray());
+            order.DeclarationNo = parsed.DeclarationNo;
+            order.ClearanceDate = parsed.ClearanceDate;
+            order.CustomsDeclarationType = parsed.CustomsDeclarationType;
+            order.CustomsChannel = parsed.CustomsChannel;
+            order.CustomsOffice = parsed.CustomsOffice;
+            order.CustomsPackageQty = parsed.PackageQty;
+            order.CustomsGrossWeight = parsed.GrossWeight;
+            order.CustomsTotalDap = parsed.TotalDap;
+            order.CustomsTotalCmt = parsed.TotalCmt;
             order.CustomsAttachmentFileName = savedFileName;
-            order.CustomsAttachmentFilePath = relativeSavedPath;
-        }
-
-        // Cập nhật trạng thái và khóa hồ sơ điện tử
-        if (request.IsFullyMatched)
-        {
+            order.CustomsAttachmentFilePath = Path.GetRelativePath(_environment.ContentRootPath, fullPath).Replace("\\", "/");
             order.Status = ShipmentStatus.Cleared;
-            order.IsLocked = true; // Khóa chỉnh sửa hồ sơ sau khi thông quan
+            order.IsLocked = true;
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return order;
         }
-        else
+        catch
         {
-            order.Status = ShipmentStatus.Discrepancy;
+            if (File.Exists(fullPath)) File.Delete(fullPath);
+            throw;
         }
-
-        await _context.SaveChangesAsync();
-        _logger.LogInformation("Đã xác nhận đồng bộ thông tin hải quan cho đơn hàng #{OrderId} (Status: {Status}, IsLocked: {IsLocked})", orderId, order.Status, order.IsLocked);
-
-        return order;
     }
 
     /// <summary>
@@ -1045,21 +1036,13 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         }
 
         string? filePath = null;
+        var roots = new[] { _options.CustomsStoragePath, "Uploads/Customs", "data/customs" }
+            .Select(p => Path.GetFullPath(Path.Combine(_environment.ContentRootPath, p))).Distinct().ToList();
+        var candidates = roots.Select(p => Path.Combine(p, Path.GetFileName(order.CustomsAttachmentFileName ?? ""))).ToList();
         if (!string.IsNullOrEmpty(order.CustomsAttachmentFilePath))
-        {
-            string candidate = Path.IsPathRooted(order.CustomsAttachmentFilePath)
-                ? order.CustomsAttachmentFilePath
-                : Path.Combine(_environment.ContentRootPath, order.CustomsAttachmentFilePath);
-            if (File.Exists(candidate)) filePath = candidate;
-        }
-
-        if (filePath == null && !string.IsNullOrEmpty(order.CustomsAttachmentFileName))
-        {
-            string candidate1 = Path.Combine(_environment.ContentRootPath, "Uploads", "Customs", order.CustomsAttachmentFileName);
-            string candidate2 = Path.Combine(_environment.ContentRootPath, "data", "customs", order.CustomsAttachmentFileName);
-            if (File.Exists(candidate1)) filePath = candidate1;
-            else if (File.Exists(candidate2)) filePath = candidate2;
-        }
+            candidates.Insert(0, Path.GetFullPath(Path.Combine(_environment.ContentRootPath, order.CustomsAttachmentFilePath)));
+        filePath = candidates.FirstOrDefault(candidate => roots.Any(root =>
+            candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) && File.Exists(candidate));
 
         if (filePath == null || !File.Exists(filePath))
         {

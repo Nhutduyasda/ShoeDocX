@@ -48,13 +48,16 @@ public class CustomsController : ControllerBase
             var reconciliation = await _customsService.ReconcileAsync(parsedDeclaration, orderId);
             return Ok(reconciliation);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi bóc tách và đối soát file tờ khai: {FileName}", file.FileName);
             return StatusCode(500, new
             {
-                message = "Không thể bóc tách file tờ khai hải quan. Vui lòng kiểm tra định dạng file kết xuất từ VNACCS.",
-                detail = ex.Message
+                message = "Không thể bóc tách file tờ khai hải quan. Vui lòng kiểm tra định dạng file kết xuất từ VNACCS."
             });
         }
     }
@@ -82,12 +85,12 @@ public class CustomsController : ControllerBase
         try
         {
             var actualFile = file ?? customsFile ?? request.CustomsFile;
-            Stream? fileStream = null;
+            using Stream? fileStream = actualFile?.OpenReadStream();
             string? fileName = null;
 
             if (actualFile != null && actualFile.Length > 0)
             {
-                fileStream = actualFile.OpenReadStream();
+
                 fileName = actualFile.FileName;
             }
 
@@ -95,7 +98,7 @@ public class CustomsController : ControllerBase
 
             return Ok(new
             {
-                message = request.IsFullyMatched
+                message = updatedOrder.IsLocked
                     ? $"Đồng bộ tờ khai {updatedOrder.DeclarationNo} thành công! Đơn hàng đã chuyển sang trạng thái Đã thông quan."
                     : "Đã cập nhật thông tin tờ khai. Đơn hàng được ghi nhận có sai lệch số liệu so với tờ khai hải quan.",
                 orderId = updatedOrder.Id,
@@ -120,13 +123,16 @@ public class CustomsController : ControllerBase
         {
             return NotFound(new { message = knf.Message });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi xác nhận đồng bộ hải quan cho đơn hàng #{OrderId}", targetOrderId);
             return StatusCode(500, new
             {
-                message = "Lỗi khi lưu thông tin hải quan vào đơn hàng.",
-                detail = ex.Message
+                message = "Lỗi khi lưu thông tin hải quan vào đơn hàng."
             });
         }
     }
@@ -147,10 +153,14 @@ public class CustomsController : ControllerBase
 
             return File(attachment.Value.Bytes, attachment.Value.ContentType, attachment.Value.FileName);
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi tải file tờ khai đính kèm đơn hàng #{OrderId}", orderId);
-            return StatusCode(500, new { message = "Lỗi khi tải file tờ khai.", detail = ex.Message });
+            return StatusCode(500, new { message = "Lỗi khi tải file tờ khai." });
         }
     }
 }

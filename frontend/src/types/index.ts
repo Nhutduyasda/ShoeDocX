@@ -199,6 +199,7 @@ export interface ShipmentOrder {
   invoiceNo: string;
   invoiceDate: string;
   poSuffix?: string;
+  contractFolderId?: number | null;
   contractNo?: string;
   customerName: string;
   address?: string;
@@ -223,6 +224,9 @@ export interface ShipmentOrder {
 }
 
 export interface ShipmentOrderItem {
+  description: string;
+  unit: string;
+  pairPerCarton: number;
   id: number;
   shipmentOrderId: number;
   styleCode: string;
@@ -246,9 +250,11 @@ export interface CreateShipmentItem {
 }
 
 export interface CreateShipmentRequest {
+  orderId?: number;
   invoiceNo: string;
   invoiceDate: string;
   poSuffix: string;
+  contractFolderId?: number | null;
   contractNo: string;
   customerName: string;
   address: string;
@@ -292,6 +298,7 @@ export interface SavedShipmentSummary {
   invoiceNo: string;
   invoiceDate: string;
   poSuffix: string;
+  contractFolderId?: number | null;
   contractNo: string;
   customerName: string;
   deliveryTerms: string;
@@ -422,6 +429,7 @@ export interface MatchedOrderSummary {
   invoiceNo: string;
   invoiceDate: string;
   poSuffix?: string;
+  contractFolderId?: number | null;
   contractNo?: string;
   customerName: string;
   totalQuantity: number;
@@ -459,7 +467,7 @@ export interface ConfirmCustomsSyncRequest {
 }
 
 // ==========================================
-// CUSTOMS SETTLEMENT (MẪU 16/BCQT-SP-GSQL)
+// CUSTOMS SETTLEMENT (ĐỐI CHIẾU NỘI BỘ)
 // ==========================================
 
 export interface SettlementItem {
@@ -506,6 +514,7 @@ export interface SettlementReport {
   year: number;
   fromDate: string;
   toDate: string;
+  contractFolderId?: number | null;
   contractNo?: string;
   customsOffice?: string;
   status?: 'Draft' | 'Finalized';
@@ -526,6 +535,7 @@ export interface CalculateSettlementRequest {
   year: number;
   fromDate: string;
   toDate: string;
+  contractFolderId?: number | null;
   contractNo?: string;
   customsOffice?: string;
 }
@@ -535,6 +545,7 @@ export interface SaveSettlementPeriodRequest {
   year: number;
   fromDate: string;
   toDate: string;
+  contractFolderId?: number | null;
   contractNo?: string;
   customsOffice?: string;
   status?: 'Draft' | 'Finalized';
@@ -550,6 +561,7 @@ export interface SettlementPeriodSummary {
   year: number;
   fromDate: string;
   toDate: string;
+  contractFolderId?: number | null;
   contractNo?: string;
   customsOffice?: string;
   status?: 'Draft' | 'Finalized';
@@ -564,6 +576,7 @@ export interface SettlementDrillDownItem {
   declarationNo: string;
   clearanceDate?: string;
   invoiceNo: string;
+  contractFolderId?: number | null;
   contractNo?: string;
   productCode: string;
   fullItemCode: string;
@@ -644,6 +657,7 @@ export interface BatchScanItemExport {
 
 export interface BatchOcrConfirmRequest {
   poSuffix?: string;
+  contractFolderId?: number | null;
   contractNo?: string;
   customerName?: string;
   address?: string;

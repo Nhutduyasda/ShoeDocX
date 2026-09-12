@@ -24,6 +24,7 @@ public class AppDbContext : DbContext
         // MasterDataFolder configuration
         modelBuilder.Entity<MasterDataFolder>(entity =>
         {
+            entity.HasIndex(f => f.ParentId);
             entity.HasOne(f => f.Parent)
                   .WithMany(f => f.Children)
                   .HasForeignKey(f => f.ParentId)
@@ -33,19 +34,25 @@ public class AppDbContext : DbContext
         // ProductMaster configuration
         modelBuilder.Entity<ProductMaster>(entity =>
         {
-            entity.HasIndex(e => e.StyleCode).IsUnique();
+            entity.Property(e => e.StyleCode).UseCollation("NOCASE");
+            entity.HasIndex(e => new { e.FolderId, e.StyleCode }).IsUnique();
+            entity.HasIndex(e => e.StyleCode).IsUnique().HasFilter("\"FolderId\" IS NULL");
             entity.Property(e => e.UnitPriceCMT).HasPrecision(18, 4);
             entity.Property(e => e.UnitPriceDAP).HasPrecision(18, 4);
             entity.HasOne(e => e.Folder)
                   .WithMany(f => f.Products)
                   .HasForeignKey(e => e.FolderId)
-                  .OnDelete(DeleteBehavior.SetNull);
+                  .OnDelete(DeleteBehavior.Restrict);
         });
 
         // ShipmentOrder configuration
         modelBuilder.Entity<ShipmentOrder>(entity =>
         {
             entity.HasIndex(e => e.InvoiceNo).IsUnique();
+            entity.HasOne<MasterDataFolder>().WithMany().HasForeignKey(e => e.ContractFolderId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => new { e.ContractFolderId, e.Status, e.CustomsDeclarationType, e.ClearanceDate });
+            entity.Property(e => e.IsLocked).IsConcurrencyToken();
+            entity.Property(e => e.Status).IsConcurrencyToken();
             entity.HasIndex(e => e.DeclarationNo);
             entity.Property(e => e.CustomsGrossWeight).HasPrecision(18, 4);
             entity.Property(e => e.CustomsTotalDap).HasPrecision(18, 4);
@@ -59,6 +66,7 @@ public class AppDbContext : DbContext
         // ShipmentOrderItem configuration
         modelBuilder.Entity<ShipmentOrderItem>(entity =>
         {
+            entity.HasIndex(e => e.StyleCode);
             entity.Property(e => e.UnitPriceCMT).HasPrecision(18, 4);
             entity.Property(e => e.UnitPriceDAP).HasPrecision(18, 4);
         });
@@ -72,6 +80,8 @@ public class AppDbContext : DbContext
         // CustomsSettlementPeriod configuration
         modelBuilder.Entity<CustomsSettlementPeriod>(entity =>
         {
+            entity.HasOne<MasterDataFolder>().WithMany().HasForeignKey(e => e.ContractFolderId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => new { e.ContractFolderId, e.ToDate });
             entity.HasMany(e => e.Items)
                   .WithOne(e => e.SettlementPeriod)
                   .HasForeignKey(e => e.SettlementPeriodId)
@@ -81,6 +91,7 @@ public class AppDbContext : DbContext
         // CustomsSettlementItem configuration
         modelBuilder.Entity<CustomsSettlementItem>(entity =>
         {
+            entity.HasIndex(e => new { e.SettlementPeriodId, e.ProductCode });
             entity.Property(e => e.OpeningBalance).HasPrecision(18, 2);
             entity.Property(e => e.InPeriodProduction).HasPrecision(18, 2);
             entity.Property(e => e.InPeriodExport).HasPrecision(18, 2);

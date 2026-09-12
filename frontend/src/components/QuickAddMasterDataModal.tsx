@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, InputNumber, Row, Col, message, Alert, Typography } from 'antd';
 import { PlusCircleOutlined, CheckCircleOutlined, DollarOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { ProductMaster, CreateProductMasterRequest } from '../types';
@@ -7,6 +7,8 @@ import { productMasterApi } from '../api/productMasterApi';
 const { Text } = Typography;
 
 interface QuickAddMasterDataModalProps {
+  folderId?: number | null;
+  defaultPairsPerCarton?: number;
   visible: boolean;
   styleCode: string;
   initialDescription?: string;
@@ -16,6 +18,8 @@ interface QuickAddMasterDataModalProps {
 }
 
 export const QuickAddMasterDataModal: React.FC<QuickAddMasterDataModalProps> = ({
+  folderId,
+  defaultPairsPerCarton = 12,
   visible,
   styleCode,
   initialDescription = '',
@@ -41,12 +45,12 @@ export const QuickAddMasterDataModal: React.FC<QuickAddMasterDataModalProps> = (
         unitPriceDAP: 0,
         unitPriceCMT_Go: 0,
         unitPriceDAP_Go: 0,
-        pairPerCarton: 12,
+        pairPerCarton: defaultPairsPerCarton,
         hsCode: '64041990',
         unit: 'đôi',
       });
     }
-  }, [visible, cleanStyleCode, initialDescription, form]);
+  }, [visible, cleanStyleCode, initialDescription, form, defaultPairsPerCarton]);
 
   const handleSaveAndApply = async () => {
     try {
@@ -54,6 +58,7 @@ export const QuickAddMasterDataModal: React.FC<QuickAddMasterDataModalProps> = (
       setLoading(true);
 
       const payload: CreateProductMasterRequest = {
+        folderId,
         styleCode: values.styleCode.trim().toUpperCase(),
         description: values.description.trim(),
         unitPriceCMT: values.unitPriceCMT || 0,

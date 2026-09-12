@@ -239,7 +239,7 @@ public class MasterDataFolderTests : IDisposable
     {
         using var context = new AppDbContext(_dbOptions);
         var folderService = new MasterDataFolderService(context, NullLogger<MasterDataFolderService>.Instance);
-        var productService = new ProductMasterService(context, NullLogger<ProductMasterService>.Instance);
+        var productService = new ProductMasterService(context);
 
         // 1. Create Folder A and Subfolder A1
         var folderA = await folderService.CreateFolderAsync(new CreateFolderDto { Name = "Folder A" });

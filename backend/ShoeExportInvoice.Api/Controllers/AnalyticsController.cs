@@ -37,8 +37,7 @@ public class AnalyticsController : ControllerBase
             _logger.LogError(ex, "Lỗi khi lấy thống kê phân tích xuất khẩu năm {Year}", targetYear);
             return StatusCode(500, new
             {
-                message = "Không thể lấy thống kê xuất khẩu.",
-                detail = ex.Message
+                message = "Không thể lấy thống kê xuất khẩu."
             });
         }
     }

@@ -60,8 +60,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
       setDownloadingTemplate(true);
       await productMasterApi.downloadTemplate();
       message.success('Đã tải xuống file mẫu Excel');
-    } catch (err) {
-      console.error(err);
+    } catch {
       message.error('Không thể tải file mẫu Excel');
     } finally {
       setDownloadingTemplate(false);
@@ -94,7 +93,6 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
         `Đã phân tích file: tìm thấy ${preview.totalRows} dòng dữ liệu, bắt đầu từ dòng ${preview.startRowIndex}`
       );
     } catch (err: any) {
-      console.error(err);
       message.error(err.response?.data?.message || 'Không thể phân tích cấu trúc file Excel');
       setPreviewData(null);
     } finally {
@@ -131,7 +129,6 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
         onSuccess();
       }
     } catch (err: any) {
-      console.error(err);
       const errorMsg =
         err.response?.data?.message || err.message || 'Lỗi xảy ra trong quá trình import dữ liệu';
       message.error(errorMsg);

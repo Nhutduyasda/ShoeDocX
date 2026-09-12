@@ -233,7 +233,7 @@ public class ProductMastersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi phân tích file Excel xem trước: {FileName}", file.FileName);
-            return StatusCode(500, new { message = "Không thể phân tích file Excel: " + ex.Message });
+            return StatusCode(500, new { message = "Không thể phân tích file Excel. Vui lòng kiểm tra định dạng." });
         }
     }
 

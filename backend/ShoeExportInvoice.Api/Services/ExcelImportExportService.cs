@@ -13,11 +13,13 @@ public class ExcelImportExportService : IExcelImportExportService
 {
     private readonly AppDbContext _context;
     private readonly ILogger<ExcelImportExportService> _logger;
+    private readonly XnkOptions _options;
 
-    public ExcelImportExportService(AppDbContext context, ILogger<ExcelImportExportService> logger)
+    public ExcelImportExportService(AppDbContext context, ILogger<ExcelImportExportService> logger, Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null)
     {
         _context = context;
         _logger = logger;
+        _options = options?.Value ?? new XnkOptions();
     }
 
     /// <summary>
@@ -41,6 +43,8 @@ public class ExcelImportExportService : IExcelImportExportService
 
     private string GetTemplatePath()
     {
+        var configured = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, _options.ShipmentTemplatePath));
+        if (File.Exists(configured)) return configured;
         var possiblePaths = new[]
         {
             Path.Combine(AppContext.BaseDirectory, "Templates", "Shipment_Template.xlsx"),
@@ -311,9 +315,9 @@ public class ExcelImportExportService : IExcelImportExportService
             .ToList();
 
         Dictionary<string, ProductMaster>? products = null;
-        if (_context != null && styleCodes.Count > 0)
+        if (_context != null && !request.UseSavedSnapshot && styleCodes.Count > 0)
         {
-            products = _context.ProductMasters
+            products = _context.ProductMasters.Where(p => p.FolderId == request.ContractFolderId)
                 .Where(p => styleCodes.Contains(p.StyleCode.ToUpper()))
                 .ToDictionary(p => p.StyleCode.ToUpper(), p => p);
         }
@@ -446,7 +450,7 @@ public class ExcelImportExportService : IExcelImportExportService
 
         // Nạp thông tin sản phẩm thiếu từ Database nếu có DbContext
         Dictionary<string, ProductMaster>? dbProducts = null;
-        if (_context != null)
+        if (_context != null && !request.UseSavedSnapshot)
         {
             var distinctCodes = request.Items
                 .Select(x => (x.StyleCode ?? string.Empty).Trim())
@@ -459,7 +463,7 @@ public class ExcelImportExportService : IExcelImportExportService
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            var list = await _context.ProductMasters
+            var list = await _context.ProductMasters.Where(p => p.FolderId == request.ContractFolderId)
                 .Where(p => lookupCodes.Contains(p.StyleCode) || distinctCodes.Contains(p.StyleCode))
                 .ToListAsync();
 
@@ -695,12 +699,23 @@ public class ExcelImportExportService : IExcelImportExportService
         {
             // Load toàn bộ danh mục từ DB
             var allProducts = _context != null
-                ? await _context.ProductMasters
+                ? await _context.ProductMasters.Where(p => p.FolderId == request.ContractFolderId)
                     .AsNoTracking()
                     .OrderBy(p => p.StyleCode)
                     .ToListAsync()
                 : new List<ProductMaster>();
 
+            if (request.UseSavedSnapshot || (allProducts.Count == 0 && request.Items.Count > 0))
+            {
+                allProducts = request.Items.GroupBy(i => CustomsDeclarationService.NormalizeStyleCode(i.StyleCode))
+                    .Select(g => new ProductMaster {
+                        StyleCode = g.Key, Description = g.First().Description ?? "", Unit = g.First().Unit,
+                        UnitPriceCMT = g.First().UnitPriceCMT ?? 0, UnitPriceDAP = g.First().UnitPriceDAP ?? 0,
+                        UnitPriceCMT_Go = g.FirstOrDefault(i => i.ProcessType == ProcessType.GoKhongMay)?.UnitPriceCMT,
+                        UnitPriceDAP_Go = g.FirstOrDefault(i => i.ProcessType == ProcessType.GoKhongMay)?.UnitPriceDAP
+                    }).ToList();
+            }
+            sheet2.Clear(XLClearOptions.Contents);
             int sheet2Row = 1;
 
             foreach (var pm in allProducts)
@@ -877,7 +892,7 @@ public class ExcelImportExportService : IExcelImportExportService
         var result = new ImportResultDto();
 
         MasterDataFolder? targetFolder = null;
-        if (folderId.HasValue && _context != null)
+        if (folderId.HasValue)
         {
             targetFolder = await _context.MasterDataFolders.FindAsync(folderId.Value);
         }
@@ -908,7 +923,7 @@ public class ExcelImportExportService : IExcelImportExportService
             return result;
         }
 
-        var existingProducts = await _context.ProductMasters.ToDictionaryAsync(p => p.StyleCode.ToUpperInvariant(), p => p);
+        var existingProducts = await _context.ProductMasters.Where(p => p.FolderId == folderId).ToDictionaryAsync(p => p.StyleCode.ToUpperInvariant(), p => p);
 
         for (int r = startRow; r <= lastRow; r++)
         {
@@ -1532,22 +1547,11 @@ public class ExcelImportExportService : IExcelImportExportService
                 return true;
             }
 
-            str = str.Replace("$", "")
-                     .Replace("USD", "", StringComparison.OrdinalIgnoreCase)
-                     .Replace("đ", "", StringComparison.OrdinalIgnoreCase)
+            str = str.Replace("đ", "", StringComparison.OrdinalIgnoreCase)
                      .Replace("VND", "", StringComparison.OrdinalIgnoreCase)
                      .Trim();
 
-            if (str.Contains(',') && str.Contains('.'))
-            {
-                str = str.Replace(",", "");
-            }
-            else if (str.Contains(','))
-            {
-                str = str.Replace(',', '.');
-            }
-
-            if (decimal.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+            if (CustomsDeclarationService.TryParseCustomsDecimal(str, out var parsed))
             {
                 value = parsed;
                 return true;

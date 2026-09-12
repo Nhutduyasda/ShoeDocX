@@ -14,12 +14,14 @@ public class SequenceService : ISequenceService
     private const string LastSequenceKey = "LastSequenceNumber";
 
     // Số bắt đầu mặc định nếu chưa có trong DB
-    private const int DefaultStartNumber = 232; // Số tiếp theo sẽ là 233
+    private int DefaultStartNumber => _options.FirstInvoiceNumber - 1;
+    private readonly XnkOptions _options;
 
-    public SequenceService(AppDbContext context, ILogger<SequenceService> logger)
+    public SequenceService(AppDbContext context, ILogger<SequenceService> logger, Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null)
     {
         _context = context;
         _logger = logger;
+        _options = options?.Value ?? new XnkOptions();
     }
 
     /// <inheritdoc/>
@@ -28,6 +30,7 @@ public class SequenceService : ISequenceService
         if (count <= 0) throw new ArgumentOutOfRangeException(nameof(count), "Số lượng phải lớn hơn 0.");
         if (count > 100) throw new ArgumentOutOfRangeException(nameof(count), "Không thể cấp quá 100 số cùng lúc.");
 
+        await using var transaction = _context.Database.CurrentTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
         var setting = await _context.SystemSettings
             .FirstOrDefaultAsync(s => s.Key == LastSequenceKey);
 
@@ -57,6 +60,7 @@ public class SequenceService : ISequenceService
         }
 
         await _context.SaveChangesAsync();
+        if (transaction != null) await transaction.CommitAsync();
         _logger.LogInformation("Đã cấp {Count} số thứ tự: {Numbers}", count, string.Join(", ", numbers));
         return numbers;
     }
@@ -69,6 +73,7 @@ public class SequenceService : ISequenceService
         // Lưu (nextNumber - 1) vì lần tiếp theo sẽ cấp nextNumber
         int lastUsed = nextNumber - 1;
 
+        await using var transaction = _context.Database.CurrentTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
         var setting = await _context.SystemSettings
             .FirstOrDefaultAsync(s => s.Key == LastSequenceKey);
 
@@ -83,11 +88,13 @@ public class SequenceService : ISequenceService
         }
         else
         {
+            if (int.TryParse(setting.Value, out var current) && current > lastUsed) lastUsed = current;
             setting.Value = lastUsed.ToString();
             setting.UpdatedAt = DateTime.UtcNow;
         }
 
         await _context.SaveChangesAsync();
+        if (transaction != null) await transaction.CommitAsync();
         _logger.LogInformation("Đã ghi đè số thứ tự: lần tiếp theo sẽ bắt đầu từ {NextNumber}", nextNumber);
     }
 
@@ -109,13 +116,13 @@ public class SequenceService : ISequenceService
     /// <inheritdoc/>
     public string ToInvoiceNo(int sequenceNumber)
     {
-        return $"KMHD-NEW2026-0{sequenceNumber}";
+        return $"{_options.InvoicePrefix}{sequenceNumber}";
     }
 
     /// <inheritdoc/>
     public string ToFileName(int sequenceNumber)
     {
-        return $"KM3-26-DH{sequenceNumber}.xlsx";
+        return $"{_options.FilePrefix}{sequenceNumber}.xlsx";
     }
 
     /// <inheritdoc/>

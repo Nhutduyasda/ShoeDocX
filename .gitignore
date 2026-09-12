@@ -36,3 +36,7 @@ Thumbs.db
 # Test output artifacts
 **/output_*.xlsx
 output_*.xlsx
+
+# Isolated audit smoke environment
+.audit-run/
+**/TestResults/

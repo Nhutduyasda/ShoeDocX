@@ -5,6 +5,10 @@ namespace ShoeExportInvoice.Api.Models.Dtos;
 
 public class CreateShipmentRequestDto
 {
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool UseSavedSnapshot { get; set; }
+    public int? OrderId { get; set; }
+    public int? ContractFolderId { get; set; }
     [Required(ErrorMessage = "Số hóa đơn (Invoice No) không được để trống")]
     [MaxLength(100)]
     public string InvoiceNo { get; set; } = "KMHD-NEW2026-0233";

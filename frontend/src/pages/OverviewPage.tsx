@@ -193,7 +193,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             onClick={() => onNavigate('settlement')}
             className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50"
           >
-            Quyết toán Mẫu 16
+            Quyết toán đối chiếu nội bộ
           </Button>
           <Button
             icon={<CameraOutlined />}

@@ -111,9 +111,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         },
         {
           key: 'settlement',
-          label: 'Quyết toán Hải quan (Mẫu 16)',
+          label: 'Quyết toán Hải quan (đối chiếu nội bộ)',
           icon: <AuditOutlined className="text-base" />,
-          badge: 'Mẫu 16',
+          badge: 'đối chiếu nội bộ',
         },
       ],
     },
@@ -154,7 +154,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       case 'settlement':
         return [
           { title: <span className="text-slate-400">Nghiệp vụ</span> },
-          { title: <span className="text-slate-700 font-medium">Quyết toán Hải quan (Mẫu 16) & Thống kê Kim ngạch</span> },
+          { title: <span className="text-slate-700 font-medium">Quyết toán Hải quan (đối chiếu nội bộ) & Thống kê Kim ngạch</span> },
         ];
       case 'products':
         return [

@@ -13,8 +13,14 @@ builder.Services.AddControllers()
     });
 
 // Database Context (SQLite)
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
-    ?? "Data Source=shoe_export.db";
+builder.Services.AddOptions<DatabaseOptions>().BindConfiguration("ConnectionStrings").ValidateDataAnnotations().ValidateOnStart();
+builder.Services.AddOptions<XnkOptions>().BindConfiguration("Xnk").ValidateDataAnnotations().ValidateOnStart();
+builder.Services.AddOptions<OcrOptions>().BindConfiguration("OpenAI")
+    .PostConfigure(o => o.ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? o.ApiKey)
+    .ValidateDataAnnotations().ValidateOnStart();
+var databaseOptions = builder.Configuration.GetSection("ConnectionStrings").Get<DatabaseOptions>()
+    ?? throw new InvalidOperationException("Thiếu cấu hình ConnectionStrings.");
+var connectionString = databaseOptions.DefaultConnection;
 
 // Ensure SQLite directory exists if a file path is specified (e.g. /app/data/shoe_export.db)
 try
@@ -52,11 +58,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins(
-                "http://localhost:5173",
-                "http://localhost:3000",
-                "http://127.0.0.1:5173",
-                "http://127.0.0.1:3000")
+        policy.WithOrigins(builder.Configuration.GetSection("Xnk").Get<XnkOptions>()?.AllowedOrigins ?? new XnkOptions().AllowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -75,7 +77,27 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
+    o.MultipartBodyLengthLimit = builder.Configuration.GetValue<long?>("Xnk:MaxUploadBytes") ?? 20971520);
 var app = builder.Build();
+app.Use(async (context, next) =>
+{
+    try { await next(context); }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Request failed: {TraceId}", context.TraceIdentifier);
+        context.Response.StatusCode = ex switch {
+            DbUpdateException => 409,
+            KeyNotFoundException => 404,
+            InvalidOperationException or ArgumentException => 400,
+            _ => 500
+        };
+        await context.Response.WriteAsJsonAsync(new { message = context.Response.StatusCode == 409
+            ? "Dữ liệu đã thay đổi hoặc bị trùng. Vui lòng tải lại và thử lại."
+            : context.Response.StatusCode == 400 ? ex.Message : "Không thể hoàn tất yêu cầu.",
+            traceId = context.TraceIdentifier });
+    }
+});
 
 // Auto initialize and seed database on startup
 using (var scope = app.Services.CreateScope())
@@ -91,8 +113,11 @@ using (var scope = app.Services.CreateScope())
     catch (Exception ex)
     {
         logger.LogError(ex, "Lỗi xảy ra trong quá trình khởi tạo cơ sở dữ liệu.");
+        throw;
     }
 }
+
+if (args.Contains("--migrate-only")) return;
 
 // Swagger UI
 if (app.Environment.IsDevelopment())

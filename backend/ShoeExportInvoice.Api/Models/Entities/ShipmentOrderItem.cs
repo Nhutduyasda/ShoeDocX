@@ -6,6 +6,9 @@ namespace ShoeExportInvoice.Api.Models.Entities;
 [Table("ShipmentOrderItems")]
 public class ShipmentOrderItem
 {
+    public string Description { get; set; } = "";
+    public string Unit { get; set; } = "đôi";
+    public int PairPerCarton { get; set; } = 12;
     [Key]
     public int Id { get; set; }
 

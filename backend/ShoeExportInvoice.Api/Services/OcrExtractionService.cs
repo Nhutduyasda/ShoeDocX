@@ -13,18 +13,18 @@ public class OcrExtractionService : IOcrExtractionService
 {
     private readonly HttpClient _httpClient;
     private readonly AppDbContext _context;
-    private readonly IConfiguration _configuration;
+    private readonly OcrOptions _options;
     private readonly ILogger<OcrExtractionService> _logger;
 
     public OcrExtractionService(
         HttpClient httpClient,
         AppDbContext context,
         IConfiguration configuration,
-        ILogger<OcrExtractionService> logger)
+        ILogger<OcrExtractionService> logger, Microsoft.Extensions.Options.IOptions<OcrOptions>? options = null)
     {
         _httpClient = httpClient;
         _context = context;
-        _configuration = configuration;
+        _options = options?.Value ?? configuration.GetSection("OpenAI").Get<OcrOptions>() ?? new OcrOptions();
         _logger = logger;
     }
 
@@ -33,9 +33,7 @@ public class OcrExtractionService : IOcrExtractionService
         string mimeType,
         CancellationToken cancellationToken = default)
     {
-        var openAiKey = _configuration["OpenAI:ApiKey"]
-            ?? _configuration["OcrSettings:OpenAIApiKey"]
-            ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        var openAiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? _options.ApiKey;
 
         if (string.IsNullOrWhiteSpace(openAiKey))
         {
@@ -72,11 +70,9 @@ public class OcrExtractionService : IOcrExtractionService
         string apiKey,
         CancellationToken cancellationToken)
     {
-        var model = _configuration["OpenAI:Model"]
-            ?? _configuration["OcrSettings:OpenAIModel"]
-            ?? "gpt-4o-mini";
+        var model = _options.Model;
 
-        var url = "https://api.openai.com/v1/chat/completions";
+        var url = _options.Endpoint;
 
         var prompt = @"Bạn là trợ lý bóc tách bảng số liệu kiểm kho từ hình ảnh. Hãy đọc thật kỹ từng dòng trong bảng:
 1. Tiêu đề: Đọc chính xác dòng text màu đỏ/đen ở trên cùng của bảng (Ví dụ: ""LẦN 20 08/9 5BUY HD THÀNH HÌNH"").
@@ -242,7 +238,8 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
         var dbProducts = await _context.ProductMasters
             .AsNoTracking()
             .Where(p => lookupCodes.Contains(p.StyleCode.ToUpper()))
-            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p, cancellationToken);
+            .ToListAsync(cancellationToken);
+        var productMap = dbProducts.GroupBy(p => p.StyleCode.ToUpperInvariant()).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
 
         var finalItems = new List<OcrItemDto>();
         foreach (var raw in extractedItems)
@@ -250,7 +247,7 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
             var upperCode = raw.StyleCode.ToUpperInvariant();
             var lookupCode = upperCode.EndsWith(".G") ? upperCode.Substring(0, upperCode.Length - 2).Trim() : upperCode;
 
-            dbProducts.TryGetValue(lookupCode, out var matchedProduct);
+            productMap.TryGetValue(lookupCode, out var matchedProduct);
 
             // Kiểm tra quy trình Gò không may
             var isGoProcess = raw.Note.Contains("GÒ", StringComparison.OrdinalIgnoreCase)

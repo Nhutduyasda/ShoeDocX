@@ -1,7 +1,20 @@
-﻿import React, { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { Modal, Form, Input, InputNumber, Row, Col, message, Divider, TreeSelect } from 'antd';
 import type { ProductMaster, CreateProductMasterRequest, MasterDataFolder } from '../types';
 import { productMasterApi } from '../api/productMasterApi';
+
+  const findFolder = (nodes: MasterDataFolder[], id: number): MasterDataFolder | null => {
+    for (const n of nodes) {
+      if (n.id === id) return n;
+      if (n.children) {
+        const found = findFolder(n.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+const emptyFolders: MasterDataFolder[] = [];
 
 interface ProductModalProps {
   visible: boolean;
@@ -15,7 +28,7 @@ interface ProductModalProps {
 export const ProductModal: React.FC<ProductModalProps> = ({
   visible,
   product,
-  folders = [],
+  folders = emptyFolders,
   defaultFolderId,
   onCancel,
   onSuccess,
@@ -33,16 +46,6 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     }));
   };
 
-  const findFolder = (nodes: MasterDataFolder[], id: number): MasterDataFolder | null => {
-    for (const n of nodes) {
-      if (n.id === id) return n;
-      if (n.children) {
-        const found = findFolder(n.children, id);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
 
   useEffect(() => {
     if (visible) {
@@ -72,7 +75,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         });
       }
     }
-  }, [visible, product, defaultFolderId, form]);
+  }, [visible, product, defaultFolderId, form, folders]);
 
   const handleFolderChange = (val: number | undefined) => {
     if (val) {
@@ -115,7 +118,6 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       onSuccess();
     } catch (err: any) {
       if (err.errorFields) return;
-      console.error(err);
       const errorMsg =
         err.response?.data?.message ||
         err.message ||

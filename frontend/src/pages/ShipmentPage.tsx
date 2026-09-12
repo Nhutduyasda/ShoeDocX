@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
+import { useState, useEffect, useEffectEvent, useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
 import {
   Form,
   Input,
@@ -98,6 +98,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
   // Quản lý Đối tác / Hồ sơ Khách hàng (Partner Workspace Presets)
   const [partnerFolders, setPartnerFolders] = useState<MasterDataFolder[]>([]);
+  const [editingOrderId, setEditingOrderId] = useState<number | undefined>();
+  const [readOnly, setReadOnly] = useState(false);
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
 
   const selectedPartner = useMemo(() => {
@@ -121,7 +123,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     const code = rawCode.trim().toUpperCase();
     const clean = code.endsWith('.G') ? code.slice(0, -2).trim() : code;
     return products.some((p) => {
-      if (selectedPartnerId && p.folderId && p.folderId !== selectedPartnerId) {
+      if (selectedPartnerId && p.folderId !== selectedPartnerId) {
         return false;
       }
       const pmCode = (p.styleCode || '').trim().toUpperCase();
@@ -323,40 +325,35 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     },
   }));
 
-  useEffect(() => {
+  const syncNavigation = useEffectEvent(() => {
     if (activeNavTab === 'history') {
       setActiveTab('history');
-      loadShipmentsHistory();
-    } else if (activeNavTab === 'shipment') {
+      void loadShipmentsHistory();
+    } else if (activeNavTab === 'shipment' || activeNavTab === 'ocr') {
       setActiveTab('create');
-    } else if (activeNavTab === 'ocr') {
-      setActiveTab('create');
-      setOcrModalVisible(true);
+      if (activeNavTab === 'ocr') setOcrModalVisible(true);
     }
-  }, [activeNavTab]);
-
+  });
+  const initialize = useEffectEvent(() => {
+    void loadPartnerFolders();
+    void loadProducts();
+    void loadShipmentsHistory();
+    void loadSequence();
+  });
+  const openInitialOrder = useEffectEvent(() => {
+    if (initialOrderIdToLoad) void handleLoadHistoricalOrder(initialOrderIdToLoad);
+  });
+  useEffect(() => { const timer = setTimeout(() => syncNavigation(), 0); return () => clearTimeout(timer); }, [activeNavTab]);
   useEffect(() => {
-    loadPartnerFolders();
-    loadProducts();
-    loadShipmentsHistory();
-    loadSequence();
-
-    // Tự động kích hoạt tour hướng dẫn nếu là lần đầu người dùng vào trang
+    initialize();
     if (!hasCompletedTour()) {
-      const timer = setTimeout(() => {
-        startOnboardingTour();
-      }, 800);
+      const timer = setTimeout(startOnboardingTour, 800);
       return () => clearTimeout(timer);
     }
   }, []);
+  useEffect(() => { openInitialOrder(); }, [initialOrderIdToLoad]);
 
-  useEffect(() => {
-    if (initialOrderIdToLoad) {
-      handleLoadHistoricalOrder(initialOrderIdToLoad);
-    }
-  }, [initialOrderIdToLoad]);
-
-  const loadSequence = async () => {
+  async function loadSequence() {
     try {
       const info = await shipmentApi.getSequence();
       setSequenceInfo(info);
@@ -375,7 +372,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     } catch {
       // Ignored
     }
-  };
+  }
 
   const handleInvoiceNoChange = (val: string) => {
     const clean = val.trim();
@@ -391,19 +388,26 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     }
   };
 
-  const loadProducts = async () => {
+  async function loadProducts() {
     try {
       const res = await productMasterApi.getAll();
       setProducts(res);
     } catch {
       // Ignored
     }
-  };
+  }
 
-  const loadPartnerFolders = async () => {
+  async function loadPartnerFolders() {
     try {
       const tree = await masterDataFolderApi.getTree();
-      const roots = tree.filter((f) => !f.parentId);
+      const flatten = (nodes: MasterDataFolder[], parent?: MasterDataFolder): MasterDataFolder[] =>
+        nodes.flatMap(f => {
+          const merged = { ...f, customerName: f.customerName || parent?.customerName,
+            contractNo: f.contractNo || parent?.contractNo, deliveryAddress: f.deliveryAddress || parent?.deliveryAddress,
+            poSuffix: f.poSuffix || parent?.poSuffix };
+          return [merged, ...flatten(f.children || [], merged)];
+        });
+      const roots = flatten(tree);
       setPartnerFolders(roots);
 
       if (roots.length > 0 && !selectedPartnerId) {
@@ -422,7 +426,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     } catch {
       // Ignored
     }
-  };
+  }
 
   const applyPartnerPreset = (partner: MasterDataFolder, clearItems = false) => {
     setSelectedPartnerId(partner.id);
@@ -473,7 +477,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     }
   };
 
-  const loadShipmentsHistory = async () => {
+  async function loadShipmentsHistory() {
     try {
       setLoadingHistory(true);
       const list = await shipmentApi.getShipments();
@@ -483,9 +487,10 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     } finally {
       setLoadingHistory(false);
     }
-  };
+  }
 
   const buildRequestData = async (): Promise<CreateShipmentRequest | null> => {
+    if (readOnly) { message.warning("Đơn đã thông quan, chỉ được xem và tải chứng từ."); return null; }
     try {
       const values = await form.validateFields();
       if (items.length === 0) {
@@ -510,6 +515,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       const currentSeq = match ? parseInt(match[0], 10) : (startInvoiceNum || sequenceInfo?.nextNumber || 233);
 
       return {
+        orderId: editingOrderId,
+        contractFolderId: selectedPartnerId,
         invoiceNo: currentInvoiceNo,
         startInvoiceNumber: currentSeq,
         invoiceDate: values.invoiceDate.format('YYYY-MM-DDTHH:mm:ss'),
@@ -819,10 +826,13 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     }
   };
 
-  const handleLoadHistoricalOrder = async (id: number) => {
+  async function handleLoadHistoricalOrder(id: number) {
     try {
       message.loading({ content: 'Đang tải lại dữ liệu đơn hàng...', key: 'load-order' });
       const order = await shipmentApi.getShipmentById(id);
+      setEditingOrderId(order.id);
+      setSelectedPartnerId(order.contractFolderId ?? null);
+      setReadOnly(Boolean(order.isLocked || order.status === ShipmentStatus.Cleared));
       form.setFieldsValue({
         invoiceNo: order.invoiceNo,
         invoiceDate: dayjs(order.invoiceDate),
@@ -839,18 +849,18 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           const cleanCode = i.styleCode.toUpperCase().endsWith('.G')
             ? i.styleCode.toUpperCase().slice(0, -2).trim()
             : i.styleCode.toUpperCase().trim();
-          const pm = products.find((p) => p.styleCode.toUpperCase() === cleanCode);
+          const pm = products.find((p) => p.folderId === order.contractFolderId && p.styleCode.toUpperCase() === cleanCode);
 
           return {
             styleCode: i.styleCode,
             fullItemCode: i.fullItemCode,
-            description: pm?.description || '',
+            description: i.description || pm?.description || '',
             quantity: i.quantity,
             processType: i.processType,
             unitPriceCMT: i.unitPriceCMT,
             unitPriceDAP: i.unitPriceDAP,
-            unit: pm?.unit || 'đôi',
-            pairPerCarton: pm?.pairPerCarton || 12,
+            unit: i.unit || pm?.unit || 'đôi',
+            pairPerCarton: i.pairPerCarton || pm?.pairPerCarton || 12,
           };
         });
         setItems(reloadedItems);
@@ -876,9 +886,10 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     } catch {
       message.error({ content: 'Không thể tải chi tiết đơn hàng cũ.', key: 'load-order' });
     }
-  };
+  }
 
   const handleApplyOcr = (ocrItems: CreateShipmentItem[], mode: 'replace' | 'append') => {
+    if (readOnly) return;
     let combined: CreateShipmentItem[] = [];
     if (mode === 'replace') {
       combined = ocrItems.length > 0 ? ocrItems : [
@@ -908,6 +919,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleAddItem = () => {
+    if (readOnly) return;
     const defaultPairs = selectedPartner?.defaultPairsPerCarton || 12;
     const defaultUnit = selectedPartner?.defaultUnit || 'đôi';
 
@@ -934,6 +946,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleRemoveItem = (index: number) => {
+    if (readOnly) return;
     const next = [...items];
     next.splice(index, 1);
     setItems(next);
@@ -1053,6 +1066,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleApplyQuickPaste = (newItems: CreateShipmentItem[], mode: 'replace' | 'append') => {
+    if (readOnly) return;
     const combined = mode === 'replace' ? newItems : [...items, ...newItems];
     if (mode === 'replace') {
       setItems(newItems);
@@ -1065,15 +1079,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     checkPartnerMismatch(combined);
   };
 
+  const checkLatestMismatch = useEffectEvent(() => { void checkPartnerMismatch(items); });
+
   // Tự động kích hoạt kiểm tra chéo khi bảng có từ 2 dòng báo đỏ "Mã chưa có trong Master Data"
   useEffect(() => {
-    if (items.length === 0) {
-      setSuggestionBannerData(null);
-      return;
-    }
+    if (items.length === 0) return;
     if (missingMasterCodes.length >= 2 && !isDismissedMismatch && !suggestionBannerData) {
       const timer = setTimeout(() => {
-        checkPartnerMismatch(items);
+        checkLatestMismatch();
       }, 500);
       return () => clearTimeout(timer);
     }
@@ -1155,7 +1168,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         const rawCode = (val || '').trim().toUpperCase();
         const cleanBase = rawCode.endsWith('.G') ? rawCode.slice(0, -2).trim() : rawCode;
         const matchingProduct = products.find((p) => {
-          if (selectedPartnerId && p.folderId && p.folderId !== selectedPartnerId) return false;
+          if (selectedPartnerId && p.folderId !== selectedPartnerId) return false;
           const pm = (p.styleCode || '').trim().toUpperCase();
           return pm === rawCode || pm === cleanBase;
         });
@@ -1230,7 +1243,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       width: 120,
       align: 'right',
       render: (val: number, _, index) => (
-        <InputNumber
+        <InputNumber disabled={readOnly}
           min={1}
           value={val}
           onChange={(q) => handleItemChange(index, 'quantity', q || 1)}
@@ -1284,7 +1297,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       width: 95,
       align: 'right',
       render: (val: number, _, index) => (
-        <InputNumber
+        <InputNumber disabled={readOnly}
           min={1}
           value={val || 12}
           onChange={(v) => handleItemChange(index, 'pairPerCarton', v || 12)}
@@ -1299,7 +1312,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       width: 100,
       align: 'right',
       render: (val: number, _, index) => (
-        <InputNumber
+        <InputNumber disabled={readOnly}
           min={0}
           step={0.01}
           value={val}
@@ -1315,7 +1328,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       width: 100,
       align: 'right',
       render: (val: number, _, index) => (
-        <InputNumber
+        <InputNumber disabled={readOnly}
           min={0}
           step={0.01}
           value={val}
@@ -1369,7 +1382,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               type="primary"
               size="small"
               icon={<PlusOutlined className="text-[10px]" />}
-              onClick={() => handleOpenQuickAdd(index, record)}
+              disabled={readOnly} onClick={() => handleOpenQuickAdd(index, record)}
               className="bg-rose-600 hover:bg-rose-700 text-white text-[11px] h-6 px-2 font-medium shadow-none inline-flex items-center"
             >
               Thêm vào Master Data
@@ -1392,7 +1405,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             size="small"
             className="hover:bg-rose-50"
             icon={<DeleteOutlined className="text-xs" />}
-            onClick={() => handleRemoveItem(index)}
+            disabled={readOnly} onClick={() => handleRemoveItem(index)}
           />
         </Tooltip>
       ),
@@ -1770,11 +1783,13 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               <Button
                 icon={<SaveOutlined />}
                 loading={saving}
+                disabled={readOnly}
                 onClick={handleSaveShipment}
                 className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
               >
                 Lưu đơn hàng
               </Button>
+              {readOnly && <Button onClick={() => { setReadOnly(false); setEditingOrderId(undefined); setItems([]); void handleGenerateInvoiceNo(); }}>Tạo đơn mới</Button>}
               <div id="tour-export-button" className="inline-block">
                 <Tooltip
                   title={
@@ -1788,7 +1803,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                       type="primary"
                       icon={<DownloadOutlined />}
                       loading={exporting}
-                      disabled={items.length === 0 || hasMissingMasterData}
+                      disabled={readOnly || items.length === 0 || hasMissingMasterData}
                       onClick={handleExportExcel}
                       className={
                         hasMissingMasterData
@@ -1864,6 +1879,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               <div className="flex items-center gap-2 md:w-80 shrink-0">
                 <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">Chọn Đối tác:</span>
                 <Select
+                  disabled={readOnly}
                   value={selectedPartnerId}
                   onChange={handlePartnerSelect}
                   className="w-full text-xs font-medium"
@@ -1884,7 +1900,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               </div>
             </div>
 
-            <Form
+            <Form disabled={readOnly}
               form={form}
               layout="vertical"
               onValuesChange={(changedValues) => {
@@ -2092,7 +2108,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
                 <Button
                   icon={<CameraOutlined />}
-                  onClick={() => setOcrModalVisible(true)}
+                  disabled={readOnly} onClick={() => setOcrModalVisible(true)}
                   className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
                 >
                   Quét OCR Phiếu kho
@@ -2100,7 +2116,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 <Tooltip title="Hỗ trợ dán trực tiếp danh sách mã và số lượng copy từ bảng tính Excel.">
                   <Button
                     icon={<ThunderboltOutlined />}
-                    onClick={() => setQuickPasteVisible(true)}
+                    disabled={readOnly} onClick={() => setQuickPasteVisible(true)}
                     className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
                   >
                     Dán nhanh (Clipboard)
@@ -2108,7 +2124,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 </Tooltip>
                 <Button
                   icon={<RocketOutlined />}
-                  onClick={() => setBatchOcrModalVisible(true)}
+                  disabled={readOnly} onClick={() => setBatchOcrModalVisible(true)}
                   className="text-xs h-8 px-3 border-blue-300 text-blue-700 bg-blue-50/50 hover:bg-blue-100/50 font-medium"
                 >
                   Quét OCR hàng loạt (Batch)
@@ -2159,7 +2175,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 <Button
                   type="primary"
                   icon={<PlusOutlined />}
-                  onClick={handleAddItem}
+                  disabled={readOnly} onClick={handleAddItem}
                   className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 px-3.5 font-medium shadow-sm"
                 >
                   Thêm dòng
@@ -2256,21 +2272,21 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                         <Button
                           type="primary"
                           icon={<PlusOutlined />}
-                          onClick={handleAddItem}
+                          disabled={readOnly} onClick={handleAddItem}
                           className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-medium shadow-sm"
                         >
                           Thêm dòng mới
                         </Button>
                         <Button
                           icon={<ThunderboltOutlined />}
-                          onClick={() => setQuickPasteVisible(true)}
+                          disabled={readOnly} onClick={() => setQuickPasteVisible(true)}
                           className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
                         >
                           Dán nhanh từ Excel
                         </Button>
                         <Button
                           icon={<CameraOutlined />}
-                          onClick={() => setOcrModalVisible(true)}
+                          disabled={readOnly} onClick={() => setOcrModalVisible(true)}
                           className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-50"
                         >
                           Quét OCR Phiếu kho
@@ -2351,6 +2367,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
       {/* Modal Thêm nhanh vào Master Data */}
       <QuickAddMasterDataModal
+        folderId={selectedPartnerId}
+        defaultPairsPerCarton={selectedPartner?.defaultPairsPerCarton || 12}
         visible={quickAddVisible}
         styleCode={quickAddStyleCode}
         initialDescription={quickAddDescription}
@@ -2373,6 +2391,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
       {/* Modal Quét ảnh OCR hàng loạt theo lô (Batch Upload / Multi-Scan) */}
       <BatchOcrModal
+        contractFolderId={selectedPartnerId}
+        profile={selectedPartner}
         visible={batchOcrModalVisible}
         onClose={() => setBatchOcrModalVisible(false)}
         products={products}
@@ -2401,7 +2421,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             Lần xuất tiếp theo sẽ bắt đầu từ số thứ tự bạn nhập dưới đây:
           </p>
           <div className="flex items-center gap-3">
-            <InputNumber
+            <InputNumber disabled={readOnly}
               min={1}
               max={99999}
               value={sequenceEditValue}
@@ -2433,8 +2453,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           setSelectedOrderForCustoms(null);
         }}
         targetOrder={selectedOrderForCustoms}
-        onSyncSuccess={() => {
-          loadShipmentsHistory();
+        onSyncSuccess={(result) => {
+          if (form.getFieldValue('invoiceNo') === result.invoiceNo) setReadOnly(true);
+          void loadShipmentsHistory();
         }}
       />
 
@@ -2481,7 +2502,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               Số Hóa đơn Bắt đầu:
             </label>
             <div className="flex items-center space-x-3">
-              <InputNumber
+              <InputNumber disabled={readOnly}
                 min={1}
                 max={9999}
                 value={startInvoiceNum}

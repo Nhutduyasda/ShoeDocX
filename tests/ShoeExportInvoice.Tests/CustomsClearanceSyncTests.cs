@@ -45,7 +45,7 @@ public class CustomsClearanceSyncTests : IDisposable
         _connection.Dispose();
     }
 
-    private MemoryStream CreateSampleVnaccsExcelStream()
+    internal static MemoryStream CreateSampleVnaccsExcelStream()
     {
         var wb = new XLWorkbook();
         var ws = wb.Worksheets.Add("TKX");
@@ -374,16 +374,20 @@ public class CustomsClearanceSyncTests : IDisposable
 
             var order = new ShipmentOrder
             {
-                InvoiceNo = "KMHD-NEW2026-0999",
+                InvoiceNo = "KMHD-NEW2026-0219",
                 CustomerName = "TEST CUSTOMER",
                 Status = ShipmentStatus.Exported,
                 IsLocked = false
             };
+            using var fileStream = CreateSampleVnaccsExcelStream();
+            var fakeFileContent = fileStream.ToArray();
+            using var parseCopy = new MemoryStream(fakeFileContent);
+            var parsed = service.ParseDeclarationFile(parseCopy, "sample.xlsx");
+            foreach (var item in parsed.Items)
+                order.Items.Add(new ShipmentOrderItem { StyleCode = item.StyleCode, Quantity = item.Quantity,
+                    ProcessType = item.ProcessType, UnitPriceDAP = item.UnitPriceDap, UnitPriceCMT = item.UnitPriceCmt });
             context.ShipmentOrders.Add(order);
             await context.SaveChangesAsync();
-
-            var fakeFileContent = System.Text.Encoding.UTF8.GetBytes("Fake VNACCS File Content");
-            using var fileStream = new MemoryStream(fakeFileContent);
 
             var request = new ConfirmCustomsSyncRequestDto
             {
@@ -414,8 +418,8 @@ public class CustomsClearanceSyncTests : IDisposable
             // Verify physical file was archived in Uploads/Customs
             var expectedFilePath = Path.Combine(tempFolder, updatedOrder.CustomsAttachmentFilePath);
             Assert.True(File.Exists(expectedFilePath));
-            var savedContent = await File.ReadAllTextAsync(expectedFilePath);
-            Assert.Equal("Fake VNACCS File Content", savedContent);
+            var savedContent = await File.ReadAllBytesAsync(expectedFilePath);
+            Assert.Equal(fakeFileContent, savedContent);
 
             // Verify GetAttachmentAsync retrieves the file correctly
             var attachment = await service.GetAttachmentAsync(order.Id);

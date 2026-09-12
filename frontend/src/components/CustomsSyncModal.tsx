@@ -8,7 +8,6 @@ import {
   Spin,
   message,
   notification,
-  Popconfirm,
   Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -121,15 +120,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
     }
   };
 
-  const isEffectivelyMatched = Boolean(
-    reconciliation &&
-    reconciliation.isOrderFound &&
-    !reconciliation.isInvoiceMismatch &&
-    (reconciliation.isFullyMatched ||
-      (reconciliation.discrepancies.length === 0 &&
-        reconciliation.comparisonRows.length > 0 &&
-        reconciliation.comparisonRows.every((r) => r.isMatched)))
-  );
+  const isEffectivelyMatched = Boolean(reconciliation?.isFullyMatched);
 
   const handleConfirmSync = async () => {
     if (!reconciliation || !reconciliation.isOrderFound || !reconciliation.matchedOrder) {
@@ -408,23 +399,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
                     {confirming ? 'Đang lưu hồ sơ...' : 'Xác nhận Đồng bộ & Thông quan'}
                   </Button>
                 ) : (
-                  <Popconfirm
-                    title="Hồ sơ có sai lệch số liệu"
-                    description="Dữ liệu trên tờ khai không khớp hoàn toàn với Invoice nội bộ. Bạn có chắc chắn muốn lưu hồ sơ với trạng thái 'Sai lệch số liệu' không?"
-                    okText="Vẫn lưu hồ sơ (Sai lệch)"
-                    cancelText="Kiểm tra lại"
-                    okButtonProps={{ danger: true }}
-                    onConfirm={handleConfirmSync}
-                  >
-                    <Button
-                      danger
-                      type="primary"
-                      icon={<ExclamationCircleOutlined />}
-                      loading={confirming}
-                    >
-                      Lưu hồ sơ (Có sai lệch)
-                    </Button>
-                  </Popconfirm>
+                  <Button disabled>Cần khắc phục sai lệch trước khi thông quan</Button>
                 )}
               </>
             )}

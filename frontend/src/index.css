@@ -238,3 +238,15 @@ body {
   background-color: #FFEBE9 !important;
 }
 
+
+
+/* Allow page headers and controls to wrap while tables keep their own horizontal scroll. */
+.ant-table-wrapper, .ant-tabs, .ant-tabs-content-holder, main { min-width: 0; max-width: 100%; }
+.ant-modal { max-width: calc(100vw - 24px); }
+@media (max-width: 767px) {
+  main .justify-between { flex-wrap: wrap; gap: 0.5rem; }
+  main .ant-space { flex-wrap: wrap; }
+  main h1 { font-size: 1.25rem !important; overflow-wrap: anywhere; }
+  main .ant-btn { max-width: 100%; }
+  .ant-drawer-content-wrapper { max-width: 100vw; }
+}

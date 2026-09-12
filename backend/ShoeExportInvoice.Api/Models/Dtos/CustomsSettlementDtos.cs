@@ -5,6 +5,7 @@ public class CalculateSettlementRequestDto
     public int Year { get; set; } = DateTime.UtcNow.Year;
     public DateTime FromDate { get; set; }
     public DateTime ToDate { get; set; }
+    public int? ContractFolderId { get; set; }
     public string? ContractNo { get; set; }
 }
 
@@ -33,6 +34,7 @@ public class SettlementReportDto
     public int Year { get; set; }
     public DateTime FromDate { get; set; }
     public DateTime ToDate { get; set; }
+    public int? ContractFolderId { get; set; }
     public string? ContractNo { get; set; }
     public string CustomsOffice { get; set; } = "Chi cục Hải quan Quản lý Hàng gia công";
     public string Status { get; set; } = "Draft"; // Draft, Finalized
@@ -58,6 +60,7 @@ public class SaveSettlementPeriodRequestDto
     public int Year { get; set; }
     public DateTime FromDate { get; set; }
     public DateTime ToDate { get; set; }
+    public int? ContractFolderId { get; set; }
     public string? ContractNo { get; set; }
     public string CustomsOffice { get; set; } = "Chi cục Hải quan Quản lý Hàng gia công";
     public string Status { get; set; } = "Draft";
@@ -74,6 +77,7 @@ public class SettlementPeriodSummaryDto
     public int Year { get; set; }
     public DateTime FromDate { get; set; }
     public DateTime ToDate { get; set; }
+    public int? ContractFolderId { get; set; }
     public string? ContractNo { get; set; }
     public string CustomsOffice { get; set; } = "Chi cục Hải quan Quản lý Hàng gia công";
     public string Status { get; set; } = "Draft";
@@ -89,6 +93,7 @@ public class SettlementDrillDownItemDto
     public string DeclarationNo { get; set; } = string.Empty;
     public DateTime? ClearanceDate { get; set; }
     public string InvoiceNo { get; set; } = string.Empty;
+    public int? ContractFolderId { get; set; }
     public string? ContractNo { get; set; }
     public string ProductCode { get; set; } = string.Empty;
     public string FullItemCode { get; set; } = string.Empty;

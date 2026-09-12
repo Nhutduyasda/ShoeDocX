@@ -228,6 +228,9 @@ public class MasterDataFolderService : IMasterDataFolderService
 
         if (folder == null) return false;
 
+        if (await _context.ShipmentOrders.AnyAsync(o => o.ContractFolderId == id) ||
+            await _context.CustomsSettlementPeriods.AnyAsync(p => p.ContractFolderId == id))
+            throw new InvalidOperationException("Hợp đồng đã có đơn hàng hoặc kỳ quyết toán, không thể xóa.");
         // Chuyển thư mục con lên cấp cha của folder bị xóa
         foreach (var child in folder.Children)
         {

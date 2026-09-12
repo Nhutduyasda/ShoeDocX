@@ -46,8 +46,8 @@ public class ProductMasterService : IProductMasterService
         decimal avgDap = 0m;
         if (totalCount > 0)
         {
-            avgCmt = await query.Where(x => x.UnitPriceCMT > 0).Select(x => (decimal?)x.UnitPriceCMT).AverageAsync() ?? 0m;
-            avgDap = await query.Where(x => x.UnitPriceDAP > 0).Select(x => (decimal?)x.UnitPriceDAP).AverageAsync() ?? 0m;
+            avgCmt = (decimal)(await query.Where(x => x.UnitPriceCMT > 0).Select(x => (double?)x.UnitPriceCMT).AverageAsync() ?? 0d);
+            avgDap = (decimal)(await query.Where(x => x.UnitPriceDAP > 0).Select(x => (double?)x.UnitPriceDAP).AverageAsync() ?? 0d);
         }
 
         var items = await query
@@ -91,7 +91,7 @@ public class ProductMasterService : IProductMasterService
     {
         var cleanStyleCode = dto.StyleCode.Trim().ToUpper();
 
-        if (await ExistsStyleCodeAsync(cleanStyleCode))
+        if (await _context.ProductMasters.AnyAsync(p => p.StyleCode == cleanStyleCode && p.FolderId == dto.FolderId))
         {
             throw new InvalidOperationException($"Mã hình thể '{cleanStyleCode}' đã tồn tại trong hệ thống.");
         }
@@ -138,7 +138,7 @@ public class ProductMasterService : IProductMasterService
 
         var cleanStyleCode = dto.StyleCode.Trim().ToUpper();
 
-        if (await ExistsStyleCodeAsync(cleanStyleCode, id))
+        if (await _context.ProductMasters.AnyAsync(p => p.Id != id && p.StyleCode == cleanStyleCode && p.FolderId == (dto.FolderId ?? entity.FolderId)))
         {
             throw new InvalidOperationException($"Mã hình thể '{cleanStyleCode}' đã tồn tại ở một sản phẩm khác.");
         }
@@ -297,10 +297,6 @@ public class ProductMasterService : IProductMasterService
             if (!folderId.HasValue || !folderMap.TryGetValue(folderId.Value, out var current))
                 return null;
 
-            while (current.ParentId.HasValue && folderMap.TryGetValue(current.ParentId.Value, out var parent))
-            {
-                current = parent;
-            }
             return current;
         }
 
@@ -309,11 +305,7 @@ public class ProductMasterService : IProductMasterService
         if (request.CurrentPartnerFolderId > 0)
         {
             currentFolderIds.Add(request.CurrentPartnerFolderId);
-            var descendants = await GetAllDescendantFolderIdsAsync(request.CurrentPartnerFolderId);
-            foreach (var id in descendants)
-            {
-                currentFolderIds.Add(id);
-            }
+
         }
 
         // 3. Lấy toàn bộ sản phẩm Master Data để kiểm tra chéo
@@ -351,7 +343,7 @@ public class ProductMasterService : IProductMasterService
             else
             {
                 var otherMatches = matching.Where(p => p.FolderId.HasValue && !currentFolderIds.Contains(p.FolderId.Value)).ToList();
-                var otherMatch = otherMatches.FirstOrDefault();
+                var otherMatch = otherMatches.Count == 1 ? otherMatches[0] : null;
                 var otherRoot = otherMatch != null ? GetRootPartnerFolder(otherMatch.FolderId) : null;
 
                 details.Add(new ItemValidationDetail
@@ -411,7 +403,7 @@ public class ProductMasterService : IProductMasterService
             if (otherPartnerCounts.Count > 0)
             {
                 var best = otherPartnerCounts.Values.OrderByDescending(x => x.Count).First();
-                if (best.Count > 0 && ((double)best.Count / unmatchedCodes.Count) >= 0.5)
+                if (best.Count > 0 && otherPartnerCounts.Values.Count(x => x.Count == best.Count) == 1 && ((double)best.Count / unmatchedCodes.Count) >= 0.5)
                 {
                     result.HasMismatch = true;
                     result.SuggestedPartnerFolderId = best.Partner.Id;
@@ -419,8 +411,7 @@ public class ProductMasterService : IProductMasterService
                     result.MatchedCountInSuggested = best.Count;
 
                     // Cập nhật MatchedProduct cho các dòng chưa khớp bằng sản phẩm từ đối tác gợi ý
-                    var suggestedFolderIds = await GetAllDescendantFolderIdsAsync(best.Partner.Id);
-                    suggestedFolderIds.Add(best.Partner.Id);
+                    var suggestedFolderIds = new List<int> { best.Partner.Id };
 
                     foreach (var detail in details.Where(d => !d.IsMatchedInCurrent))
                     {

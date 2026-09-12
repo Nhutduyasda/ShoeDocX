@@ -11,7 +11,7 @@ import type {
 
 export const settlementApi = {
   /**
-   * Tổng hợp số liệu quyết toán Mẫu 16 từ các đơn hàng E52 đã thông quan trong kỳ
+   * Tổng hợp số liệu quyết toán đối chiếu nội bộ từ các đơn hàng E52 đã thông quan trong kỳ
    */
   calculateSettlement: async (
     params: CalculateSettlementRequest
@@ -57,7 +57,7 @@ export const settlementApi = {
   },
 
   /**
-   * Xuất file Excel chuẩn Mẫu 16/BCQT-SP-GSQL (Thông tư 39/2018/TT-BTC)
+   * Xuất file Excel chuẩn đối chiếu nội bộ (Cần xác minh mẫu pháp lý trước khi nộp)
    */
   exportSettlementExcel: async (report: SettlementReport): Promise<Blob> => {
     const response = await apiClient.post(
@@ -71,7 +71,7 @@ export const settlementApi = {
   },
 
   /**
-   * Xuất file Excel Mẫu 16 theo ID kỳ đã lưu
+   * Xuất file Excel đối chiếu nội bộ theo ID kỳ đã lưu
    */
   exportSettlementExcelById: async (periodId: number): Promise<Blob> => {
     const response = await apiClient.get(

@@ -18,19 +18,22 @@ public class OcrController : ControllerBase
     private readonly IExcelImportExportService _excelService;
     private readonly AppDbContext _context;
     private readonly ILogger<OcrController> _logger;
+    private readonly XnkOptions _options;
 
     public OcrController(
         IOcrExtractionService ocrService,
         ISequenceService sequenceService,
         IExcelImportExportService excelService,
         AppDbContext context,
-        ILogger<OcrController> logger)
+        ILogger<OcrController> logger,
+        Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null)
     {
         _ocrService = ocrService;
         _sequenceService = sequenceService;
         _excelService = excelService;
         _context = context;
         _logger = logger;
+        _options = options?.Value ?? new XnkOptions();
     }
 
     /// <summary>
@@ -89,7 +92,7 @@ public class OcrController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi trích xuất dữ liệu OCR từ ảnh phiếu kho.");
-            return StatusCode(500, new { message = $"Lỗi khi bóc tách ảnh: {ex.Message}", detail = ex.Message });
+            return StatusCode(500, new { message = $"Lỗi khi bóc tách ảnh: {ex.Message}" });
         }
     }
 
@@ -109,12 +112,13 @@ public class OcrController : ControllerBase
         }
 
         // Tải danh mục ProductMaster vào bộ nhớ để đối chiếu giá và thông số đóng thùng
-        var productMasters = await _context.ProductMasters
+        var masterRows = await _context.ProductMasters
             .AsNoTracking()
-            .ToDictionaryAsync(p => p.StyleCode.Trim().ToUpperInvariant(), p => p, cancellationToken);
+            .ToListAsync(cancellationToken);
+        var productMasters = masterRows.GroupBy(p => p.StyleCode.Trim().ToUpperInvariant()).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
 
         var results = new List<BatchOcrScanResultDto>();
-        var semaphore = new SemaphoreSlim(3, 3); // Xử lý song song tối đa 3 ảnh
+        var semaphore = new SemaphoreSlim(1, 1); // Scoped EF context must not be used concurrently.
 
         var tasks = files.Select(async file =>
         {
@@ -221,11 +225,15 @@ public class OcrController : ControllerBase
             return BadRequest(new { message = "Dữ liệu yêu cầu xuất lô không hợp lệ." });
         }
 
+        await using var transaction = await _context.Database.BeginTransactionAsync();
         // Tải Master Data để tính toán giá và carton
-        var productMasters = await _context.ProductMasters
+        var productMasters = await _context.ProductMasters.Where(p => p.FolderId == request.ContractFolderId)
             .AsNoTracking()
             .ToDictionaryAsync(p => p.StyleCode.Trim().ToUpperInvariant(), p => p);
 
+        if (request.Batches.Any(b => b.Items.Count == 0 || b.Items.Any(i => i.Quantity <= 0 ||
+            !productMasters.ContainsKey(CustomsDeclarationService.NormalizeStyleCode(i.StyleCode)))))
+            return BadRequest(new { message = "Lô hàng chứa số lượng không hợp lệ hoặc mã chưa có trong hợp đồng." });
         // 1. Tính toán tổng số lượng số thứ tự hóa đơn cần cấp phát
         int totalSeqNeeded = 0;
         foreach (var batch in request.Batches)
@@ -309,14 +317,14 @@ public class OcrController : ControllerBase
 
                     // Sinh Excel và ghi vào ZIP
                     var goExcelBytes = await _excelService.ExportShipmentMultiSheetExcelAsync(goReq);
-                    var goEntry = archive.CreateEntry(goFileName + ".xlsx", CompressionLevel.Optimal);
+                    var goEntry = archive.CreateEntry(goFileName, CompressionLevel.Optimal);
                     using (var entryStream = goEntry.Open())
                     {
                         await entryStream.WriteAsync(goExcelBytes);
                     }
 
                     var stdExcelBytes = await _excelService.ExportShipmentMultiSheetExcelAsync(stdReq);
-                    var stdEntry = archive.CreateEntry(stdFileName + ".xlsx", CompressionLevel.Optimal);
+                    var stdEntry = archive.CreateEntry(stdFileName, CompressionLevel.Optimal);
                     using (var entryStream = stdEntry.Open())
                     {
                         await entryStream.WriteAsync(stdExcelBytes);
@@ -327,7 +335,7 @@ public class OcrController : ControllerBase
                         BatchId = batch.BatchId,
                         Title = batch.Title,
                         InvoiceNo = goInvoiceNo,
-                        FileName = goFileName + ".xlsx",
+                        FileName = goFileName,
                         TotalQuantity = goItems.Sum(i => i.Quantity),
                         ProcessType = ProcessType.GoKhongMay
                     });
@@ -337,7 +345,7 @@ public class OcrController : ControllerBase
                         BatchId = batch.BatchId,
                         Title = batch.Title,
                         InvoiceNo = stdInvoiceNo,
-                        FileName = stdFileName + ".xlsx",
+                        FileName = stdFileName,
                         TotalQuantity = stdItems.Sum(i => i.Quantity),
                         ProcessType = ProcessType.Standard
                     });
@@ -357,7 +365,7 @@ public class OcrController : ControllerBase
                     await SaveShipmentToDbAsync(shipReq, productMasters);
 
                     var excelBytes = await _excelService.ExportShipmentMultiSheetExcelAsync(shipReq);
-                    var entry = archive.CreateEntry(fileName + ".xlsx", CompressionLevel.Optimal);
+                    var entry = archive.CreateEntry(fileName, CompressionLevel.Optimal);
                     using (var entryStream = entry.Open())
                     {
                         await entryStream.WriteAsync(excelBytes);
@@ -368,7 +376,7 @@ public class OcrController : ControllerBase
                         BatchId = batch.BatchId,
                         Title = batch.Title,
                         InvoiceNo = invoiceNo,
-                        FileName = fileName + ".xlsx",
+                        FileName = fileName,
                         TotalQuantity = validItems.Sum(i => i.Quantity),
                         ProcessType = goItems.Count > 0 ? ProcessType.GoKhongMay : ProcessType.Standard
                     });
@@ -384,21 +392,23 @@ public class OcrController : ControllerBase
         });
         Response.Headers["Access-Control-Expose-Headers"] = "X-Batch-Export-Info";
 
+        await transaction.CommitAsync();
         return File(zipStream.ToArray(), "application/zip", summary.ZipFileName);
     }
 
-    private static CreateShipmentRequestDto BuildShipmentRequest(
+    private CreateShipmentRequestDto BuildShipmentRequest(
         BatchOcrConfirmRequestDto batchReq,
         List<CreateShipmentItemDto> items,
         string invoiceNo)
     {
         return new CreateShipmentRequestDto
         {
+            ContractFolderId = batchReq.ContractFolderId,
             InvoiceNo = invoiceNo,
             InvoiceDate = batchReq.InvoiceDate,
-            PoSuffix = batchReq.PoSuffix ?? "(KM3.PO5.26)",
-            ContractNo = batchReq.ContractNo ?? "KM-HANEW/01-2025",
-            CustomerName = batchReq.CustomerName ?? "CÔNG TY TNHH KINGMAKER III (VIỆT NAM) FOOTWEAR",
+            PoSuffix = batchReq.PoSuffix ?? _options.DefaultPoSuffix,
+            ContractNo = batchReq.ContractNo ?? _options.DefaultContractNo,
+            CustomerName = batchReq.CustomerName ?? _options.DefaultCustomerName,
             Address = batchReq.Address ?? string.Empty,
             DeliveryTerms = batchReq.DeliveryTerms ?? "DAP",
             PaymentTerms = batchReq.PaymentTerms ?? "T/T",
@@ -412,6 +422,7 @@ public class OcrController : ControllerBase
     {
         var shipment = new ShipmentOrder
         {
+            ContractFolderId = request.ContractFolderId,
             InvoiceNo = request.InvoiceNo.Trim(),
             InvoiceDate = request.InvoiceDate,
             PoSuffix = request.PoSuffix?.Trim(),
@@ -440,7 +451,10 @@ public class OcrController : ControllerBase
 
             shipment.Items.Add(new ShipmentOrderItem
             {
-                StyleCode = item.StyleCode.Trim(),
+                StyleCode = CustomsDeclarationService.NormalizeStyleCode(item.StyleCode),
+                Description = item.Description ?? pm?.Description ?? "",
+                Unit = item.Unit,
+                PairPerCarton = item.PairPerCarton ?? pm?.PairPerCarton ?? 12,
                 FullItemCode = fullCode,
                 Quantity = item.Quantity,
                 ProcessType = item.ProcessType,

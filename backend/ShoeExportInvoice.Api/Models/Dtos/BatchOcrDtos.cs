@@ -21,6 +21,7 @@ public class BatchOcrScanResultDto
 
 public class BatchOcrConfirmRequestDto
 {
+    public int? ContractFolderId { get; set; }
     [MaxLength(100)]
     public string PoSuffix { get; set; } = "(KM3.PO5.26)";
 

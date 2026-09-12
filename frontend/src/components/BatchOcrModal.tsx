@@ -33,12 +33,15 @@ import type {
   BatchScanItemExport,
   OcrItem,
   ProductMaster,
+  MasterDataFolder,
   CreateShipmentItem,
 } from '../types';
 import { ProcessType, ExportSequencePriority } from '../types';
-import { normalizeOcrStyleCode } from './OcrUploadModal';
+import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
 
 interface BatchOcrModalProps {
+  contractFolderId?: number | null;
+  profile?: MasterDataFolder | null;
   visible: boolean;
   onClose: () => void;
   products: ProductMaster[];
@@ -55,6 +58,8 @@ interface ImageQueueItem {
 }
 
 export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
+  contractFolderId,
+  profile,
   visible,
   onClose,
   products,
@@ -85,11 +90,11 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
 
   // AutoComplete options from master products
   const productOptions = React.useMemo(() => {
-    return (products || []).map((p) => ({
+    return (products || []).filter(p => p.folderId === contractFolderId).map((p) => ({
       value: p.styleCode,
       label: `${p.styleCode} - ${p.description}`,
     }));
-  }, [products]);
+  }, [products, contractFolderId]);
 
   // Clean up object URLs on unmount
   useEffect(() => {
@@ -255,7 +260,6 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
 
       message.success('Đã hoàn thành bóc tách hàng loạt ảnh phiếu kho.');
     } catch (err: any) {
-      console.error('Lỗi khi bóc tách batch OCR:', err);
       message.error(err.response?.data?.message || 'Có lỗi xảy ra trong quá trình bóc tách ảnh.');
       setImageQueue((prev) =>
         prev.map((item) =>
@@ -340,9 +344,11 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       });
 
       const requestPayload: BatchOcrConfirmRequest = {
-        contractNo: contractNo.trim(),
-        poSuffix: poSuffix.trim(),
-        customerName: customerName.trim(),
+        contractFolderId,
+        contractNo: profile?.contractNo || contractNo.trim(),
+        address: profile?.deliveryAddress || "",
+        poSuffix: profile?.poSuffix || poSuffix.trim(),
+        customerName: profile?.customerName || customerName.trim(),
         priority: batchPriority,
         batches: batchesPayload,
       };
@@ -361,7 +367,6 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       onSuccess();
       onClose();
     } catch (err: any) {
-      console.error('Lỗi khi xuất gói ZIP:', err);
       message.error(err.response?.data?.message || 'Không thể xuất gói file ZIP.');
     } finally {
       setIsExporting(false);

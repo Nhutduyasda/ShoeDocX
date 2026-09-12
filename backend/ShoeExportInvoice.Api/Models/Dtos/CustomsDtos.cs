@@ -15,6 +15,7 @@ public class CustomsDeclarationItemDto
     public string Unit { get; set; } = "đôi";
     public decimal UnitPriceDap { get; set; }
     public decimal AmountDap { get; set; }
+    public bool HasCmt { get; set; }
     public decimal UnitPriceCmt { get; set; }
     public ProcessType ProcessType { get; set; } = ProcessType.Standard;
 }
@@ -60,9 +61,10 @@ public class CustomsComparisonRowDto
     public decimal InvoicePriceDap { get; set; }
     public decimal CustomsPriceDap { get; set; }
     public decimal InvoicePriceCmt { get; set; }
+    public bool CustomsHasCmt { get; set; }
     public decimal CustomsPriceCmt { get; set; }
     public bool IsQuantityMatched => DifferenceQuantity == 0;
-    public bool IsPriceMatched => Math.Abs(InvoicePriceDap - CustomsPriceDap) < 0.005m;
+    public bool IsPriceMatched => Math.Round(InvoicePriceDap, 4, MidpointRounding.AwayFromZero) == Math.Round(CustomsPriceDap, 4, MidpointRounding.AwayFromZero) && ((!CustomsHasCmt && CustomsPriceCmt == 0) || Math.Round(InvoicePriceCmt, 4, MidpointRounding.AwayFromZero) == Math.Round(CustomsPriceCmt, 4, MidpointRounding.AwayFromZero));
     public bool IsMatched => IsQuantityMatched && IsPriceMatched;
     public string StatusText { get; set; } = string.Empty;
 }

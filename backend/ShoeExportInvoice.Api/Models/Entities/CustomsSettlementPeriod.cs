@@ -6,6 +6,7 @@ namespace ShoeExportInvoice.Api.Models.Entities;
 [Table("CustomsSettlementPeriods")]
 public class CustomsSettlementPeriod
 {
+    public int? ContractFolderId { get; set; }
     [Key]
     public int Id { get; set; }
 

@@ -36,6 +36,11 @@ export const settlementApi = {
     return response.data;
   },
 
+  finalizeSettlement: async (id: number): Promise<any> => {
+    const response = await apiClient.post(`/customs-settlement/${id}/finalize`);
+    return response.data;
+  },
+
   /**
    * Lấy danh sách các kỳ quyết toán đã lưu
    */

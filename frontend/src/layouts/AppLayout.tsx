@@ -477,7 +477,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-800 font-sans antialiased">
+    <div className="flex h-screen w-full min-w-0 overflow-hidden bg-slate-50 text-slate-800 font-sans antialiased">
       {/* Desktop Sidebar */}
       <aside
         className={`hidden lg:flex flex-col shrink-0 border-r border-slate-200 bg-white h-screen z-30 transition-all duration-300 ease-in-out ${
@@ -502,12 +502,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       {/* Main Layout Area */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {/* Top Header */}
-        <header className="h-14 bg-white border-b border-slate-200 shrink-0 px-4 sm:px-6 flex items-center justify-between z-20">
-          <div className="flex items-center space-x-3">
+        <header className="h-14 bg-white border-b border-slate-200 shrink-0 px-4 sm:px-6 flex items-center justify-between z-20 gap-3">
+          <div className="flex items-center space-x-3 min-w-0 flex-1">
             <button
               type="button"
               onClick={() => setMobileDrawerOpen(true)}
-              className="lg:hidden p-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer"
+              className="lg:hidden p-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer shrink-0"
               aria-label="Open sidebar menu"
             >
               <MenuOutlined />
@@ -516,16 +516,18 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
               <button
                 type="button"
                 onClick={toggleCollapsed}
-                className="hidden lg:flex items-center justify-center w-8 h-8 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 cursor-pointer border border-transparent hover:border-slate-200 transition-colors"
+                className="hidden lg:flex items-center justify-center w-8 h-8 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 cursor-pointer border border-transparent hover:border-slate-200 transition-colors shrink-0"
                 aria-label="Toggle sidebar"
               >
                 {collapsed ? <MenuUnfoldOutlined className="text-sm" /> : <MenuFoldOutlined className="text-sm" />}
               </button>
             </Tooltip>
-            <Breadcrumb items={getBreadcrumbItems()} className="text-xs" />
+            <div className="min-w-0 flex-1 truncate">
+              <Breadcrumb items={getBreadcrumbItems()} className="text-xs" />
+            </div>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 shrink-0">
             {/* System Connection Badge */}
             <Tooltip title="Kết nối Backend API (Cổng 5270) ổn định">
               <div className="hidden sm:flex items-center space-x-1.5 px-2 py-0.5 rounded border border-emerald-200 bg-emerald-50/80 text-[11px] font-medium text-emerald-800">
@@ -607,9 +609,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           </div>
         </header>
 
-        {/* Page Main Content Container: independent vertical scroll, overflow-x-hidden */}
-        <main className="flex-1 flex flex-col min-w-0 overflow-y-auto overflow-x-hidden">
-          <div className="p-4 sm:p-6 max-w-[1600px] w-full mx-auto space-y-6 flex-1">
+        {/* Page Main Content Container: independent vertical scroll */}
+        <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+          <div className="p-4 sm:p-6 max-w-[1600px] w-full mx-auto space-y-6 flex-1 min-w-0">
             {children}
           </div>
 

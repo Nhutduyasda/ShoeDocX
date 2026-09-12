@@ -19,6 +19,7 @@ public class WarehouseBatch
     public WarehouseBatchStatus Status { get; set; } = WarehouseBatchStatus.Draft;
     public int TotalQuantity { get; set; }
     public int? ShipmentOrderId { get; set; }
+    public ShipmentOrder? ShipmentOrder { get; set; }
     public string? CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? SubmittedAt { get; set; }

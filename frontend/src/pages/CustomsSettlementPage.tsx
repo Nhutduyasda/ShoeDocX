@@ -760,8 +760,8 @@ export const CustomsSettlementPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Main Page Header */}
-      <div className="flex justify-between items-start flex-wrap gap-4 pb-4 border-b border-slate-200">
-        <div>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-slate-200">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
               Quyết toán Hải quan & Thống kê Phân tích Kim ngạch
@@ -770,30 +770,30 @@ export const CustomsSettlementPage: React.FC = () => {
               Cần xác minh mẫu pháp lý trước khi nộp
             </Tag>
             {report?.status === 'Finalized' && (
-              <Tag color="success" icon={<CheckCircleOutlined />} className="m-0 font-medium">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]">
                 ĐÃ CHỐT SỔ
-              </Tag>
+              </span>
             )}
             {report?.status === 'Draft' && (
-              <Tag color="warning" className="m-0 font-medium">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#FFFBEB] text-[#B45309] border border-[#FDE68A]">
                 BẢN NHÁP
-              </Tag>
+              </span>
             )}
           </div>
-          <p className="text-sm text-slate-500 mt-1 m-0">
+          <p className="text-xs text-[#6B7280] mt-1 m-0">
             Tự động tổng hợp số liệu xuất khẩu gia công (E52) từ các đơn hàng Đã thông quan, xuất Excel đối chiếu nội bộ và phân tích doanh thu CMT/DAP
           </p>
         </div>
 
         {/* Global Toolbar Action Buttons */}
-        <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
+        <div className="flex items-center flex-wrap gap-2 min-w-0">
           <Button
             icon={<HistoryOutlined />}
             onClick={() => {
               loadSavedPeriods();
               setHistoryDrawerOpen(true);
             }}
-            className="text-xs text-slate-700 hover:text-blue-600 border-slate-200"
+            className="text-xs bg-white text-[#374151] hover:text-[#111827] border-[#D1D5DB] hover:border-[#9CA3AF] shadow-xs"
           >
             Kỳ đã lưu ({savedPeriods.length})
           </Button>
@@ -802,7 +802,7 @@ export const CustomsSettlementPage: React.FC = () => {
             icon={<SaveOutlined />}
             onClick={() => handleOpenSaveModal('Draft')}
             disabled={items.length === 0 || isFinalized}
-            className="text-xs text-slate-700 hover:text-blue-600 border-slate-200"
+            className="text-xs bg-white text-[#374151] hover:text-[#111827] border-[#D1D5DB] hover:border-[#9CA3AF] shadow-xs"
           >
             Lưu nháp
           </Button>
@@ -818,7 +818,7 @@ export const CustomsSettlementPage: React.FC = () => {
             <Button
               icon={<LockOutlined />}
               disabled={items.length === 0 || isFinalized}
-              className="text-xs text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200"
+              className="text-xs bg-white text-[#374151] hover:text-[#111827] border-[#D1D5DB] hover:border-[#9CA3AF] shadow-xs"
             >
               Chốt kỳ báo cáo
             </Button>
@@ -830,7 +830,7 @@ export const CustomsSettlementPage: React.FC = () => {
             onClick={handleExportExcel}
             loading={exporting}
             disabled={items.length === 0}
-            className="text-xs bg-emerald-600 hover:bg-emerald-700 border-emerald-600 font-medium"
+            className="text-xs bg-[#2563EB] hover:bg-[#1D4ED8] font-medium"
           >
             Xuất Excel đối chiếu nội bộ
           </Button>
@@ -855,11 +855,11 @@ export const CustomsSettlementPage: React.FC = () => {
             children: (
               <div className="space-y-5 pt-2">
                 {/* Filter Toolbar */}
-                <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+                <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
                     {/* Year selector */}
                     <div className="md:col-span-2">
-                      <span className="text-xs font-medium text-slate-600 block mb-1">
+                      <span className="text-xs font-medium text-[#4B5563] block mb-1">
                         Năm quyết toán:
                       </span>
                       <Select
@@ -877,7 +877,7 @@ export const CustomsSettlementPage: React.FC = () => {
 
                     {/* Date Range Picker */}
                     <div className="md:col-span-4">
-                      <span className="text-xs font-medium text-slate-600 block mb-1">
+                      <span className="text-xs font-medium text-[#4B5563] block mb-1">
                         Khoảng ngày thông quan:
                       </span>
                       <RangePicker
@@ -891,7 +891,7 @@ export const CustomsSettlementPage: React.FC = () => {
 
                     {/* Contract Number */}
                     <div className="md:col-span-3">
-                      <span className="text-xs font-medium text-slate-600 block mb-1">
+                      <span className="text-xs font-medium text-[#4B5563] block mb-1">
                         Số hợp đồng gia công:
                       </span>
                       <Select
@@ -906,7 +906,7 @@ export const CustomsSettlementPage: React.FC = () => {
 
                     {/* Customs Office */}
                     <div className="md:col-span-3">
-                      <span className="text-xs font-medium text-slate-600 block mb-1">
+                      <span className="text-xs font-medium text-[#4B5563] block mb-1">
                         Chi cục Hải quan tiếp nhận:
                       </span>
                       <Input
@@ -921,9 +921,9 @@ export const CustomsSettlementPage: React.FC = () => {
                 </div>
 
                 {/* 3-Step Action Workflow Bar */}
-                <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-xs flex flex-wrap items-center justify-between gap-3">
+                <div className="bg-white border border-[#E5E7EB] rounded-lg p-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)] flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide mr-1">
+                    <span className="text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide mr-1">
                       Quy trình 3 bước:
                     </span>
                     <Button
@@ -931,22 +931,22 @@ export const CustomsSettlementPage: React.FC = () => {
                       icon={<CalculatorOutlined />}
                       onClick={handleCalculate}
                       loading={loading}
-                      className="text-xs bg-blue-600 hover:bg-blue-700 font-medium h-8"
+                      className="text-xs bg-[#2563EB] hover:bg-[#1D4ED8] font-medium h-8"
                     >
                       1. Tổng hợp Lượng Thực xuất (E52)
                     </Button>
-                    <span className="text-slate-300">→</span>
+                    <span className="text-[#D1D5DB]">→</span>
                     <Button
-                      icon={<UploadOutlined className="text-emerald-600" />}
+                      icon={<UploadOutlined />}
                       onClick={() => setImportExcelModalOpen(true)}
-                      className="text-xs text-slate-700 hover:text-emerald-600 border-slate-200 font-medium h-8"
+                      className="text-xs bg-white text-[#374151] hover:text-[#111827] border-[#D1D5DB] hover:border-[#9CA3AF] font-medium h-8 shadow-xs"
                     >
                       2. Nạp File Số liệu Kho (.xlsx)
                     </Button>
                     <Button
-                      icon={<SnippetsOutlined className="text-purple-600" />}
+                      icon={<SnippetsOutlined />}
                       onClick={() => setPasteModalOpen(true)}
-                      className="text-xs text-slate-700 hover:text-purple-600 border-slate-200 h-8"
+                      className="text-xs bg-white text-[#374151] hover:text-[#111827] border-[#D1D5DB] hover:border-[#9CA3AF] h-8 shadow-xs"
                     >
                       Dán từ Clipboard
                     </Button>
@@ -975,7 +975,7 @@ export const CustomsSettlementPage: React.FC = () => {
                         setOnlyNegativeFilter(false);
                       }}
                       title="Đặt lại dữ liệu"
-                      className="text-xs text-slate-500 h-8"
+                      className="text-xs bg-white text-[#4B5563] hover:text-[#111827] border-[#D1D5DB] h-8 shadow-xs"
                     >
                       Làm mới
                     </Button>
@@ -984,68 +984,68 @@ export const CustomsSettlementPage: React.FC = () => {
 
                 {/* KPI Cards Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
-                    <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                  <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                    <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
                       Tổng số mã sản phẩm
                     </div>
                     <div className="mt-2 flex items-baseline justify-between">
-                      <span className="text-2xl font-semibold font-mono text-slate-900">
+                      <span className="text-2xl font-semibold font-mono text-[#111827]">
                         {items.length}
                       </span>
-                      <span className="text-xs text-slate-400">mã hình thể</span>
+                      <span className="text-xs text-[#9CA3AF]">mã hình thể</span>
                     </div>
-                    <div className="mt-2 text-[11px] text-slate-500">
+                    <div className="mt-2 text-[11px] text-[#6B7280]">
                       {report?.clearedOrderCount ? `Từ ${report.clearedOrderCount} đơn E52 thông quan` : 'Chờ tổng hợp'}
                     </div>
                   </div>
 
-                  <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
-                    <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                  <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                    <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
                       Lượng tồn đầu kỳ (Cột 5)
                     </div>
                     <div className="mt-2 flex items-baseline justify-between">
-                      <span className="text-2xl font-semibold font-mono text-slate-900">
+                      <span className="text-2xl font-semibold font-mono text-[#111827]">
                         {totalOpening.toLocaleString()}
                       </span>
-                      <span className="text-xs text-slate-400">đôi</span>
+                      <span className="text-xs text-[#9CA3AF]">đôi</span>
                     </div>
-                    <div className="mt-2 text-[11px] text-slate-500">
+                    <div className="mt-2 text-[11px] text-[#6B7280]">
                       Kế thừa từ kỳ trước hoặc đối soát kho
                     </div>
                   </div>
 
-                  <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
-                    <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                  <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                    <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
                       Lượng xuất trong kỳ E52 (Cột 7)
                     </div>
                     <div className="mt-2 flex items-baseline justify-between">
-                      <span className="text-2xl font-semibold font-mono text-blue-600">
+                      <span className="text-2xl font-semibold font-mono text-[#2563EB]">
                         {totalExport.toLocaleString()}
                       </span>
-                      <span className="text-xs text-slate-400">đôi</span>
+                      <span className="text-xs text-[#9CA3AF]">đôi</span>
                     </div>
-                    <div className="mt-2 text-[11px] text-slate-500">
+                    <div className="mt-2 text-[11px] text-[#6B7280]">
                       Tổng xuất khẩu gia công đã thông quan
                     </div>
                   </div>
 
-                  <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
-                    <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                  <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                    <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
                       Lượng tồn cuối kỳ (Cột 9)
                     </div>
                     <div className="mt-2 flex items-baseline justify-between">
                       <span
                         className={`text-2xl font-semibold font-mono ${
-                          totalClosing < 0 ? 'text-rose-600' : 'text-emerald-600'
+                          totalClosing < 0 ? 'text-[#B91C1C]' : 'text-[#15803D]'
                         }`}
                       >
                         {totalClosing.toLocaleString()}
                       </span>
-                      <span className="text-xs text-slate-400">đôi</span>
+                      <span className="text-xs text-[#9CA3AF]">đôi</span>
                     </div>
-                    <div className="mt-2 text-[11px] text-slate-500">
+                    <div className="mt-2 text-[11px] text-[#6B7280]">
                       {negativeItems.length > 0 ? (
-                        <span className="text-rose-600 font-semibold">
+                        <span className="text-[#B91C1C] font-semibold">
                           ⚠ {negativeItems.length} mã bị âm tồn!
                         </span>
                       ) : (
@@ -1057,20 +1057,20 @@ export const CustomsSettlementPage: React.FC = () => {
 
                 {/* Audit Risk Banner when negative closing balance detected */}
                 {negativeItems.length > 0 && (
-                  <div className="rounded-lg border-2 border-rose-400 bg-rose-50 p-4 shadow-sm">
+                  <div className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-start gap-3">
-                        <div className="p-2 bg-rose-100 rounded-full text-rose-600 text-lg flex items-center justify-center shrink-0">
+                        <div className="p-2 bg-[#FEE2E2] rounded-full text-[#B91C1C] text-base flex items-center justify-center shrink-0">
                           <WarningOutlined />
                         </div>
                         <div>
-                          <div className="text-sm font-bold text-rose-900 leading-tight">
-                            ⚠ CẢNH BÁO PHÁP LÝ: Phát hiện {negativeItems.length} mã hàng bị ÂM TỒN KHO!
+                          <div className="text-sm font-semibold text-[#991B1B] leading-tight">
+                            CẢNH BÁO PHÁP LÝ: Phát hiện {negativeItems.length} mã hàng bị ÂM TỒN KHO
                           </div>
-                          <div className="text-xs text-rose-700 mt-1">
+                          <div className="text-xs text-[#B91C1C] mt-1">
                             (Số lượng thực xuất lớn hơn số lượng kho báo sản xuất). Vui lòng kiểm tra lại trước khi xuất file nộp Hải quan.
                           </div>
-                          <div className="text-[11px] text-rose-600 font-mono mt-1">
+                          <div className="text-[11px] text-[#DC2626] font-mono mt-1">
                             Mã bị âm: {negativeItems.slice(0, 8).map((i) => `${i.productCode} (${i.closingBalance.toLocaleString()})`).join(', ')}
                             {negativeItems.length > 8 ? ` ...và ${negativeItems.length - 8} mã khác` : ''}
                           </div>
@@ -1092,25 +1092,25 @@ export const CustomsSettlementPage: React.FC = () => {
                 )}
 
                 {/* Settlement Table Panel */}
-                <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+                <div className="bg-white border border-[#E5E7EB] rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.05)] overflow-hidden">
                   {/* Table Toolbar */}
-                  <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/50">
+                  <div className="p-4 border-b border-[#E5E7EB] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[#F9FAFB]">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-slate-800">
+                      <span className="text-xs font-semibold text-[#111827]">
                         Bảng dữ liệu Quyết toán Sản phẩm Xuất khẩu (đối chiếu nội bộ)
                       </span>
-                      <Tag className="bg-slate-100 text-slate-600 border-slate-200 text-xs m-0">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#F3F4F6] text-[#4B5563] border border-[#E5E7EB]">
                         {filteredItems.length} / {items.length} mã hàng
-                      </Tag>
+                      </span>
                       {onlyNegativeFilter && (
-                        <Tag color="error" className="text-xs m-0 font-medium">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#FEF2F2] text-[#B91C1C] border border-[#FCA5A5]">
                           Đang lọc {filteredItems.length} mã âm tồn
-                        </Tag>
+                        </span>
                       )}
                       {isFinalized && (
-                        <Tag color="success" icon={<LockOutlined />} className="text-xs m-0">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]">
                           Khóa sửa (Đã chốt)
-                        </Tag>
+                        </span>
                       )}
                     </div>
 
@@ -1130,7 +1130,7 @@ export const CustomsSettlementPage: React.FC = () => {
                       <Input
                         size="small"
                         placeholder="Tìm mã sản phẩm, HS, tên..."
-                        prefix={<SearchOutlined className="text-slate-400" />}
+                        prefix={<SearchOutlined className="text-[#9CA3AF]" />}
                         value={tableSearch}
                         onChange={(e) => setTableSearch(e.target.value)}
                         className="w-60 text-xs"
@@ -1147,7 +1147,7 @@ export const CustomsSettlementPage: React.FC = () => {
                       rowKey="id"
                       loading={loading}
                       size="small"
-                      rowClassName={(record) => (record.closingBalance < 0 ? 'bg-rose-50/70 font-medium' : '')}
+                      rowClassName={(record) => (record.closingBalance < 0 ? 'bg-[#FEF2F2]/70 font-medium' : '')}
                       scroll={{ x: 'max-content' }}
                       pagination={{
                         defaultPageSize: 15,
@@ -1158,11 +1158,11 @@ export const CustomsSettlementPage: React.FC = () => {
                       }}
                     locale={{
                       emptyText: (
-                        <div className="py-12 text-center text-slate-400">
-                          <InfoCircleOutlined className="text-3xl mb-2 text-slate-300 block" />
+                        <div className="py-12 text-center text-[#9CA3AF]">
+                          <InfoCircleOutlined className="text-3xl mb-2 text-[#D1D5DB] block" />
                           <p className="text-xs m-0">
                             Chưa có dữ liệu quyết toán. Vui lòng thiết lập bộ lọc và bấm{' '}
-                            <strong className="text-blue-600">"Tổng hợp E52"</strong>.
+                            <strong className="text-[#2563EB]">"Tổng hợp E52"</strong>.
                           </p>
                         </div>
                       ),
@@ -1171,24 +1171,24 @@ export const CustomsSettlementPage: React.FC = () => {
                       if (filteredItems.length === 0) return null;
                       return (
                         <Table.Summary fixed>
-                          <Table.Summary.Row className="bg-slate-100 font-semibold text-xs border-t border-slate-300">
+                          <Table.Summary.Row className="bg-[#F9FAFB] font-semibold text-xs border-t border-[#E5E7EB]">
                             <Table.Summary.Cell index={0} colSpan={4} align="center">
-                              <span className="text-slate-800 tracking-wider">TỔNG CỘNG</span>
+                              <span className="text-[#374151] tracking-wider">TỔNG CỘNG</span>
                             </Table.Summary.Cell>
                             <Table.Summary.Cell index={4} align="right">
-                              <span className="font-mono text-slate-900">{totalOpening.toLocaleString()}</span>
+                              <span className="font-mono text-[#111827]">{totalOpening.toLocaleString()}</span>
                             </Table.Summary.Cell>
                             <Table.Summary.Cell index={5} align="right">
-                              <span className="font-mono text-slate-900">{totalProduction.toLocaleString()}</span>
+                              <span className="font-mono text-[#111827]">{totalProduction.toLocaleString()}</span>
                             </Table.Summary.Cell>
                             <Table.Summary.Cell index={6} align="right">
-                              <span className="font-mono text-blue-600">{totalExport.toLocaleString()}</span>
+                              <span className="font-mono text-[#2563EB]">{totalExport.toLocaleString()}</span>
                             </Table.Summary.Cell>
                             <Table.Summary.Cell index={7} align="right">
-                              <span className="font-mono text-slate-900">{totalOther.toLocaleString()}</span>
+                              <span className="font-mono text-[#111827]">{totalOther.toLocaleString()}</span>
                             </Table.Summary.Cell>
                             <Table.Summary.Cell index={8} align="right">
-                              <span className={`font-mono ${totalClosing < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                              <span className={`font-mono ${totalClosing < 0 ? 'text-[#B91C1C]' : 'text-[#15803D]'}`}>
                                 {totalClosing.toLocaleString()}
                               </span>
                             </Table.Summary.Cell>

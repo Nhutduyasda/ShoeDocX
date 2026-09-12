@@ -3,6 +3,8 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -16,6 +18,20 @@ namespace ShoeExportInvoice.Tests;
 
 public class AuthIdentityTests
 {
+    [Fact]
+    public void SensitiveControllers_RequireExpectedRolesAndOcrRateLimit()
+    {
+        var ocrAuthorize = Assert.Single(typeof(OcrController).GetCustomAttributes(typeof(AuthorizeAttribute), true)
+            .Cast<AuthorizeAttribute>());
+        Assert.Equal("Admin,Xnk", ocrAuthorize.Roles);
+        var ocrRateLimit = Assert.Single(typeof(OcrController).GetCustomAttributes(typeof(EnableRateLimitingAttribute), true)
+            .Cast<EnableRateLimitingAttribute>());
+        Assert.Equal("ocr", ocrRateLimit.PolicyName);
+
+        var analyticsAuthorize = Assert.Single(typeof(AnalyticsController).GetCustomAttributes(typeof(AuthorizeAttribute), true)
+            .Cast<AuthorizeAttribute>());
+        Assert.Equal("Admin,Xnk,KeToan", analyticsAuthorize.Roles);
+    }
     private static (AppDbContext context, UserManager<ApplicationUser> userManager, IConfiguration config) CreateTestDependencies()
     {
         var dbName = "TestDb_Auth_" + Guid.NewGuid();
@@ -50,7 +66,8 @@ public class AuthIdentityTests
             ["Jwt:Key"] = "TestSecretKey_For_UnitTesting_Authentication_MustBeLongEnough_2026!",
             ["Jwt:Issuer"] = "ShoeExportInvoiceApi",
             ["Jwt:Audience"] = "ShoeExportInvoiceClient",
-            ["Jwt:ExpiryDays"] = "7"
+            ["Jwt:ExpiryHours"] = "8",
+            ["Jwt:RememberMeExpiryHours"] = "24"
         };
         var config = new ConfigurationBuilder().AddInMemoryCollection(configValues).Build();
 
@@ -58,29 +75,19 @@ public class AuthIdentityTests
     }
 
     [Fact]
-    public async Task SeedUsers_ShouldCreateFourDepartmentAccounts()
+    public async Task BootstrapAdmin_ShouldCreateOnlyConfiguredAdministrator()
     {
         var (context, userManager, _) = CreateTestDependencies();
         try
         {
-            await DbInitializer.SeedUsersAsync(userManager, NullLogger.Instance);
+            await DbInitializer.SeedBootstrapAdminAsync(
+                userManager, NullLogger.Instance, "bootstrap-admin", "Strong@Test123", "Bootstrap Administrator");
 
-            var admin = await userManager.FindByNameAsync("admin");
-            var xnk = await userManager.FindByNameAsync("xnk");
-            var kho = await userManager.FindByNameAsync("kho");
-            var ketoan = await userManager.FindByNameAsync("ketoan");
+            var admin = await userManager.FindByNameAsync("bootstrap-admin");
 
             Assert.NotNull(admin);
             Assert.Equal(Department.Admin, admin.Department);
-
-            Assert.NotNull(xnk);
-            Assert.Equal(Department.Xnk, xnk.Department);
-
-            Assert.NotNull(kho);
-            Assert.Equal(Department.Kho, kho.Department);
-
-            Assert.NotNull(ketoan);
-            Assert.Equal(Department.KeToan, ketoan.Department);
+            Assert.Single(await context.Users.ToListAsync());
         }
         finally
         {
@@ -95,13 +102,13 @@ public class AuthIdentityTests
         var (context, userManager, config) = CreateTestDependencies();
         try
         {
-            await DbInitializer.SeedUsersAsync(userManager, NullLogger.Instance);
+            await CreateUserAsync(userManager, "kho", "Strong@Test123", Department.Kho);
             var controller = new AuthController(userManager, config, NullLogger<AuthController>.Instance);
 
             var result = await controller.Login(new LoginRequestDto
             {
                 Username = "kho",
-                Password = "@Kho123",
+                Password = "Strong@Test123",
                 RememberMe = false
             });
 
@@ -133,7 +140,7 @@ public class AuthIdentityTests
         var (context, userManager, config) = CreateTestDependencies();
         try
         {
-            await DbInitializer.SeedUsersAsync(userManager, NullLogger.Instance);
+            await CreateUserAsync(userManager, "kho", "Strong@Test123", Department.Kho);
             var controller = new AuthController(userManager, config, NullLogger<AuthController>.Instance);
 
             var result = await controller.Login(new LoginRequestDto
@@ -151,4 +158,41 @@ public class AuthIdentityTests
             await context.DisposeAsync();
         }
     }
+
+    [Fact]
+    public void VerifyProductionDatabasePasswords()
+    {
+        var hasher = new PasswordHasher<ApplicationUser>();
+        var user = new ApplicationUser();
+        var hashes = new Dictionary<string, (string Hash, string Password)>
+        {
+            ["admin"] = ("AQAAAAIAAYagAAAAEA7RIsU6ARFGVbcQeUt274+W5rsGcfqj9SwCCfC1lIQXEPc+klOyHElF4jJpuVYKBw==", "@Admin123"),
+            ["xnk"] = ("AQAAAAIAAYagAAAAECA+TWO++wmmBOfjqtynAOEzPX5/qLVxkJLED8GH/7GZpbTAu/Jbdl2/+22TKAkRHw==", "@Xnk123"),
+            ["kho"] = ("AQAAAAIAAYagAAAAEGoz5WbDtJ0+7fivnxTkIRfnxakmtSmLEXsvfPLNmEDyg7fruhRxCantHjkZvTST4w==", "@Kho123"),
+            ["ketoan"] = ("AQAAAAIAAYagAAAAEHvRUXWPgWkgZ7p8dDZTMCNAQPgV3FdSnoMIYpmMWMPQxf55Jb/Eiw7QpiuS4wscjQ==", "@KeToan123")
+        };
+
+        foreach (var (username, (hash, pwd)) in hashes)
+        {
+            var res = hasher.VerifyHashedPassword(user, hash, pwd);
+            Assert.True(res != PasswordVerificationResult.Failed, $"Password verification failed for user {username} with {pwd}");
+        }
+    }
+
+    private static async Task CreateUserAsync(
+        UserManager<ApplicationUser> userManager,
+        string username,
+        string password,
+        Department department)
+    {
+        var result = await userManager.CreateAsync(new ApplicationUser
+        {
+            UserName = username,
+            FullName = username,
+            Department = department,
+            IsActive = true
+        }, password);
+        Assert.True(result.Succeeded, string.Join(", ", result.Errors.Select(e => e.Description)));
+    }
 }
+

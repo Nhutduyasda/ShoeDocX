@@ -31,6 +31,9 @@ export const enterpriseTheme: ThemeConfig = {
       'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     boxShadow: tokens.shadowCard,
     boxShadowSecondary: tokens.shadowDropdown,
+    lineWidth: 1,
+    motionDurationFast: '0.1s',
+    motionDurationMid: '0.15s',
   },
   components: {
     Table: {
@@ -111,5 +114,38 @@ export const enterpriseTheme: ThemeConfig = {
     Tooltip: {
       colorBgSpotlight: '#1F2937',
     },
+    Pagination: {
+      itemActiveBg: tokens.surface,
+      itemBg: 'transparent',
+      borderRadius: tokens.radiusSm,
+    },
+    Dropdown: {
+      paddingBlock: 4,
+      controlItemBgHover: tokens.surfaceSecondary,
+      controlItemBgActive: tokens.colorPrimaryLight,
+    },
+    Form: {
+      labelColor: '#374151',
+      labelFontSize: 13,
+      verticalLabelPadding: '0 0 5px',
+      itemMarginBottom: 16,
+    },
+    Tabs: {
+      cardBg: '#F9FAFB',
+      itemSelectedColor: tokens.colorPrimary,
+      itemHoverColor: tokens.colorPrimaryHover,
+      itemColor: tokens.textSecondary,
+      titleFontSize: 13,
+    },
+    Breadcrumb: {
+      fontSize: 12,
+      linkColor: tokens.textMuted,
+      linkHoverColor: tokens.colorPrimary,
+      separatorColor: tokens.borderStrong,
+    },
+    Drawer: {
+      borderRadiusSM: 0,
+    },
   },
 };
+

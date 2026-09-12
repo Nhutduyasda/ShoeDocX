@@ -128,6 +128,13 @@ public class WarehouseBatchTests
             ContractNote = "TEST",
             Status = WarehouseBatchStatus.SubmittedToXnk
         };
+        context.ShipmentOrders.Add(new ShipmentOrder
+        {
+            Id = 42,
+            InvoiceNo = "WAREHOUSE-LINK-42",
+            CustomerName = "Test customer",
+            Status = ShipmentStatus.Exported
+        });
         context.WarehouseBatches.Add(batch);
         await context.SaveChangesAsync();
 

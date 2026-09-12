@@ -356,7 +356,8 @@ export const WarehousePage: React.FC = () => {
     } finally {
       setLoadingProducts(false);
     }
-  }, [rows, resolveRowConfig]);
+  }, [rows, resolveRowConfig, renderProductOption]);
+
 
   // Khi người dùng chọn Thư mục Hợp đồng
   const handleFolderChange = (val: number | null) => {
@@ -898,7 +899,7 @@ export const WarehousePage: React.FC = () => {
                 <strong className="text-emerald-600">{totalQuantity.toLocaleString()} đôi</strong> cho phòng XNK.
               </div>
               <div className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded border border-slate-200">
-                ℹ️ Bảng dữ liệu đợt này đã được chuyển sang trạng thái <strong>[Đã bàn giao XNK]</strong> và khóa để chống chỉnh sửa trùng lặp. Đơn giá và công đoạn đã được đồng bộ chuẩn xác với Master Data.
+                Bảng dữ liệu đợt này đã được chuyển sang trạng thái <strong>[Đã bàn giao XNK]</strong> và khóa để chống chỉnh sửa trùng lặp. Đơn giá và công đoạn đã được đồng bộ chuẩn xác với Master Data.
               </div>
             </div>
           ),
@@ -1029,9 +1030,9 @@ export const WarehousePage: React.FC = () => {
   return (
     <div className="space-y-6 max-w-[1550px] mx-auto pb-12" onPaste={handleGridPaste}>
       {/* 1. Page Header (Đồng bộ chuẩn phong cách giao diện ShoeDocX) */}
-      <div className="flex justify-between items-start flex-wrap gap-4 pb-4 border-b border-slate-200">
-        <div>
-          <div className="flex items-center space-x-2">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-slate-200">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
               Lưới xuất kho thành phẩm (成品鞋出货交接单)
             </h1>
@@ -1042,12 +1043,12 @@ export const WarehousePage: React.FC = () => {
             )}
             {status === 'SubmittedToXnk' && (
               <Tag className="border-blue-300 text-blue-700 bg-blue-50 text-xs font-semibold px-2 py-0.5 m-0">
-                🚀 Đã bàn giao XNK {submittedAt ? `(${dayjs(submittedAt).format('HH:mm DD/MM')})` : ''}
+                Đã bàn giao XNK {submittedAt ? `(${dayjs(submittedAt).format('HH:mm DD/MM')})` : ''}
               </Tag>
             )}
             {status === 'ProcessedByXnk' && (
               <Tag className="border-emerald-300 text-emerald-700 bg-emerald-50 text-xs font-semibold px-2 py-0.5 m-0">
-                ✅ XNK đã tiếp nhận {shipmentOrderId ? `(HĐ #${shipmentOrderId})` : ''}
+                XNK đã tiếp nhận {shipmentOrderId ? `(HĐ #${shipmentOrderId})` : ''}
               </Tag>
             )}
           </div>
@@ -1057,37 +1058,37 @@ export const WarehousePage: React.FC = () => {
         </div>
 
         {/* Thanh nút bấm chức năng */}
-        <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
+        <div className="flex items-center flex-wrap gap-2 min-w-0">
           <Button
-            icon={<HistoryOutlined />}
+            icon={<HistoryOutlined className="text-xs" />}
             onClick={() => {
               loadHistory();
               setHistoryDrawerVisible(true);
             }}
-            className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+            className="text-xs h-9 px-3.5 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium"
           >
             Lịch sử ({historyBatches.length})
           </Button>
 
           <Button
             type={isLocked ? 'primary' : 'default'}
-            icon={<PlusOutlined />}
+            icon={<PlusOutlined className="text-xs" />}
             onClick={handleCreateNewBatch}
             className={
               isLocked
-                ? 'bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 px-3.5 shadow-xs'
-                : 'text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium'
+                ? 'bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium text-xs h-9 px-3.5 shadow-none'
+                : 'text-xs h-9 px-3.5 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium'
             }
           >
-            {isLocked ? '➕ Tạo đợt xuất mới' : 'Làm sạch / Tạo mới'}
+            {isLocked ? 'Tạo đợt xuất mới' : 'Làm mới phiếu'}
           </Button>
 
           <Button
-            icon={<SaveOutlined />}
+            icon={<SaveOutlined className="text-xs" />}
             loading={saving}
             onClick={handleSaveDraft}
             disabled={isLocked || saving || submitting}
-            className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+            className="text-xs h-9 px-3.5 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium"
           >
             Lưu nháp (Ctrl+S)
           </Button>
@@ -1097,10 +1098,10 @@ export const WarehousePage: React.FC = () => {
             description={
               <div>
                 Bạn chuẩn bị bàn giao lô <strong>{batchNumber}</strong> với{' '}
-                <strong className="text-emerald-600">{totalQuantity.toLocaleString()} đôi</strong> cho bộ phận XNK.
+                <strong className="text-[#15803D] font-mono">{totalQuantity.toLocaleString()} đôi</strong> cho bộ phận XNK.
                 {pendingReviewCount > 0 && (
-                  <div className="text-amber-600 text-xs mt-1">
-                    ⚠️ Có {pendingReviewCount} mã mới chưa đăng ký trong Master Data (XNK sẽ đối soát sau).
+                  <div className="text-[#B45309] text-xs mt-1">
+                    Có {pendingReviewCount} mã mới chưa đăng ký trong Master Data (XNK sẽ đối soát sau).
                   </div>
                 )}
               </div>
@@ -1108,17 +1109,17 @@ export const WarehousePage: React.FC = () => {
             onConfirm={handleSubmitToXnk}
             okText="Bàn giao ngay"
             cancelText="Hủy"
-            okButtonProps={{ className: 'bg-emerald-600' }}
+            okButtonProps={{ className: 'bg-[#2563EB] hover:bg-[#1D4ED8]' }}
             disabled={isLocked || saving || submitting || validRowsCount === 0}
           >
             <Button
               type="primary"
-              icon={<RocketOutlined />}
+              icon={<RocketOutlined className="text-xs" />}
               loading={submitting}
               disabled={isLocked || saving || submitting || validRowsCount === 0}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-9 px-4 shadow-sm"
+              className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium text-xs h-9 px-4 shadow-none"
             >
-              🚀 BÀN GIAO CHO XNK ({totalQuantity.toLocaleString()} đôi)
+              Bàn giao cho XNK ({totalQuantity.toLocaleString()} đôi)
             </Button>
           </Popconfirm>
         </div>
@@ -1126,14 +1127,13 @@ export const WarehousePage: React.FC = () => {
 
       {/* Thông báo trạng thái khi lô hàng đã được bàn giao hoặc xử lý */}
       {status === 'SubmittedToXnk' && (
-        <div className="bg-emerald-50 border border-emerald-300 rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 shadow-xs">
+        <div className="bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
           <div className="flex items-center space-x-3">
-            <span className="text-2xl">🚀</span>
             <div>
-              <div className="text-sm font-bold text-emerald-950">
-                Đợt hàng {batchNumber} ĐÃ BÀN GIAO CHO PHÒNG XNK THÀNH CÔNG!
+              <div className="text-sm font-semibold text-[#15803D]">
+                Đợt hàng {batchNumber} đã bàn giao cho phòng XNK thành công
               </div>
-              <div className="text-xs text-emerald-700 mt-0.5">
+              <div className="text-xs text-[#166534] mt-0.5">
                 Bàn giao lúc: {submittedAt ? dayjs(submittedAt).format('HH:mm:ss DD/MM/YYYY') : 'Vừa xong'}. Bảng dữ liệu hiện đang được khóa để bảo vệ tính toàn vẹn và chống trùng lặp.
               </div>
             </div>
@@ -1141,19 +1141,19 @@ export const WarehousePage: React.FC = () => {
           <div className="flex items-center space-x-2">
             <Button
               type="primary"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined className="text-xs" />}
               onClick={handleCreateNewBatch}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-8 shadow-xs"
+              className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium text-xs h-8 px-3 shadow-none"
             >
-              ➕ Tạo đợt xuất kho tiếp theo
+              Tạo đợt xuất tiếp theo
             </Button>
             <Button
-              icon={<HistoryOutlined />}
+              icon={<HistoryOutlined className="text-xs" />}
               onClick={() => {
                 loadHistory();
                 setHistoryDrawerVisible(true);
               }}
-              className="text-xs h-8 border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50"
+              className="text-xs h-8 border-[#D1D5DB] text-[#374151] bg-white hover:bg-[#F9FAFB] hover:text-[#2563EB]"
             >
               Xem lịch sử ({historyBatches.length})
             </Button>
@@ -1162,28 +1162,28 @@ export const WarehousePage: React.FC = () => {
       )}
 
       {status === 'ProcessedByXnk' && (
-        <div className="bg-blue-50 border border-blue-300 rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 shadow-xs">
+        <div className="bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
           <div className="flex items-center space-x-3">
-            <span className="text-2xl">✅</span>
             <div>
-              <div className="text-sm font-bold text-blue-950">
-                Phòng XNK đã tiếp nhận và lập Hóa đơn xuất khẩu cho đợt {batchNumber}!
+              <div className="text-sm font-semibold text-[#1D4ED8]">
+                Phòng XNK đã tiếp nhận và lập Hóa đơn xuất khẩu cho đợt {batchNumber}
               </div>
-              <div className="text-xs text-blue-700 mt-0.5">
+              <div className="text-xs text-[#2563EB] mt-0.5">
                 {shipmentOrderId ? `Đơn hàng liên kết: #${shipmentOrderId}. ` : ''}Dữ liệu đã vào sổ sách kế toán & hải quan.
               </div>
             </div>
           </div>
           <Button
             type="primary"
-            icon={<PlusOutlined />}
+            icon={<PlusOutlined className="text-xs" />}
             onClick={handleCreateNewBatch}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-8 shadow-xs"
+            className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium text-xs h-8 px-3 shadow-none"
           >
-            ➕ Tạo đợt xuất kho mới
+            Tạo đợt xuất mới
           </Button>
         </div>
       )}
+
 
       {/* 2. Card Thông tin đợt xuất (Clean Enterprise White Card) */}
       <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4 shadow-sm">
@@ -1277,80 +1277,80 @@ export const WarehousePage: React.FC = () => {
 
       {/* 3. LƯỚI NHẬP LIỆU FAST-GRID (Clean White Table với màu cam/vàng đặc trưng của xưởng) */}
       <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4 shadow-sm">
-        <div className="flex justify-between items-center flex-wrap gap-3 pb-3 border-b border-slate-100">
-          <div className="text-xs font-semibold text-slate-800 uppercase tracking-wider">
-            2. Danh sách Hàng xuất kho ({validRowsCount} mã hợp lệ • Tổng: <span className="text-emerald-600 font-bold">{totalQuantity.toLocaleString()} đôi</span>)
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="text-xs font-semibold text-[#111827] uppercase tracking-wider min-w-0 flex-1">
+            2. Danh sách Hàng xuất kho ({validRowsCount} mã hợp lệ • Tổng: <span className="text-[#2563EB] font-bold font-mono">{totalQuantity.toLocaleString()} đôi</span>)
           </div>
 
-          <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
+          <div className="flex items-center flex-wrap gap-2 min-w-0">
             <Button
               size="small"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined className="text-xs" />}
               onClick={() => addRows(1, 1)}
               disabled={isLocked}
-              className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium disabled:opacity-50"
+              className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium disabled:opacity-50"
             >
               + 1 dòng
             </Button>
             <Button
               size="small"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined className="text-xs" />}
               onClick={() => addRows(5, 1)}
               disabled={isLocked}
-              className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium disabled:opacity-50"
+              className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium disabled:opacity-50"
             >
-              + 5 dòng (加5行)
+              + 5 dòng
             </Button>
             <Button
               size="small"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined className="text-xs" />}
               onClick={() => addRows(1, 2)}
               disabled={isLocked}
-              className="text-xs h-8 px-3 border-orange-300 text-orange-800 bg-orange-50 hover:bg-orange-100 font-medium disabled:opacity-50"
+              className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium disabled:opacity-50"
             >
               + 1 dòng Gò không may
             </Button>
             <Button
               size="small"
-              icon={<SnippetsOutlined />}
+              icon={<SnippetsOutlined className="text-xs" />}
               onClick={() => setPasteModalVisible(true)}
               disabled={isLocked}
-              className="text-xs h-8 px-3 border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-medium disabled:opacity-50"
+              className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium disabled:opacity-50"
             >
-              📋 Dán từ Excel (Clipboard)
+              Dán từ Excel (Clipboard)
             </Button>
           </div>
         </div>
 
         {/* Bảng dữ liệu Fast-Grid */}
-        <div className="border border-slate-200 rounded-lg overflow-x-auto shadow-sm">
+        <div className="border border-[#E5E7EB] rounded-lg overflow-x-auto shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
           <table className="w-full text-left border-collapse min-w-[950px]">
             {/* Table Header */}
             <thead>
-              <tr className="bg-slate-50 text-slate-700 text-xs uppercase tracking-wider font-semibold border-b border-slate-200 select-none">
-                <th className="py-3 px-3 w-14 text-center border-r border-slate-200">
-                  STT<br/><span className="text-[10px] text-slate-400 font-normal">序号</span>
+              <tr className="bg-[#F9FAFB] text-[#374151] text-xs uppercase tracking-wider font-semibold border-b border-[#E5E7EB] select-none">
+                <th className="py-3 px-3 w-14 text-center border-r border-[#E5E7EB]">
+                  STT<br/><span className="text-[10px] text-[#6B7280] font-normal">序号</span>
                 </th>
-                <th className="py-3 px-4 border-r border-slate-200">
-                  HÌNH THỂ / MÃ GIÀY<br/><span className="text-[10px] text-slate-400 font-normal">鞋型 (Style Code)</span>
+                <th className="py-3 px-4 border-r border-[#E5E7EB]">
+                  HÌNH THỂ / MÃ GIÀY<br/><span className="text-[10px] text-[#6B7280] font-normal">鞋型 (Style Code)</span>
                 </th>
-                <th className="py-3 px-4 w-52 border-r border-slate-200">
-                  CÔNG ĐOẠN<br/><span className="text-[10px] text-slate-400 font-normal">工序 (Process Type)</span>
+                <th className="py-3 px-4 w-52 border-r border-[#E5E7EB]">
+                  CÔNG ĐOẠN<br/><span className="text-[10px] text-[#6B7280] font-normal">工序 (Process Type)</span>
                 </th>
-                <th className="py-3 px-4 w-48 text-right border-r border-slate-200">
-                  SỐ LƯỢNG ĐI HÀNG<br/><span className="text-[10px] text-slate-400 font-normal">交货数量 (Đôi / Pairs)</span>
+                <th className="py-3 px-4 w-48 text-right border-r border-[#E5E7EB]">
+                  SỐ LƯỢNG ĐI HÀNG<br/><span className="text-[10px] text-[#6B7280] font-normal">交货数量 (Đôi / Pairs)</span>
                 </th>
-                <th className="py-3 px-4 border-r border-slate-200">
-                  GHI CHÚ<br/><span className="text-[10px] text-slate-400 font-normal">备注 (Note)</span>
+                <th className="py-3 px-4 border-r border-[#E5E7EB]">
+                  GHI CHÚ<br/><span className="text-[10px] text-[#6B7280] font-normal">备注 (Note)</span>
                 </th>
                 <th className="py-3 px-2 w-16 text-center">
-                  XÓA<br/><span className="text-[10px] text-slate-400 font-normal">操作</span>
+                  XÓA<br/><span className="text-[10px] text-[#6B7280] font-normal">操作</span>
                 </th>
               </tr>
             </thead>
 
             {/* Table Body */}
-            <tbody className="divide-y divide-slate-100 text-sm">
+            <tbody className="divide-y divide-[#F3F4F6] text-xs">
               {rows.map((row, index) => {
                 const isGo = row.processType === 2;
                 return (
@@ -1358,21 +1358,21 @@ export const WarehousePage: React.FC = () => {
                     key={row.key}
                     className={`transition-colors duration-150 ${
                       isGo
-                        ? 'bg-orange-50/80 hover:bg-orange-100/70 border-l-4 border-l-orange-500'
-                        : 'bg-white hover:bg-slate-50/80'
+                        ? 'bg-[#FFFBEB]/40 hover:bg-[#FEF3C7]/40 border-l-2 border-l-[#D97706]'
+                        : 'bg-white hover:bg-[#F9FAFB]'
                     }`}
                   >
                     {/* STT */}
                     <td
                       className={`py-2 px-3 text-center border-r select-none text-xs font-mono ${
-                        isGo ? 'border-orange-200 text-orange-800 font-bold' : 'border-slate-200 text-slate-400'
+                        isGo ? 'border-[#E5E7EB] text-[#B45309] font-semibold' : 'border-[#E5E7EB] text-[#6B7280]'
                       }`}
                     >
                       {index + 1}
                     </td>
 
                     {/* Mã Giày (Style Code) */}
-                    <td className={`py-1.5 px-3 border-r ${isGo ? 'border-orange-200' : 'border-slate-200'}`}>
+                    <td className="py-1.5 px-3 border-r border-[#E5E7EB]">
                       {(() => {
                         const otherCodes = getOtherSelectedCodes(index);
                         const rowOpts = (
@@ -1399,19 +1399,19 @@ export const WarehousePage: React.FC = () => {
                                 onKeyDown={(e) => handleStyleCodeKeyDown(e, index)}
                                 placeholder="Nhập mã giày (VD: 40700-066)..."
                                 disabled={isLocked}
-                                className={`font-mono font-bold tracking-wide text-sm h-8 ${
+                                className={`font-mono font-semibold tracking-wide text-xs h-8 border-[#E5E7EB] ${
                                   isGo
-                                    ? 'bg-orange-50/60 border-orange-300 text-orange-950 placeholder-orange-400'
-                                    : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
+                                    ? 'bg-[#FFFBEB]/60 text-[#92400E] placeholder-[#D97706]'
+                                    : 'bg-white text-[#111827] focus:border-[#2563EB]'
                                 }`}
                               />
                             </AutoComplete>
 
                             {row.isPendingReview && row.styleCode.trim() && (
                               <Tooltip title="Mã này chưa có trong Master Data. Hệ thống vẫn lưu bình thường và chuyển cho XNK đối soát sau.">
-                                <Tag color="warning" className="text-[10px] whitespace-nowrap m-0 cursor-help">
-                                  ⚠️ Mã mới
-                                </Tag>
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#FFFBEB] text-[#B45309] border border-[#FDE68A] whitespace-nowrap cursor-help">
+                                  Mã mới
+                                </span>
                               </Tooltip>
                             )}
                           </div>
@@ -1420,21 +1420,21 @@ export const WarehousePage: React.FC = () => {
                     </td>
 
                     {/* Công đoạn (Thành hình vs Gò không may) */}
-                    <td className={`py-1.5 px-3 border-r ${isGo ? 'border-orange-200' : 'border-slate-200'}`}>
+                    <td className="py-1.5 px-3 border-r border-[#E5E7EB]">
                       <Tooltip title={row.lockReason || (isGo ? 'Hàng Gò không may' : 'Hàng Thành hình')}>
                         <Select
                           value={row.processType}
                           onChange={(val) => handleProcessTypeChange(index, val)}
                           disabled={isLocked || row.lockMode === 'ONLY_GO' || row.lockMode === 'ONLY_STANDARD'}
-                          className="w-full"
+                          className="w-full text-xs"
                           options={[
                             {
                               value: 1,
                               label: (
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between text-xs">
                                   <span>Thành hình (标准)</span>
                                   {row.lockMode === 'ONLY_STANDARD' && (
-                                    <span className="text-[10px] text-slate-400 font-normal ml-1">🔒 Khóa</span>
+                                    <span className="text-[10px] text-[#6B7280] font-normal ml-1">🔒 Khóa</span>
                                   )}
                                 </div>
                               ),
@@ -1443,10 +1443,10 @@ export const WarehousePage: React.FC = () => {
                             {
                               value: 2,
                               label: (
-                                <div className="flex items-center justify-between">
-                                  <span className="font-semibold text-orange-600">🔶 GÒ KHÔNG MAY (仅成型)</span>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-semibold text-[#B45309]">GÒ KHÔNG MAY (仅成型)</span>
                                   {row.lockMode === 'ONLY_GO' && (
-                                    <span className="text-[10px] text-orange-500 font-normal ml-1">🔒 Khóa</span>
+                                    <span className="text-[10px] text-[#B45309] font-normal ml-1">🔒 Khóa</span>
                                   )}
                                 </div>
                               ),
@@ -1456,19 +1456,19 @@ export const WarehousePage: React.FC = () => {
                         />
                       </Tooltip>
                       {row.lockMode === 'BOTH' && (
-                        <div className="text-[10px] text-indigo-600 mt-0.5 leading-tight font-medium">
-                          ✨ Đa hình thức (có cả 2 giá)
+                        <div className="text-[10px] text-[#2563EB] mt-0.5 leading-tight font-medium">
+                          Đa hình thức (có cả 2 giá)
                         </div>
                       )}
                       {row.lockMode === 'NO_PRICE' && row.styleCode.trim() && (
-                        <div className="text-[10px] text-amber-600 mt-0.5 leading-tight">
-                          ⚠️ Chưa có đơn giá Master Data
+                        <div className="text-[10px] text-[#B45309] mt-0.5 leading-tight">
+                          Chưa có đơn giá Master Data
                         </div>
                       )}
                     </td>
 
                     {/* Số lượng */}
-                    <td className={`py-1.5 px-3 border-r ${isGo ? 'border-orange-200' : 'border-slate-200'}`}>
+                    <td className="py-1.5 px-3 border-r border-[#E5E7EB]">
                       <Input
                         ref={(el) => {
                           inputRefs.current[`qty_${index}`] = el;
@@ -1478,24 +1478,22 @@ export const WarehousePage: React.FC = () => {
                         onKeyDown={(e) => handleQuantityKeyDown(e, index)}
                         placeholder="Số đôi..."
                         disabled={isLocked}
-                        className={`text-right font-mono font-bold text-sm h-8 ${
+                        className={`text-right font-mono font-bold text-xs h-8 border-[#E5E7EB] ${
                           isGo
-                            ? 'bg-orange-50/60 border-orange-300 text-orange-950 placeholder-orange-400'
-                            : 'bg-white border-slate-300 text-slate-900 focus:border-emerald-500'
+                            ? 'bg-[#FFFBEB]/60 text-[#92400E] placeholder-[#D97706]'
+                            : 'bg-white text-[#111827] focus:border-[#2563EB]'
                         }`}
                       />
                     </td>
 
                     {/* Ghi chú */}
-                    <td className={`py-1.5 px-3 border-r ${isGo ? 'border-orange-200' : 'border-slate-200'}`}>
+                    <td className="py-1.5 px-3 border-r border-[#E5E7EB]">
                       <Input
                         value={row.note || ''}
                         onChange={(e) => handleNoteChange(index, e.target.value)}
                         placeholder="Ghi chú (KM3, Đợt 2...)"
                         disabled={isLocked}
-                        className={`text-xs h-8 ${
-                          isGo ? 'bg-orange-50/60 border-orange-300' : 'bg-white border-slate-300'
-                        }`}
+                        className="text-xs h-8 border-[#E5E7EB]"
                       />
                     </td>
 
@@ -1507,7 +1505,7 @@ export const WarehousePage: React.FC = () => {
                         icon={<DeleteOutlined className="text-xs" />}
                         onClick={() => deleteRow(index)}
                         disabled={isLocked}
-                        className="text-slate-400 hover:text-rose-600 disabled:opacity-30"
+                        className="text-[#9CA3AF] hover:text-[#B91C1C] hover:bg-[#FEF2F2] disabled:opacity-30"
                       />
                     </td>
                   </tr>
@@ -1515,35 +1513,35 @@ export const WarehousePage: React.FC = () => {
               })}
             </tbody>
 
-            {/* 4. Chân bảng TỔNG CỘNG 共计 (Màu vàng sáng y hệt thực tế xưởng) */}
+            {/* 4. Chân bảng TỔNG CỘNG */}
             <tfoot>
-              <tr className="bg-yellow-200 text-yellow-950 font-bold border-t-2 border-yellow-400 select-none">
-                <td colSpan={3} className="py-3 px-4 text-xs uppercase tracking-wide border-r border-yellow-300">
+              <tr className="bg-[#F9FAFB] text-[#111827] font-semibold border-t border-[#E5E7EB] select-none">
+                <td colSpan={3} className="py-3 px-4 text-xs uppercase tracking-wide border-r border-[#E5E7EB]">
                   <div className="flex items-center space-x-2">
-                    <span className="text-base">📊</span>
-                    <span className="font-extrabold text-sm">TỔNG CỘNG 共计</span>
-                    <span className="text-xs font-normal text-yellow-900">
+                    <span className="font-bold text-xs text-[#111827]">TỔNG CỘNG</span>
+                    <span className="text-xs font-normal text-[#4B5563]">
                       ({validRowsCount} mã hợp lệ | Thành hình: {standardQuantity.toLocaleString()} đôi | Gò không may: {goKhongMayQuantity.toLocaleString()} đôi)
                     </span>
                   </div>
                 </td>
-                <td className="py-3 px-4 text-right font-mono text-base font-black border-r border-yellow-300">
+                <td className="py-3 px-4 text-right font-mono text-sm font-bold text-[#111827] border-r border-[#E5E7EB]">
                   {totalQuantity.toLocaleString()} đôi
                 </td>
-                <td colSpan={2} className="py-3 px-4 text-xs font-normal text-yellow-900">
+                <td colSpan={2} className="py-3 px-4 text-xs font-normal text-[#4B5563]">
                   {pendingReviewCount > 0 ? (
-                    <span className="text-amber-900 font-bold">
-                      ⚠️ {pendingReviewCount} mã tạm chờ XNK duyệt
+                    <span className="text-[#B45309] font-medium">
+                      {pendingReviewCount} mã tạm chờ XNK duyệt
                     </span>
                   ) : (
-                    <span className="text-emerald-900 font-semibold inline-flex items-center gap-1">
-                      <CheckCircleFilled className="text-emerald-700" /> Đầy đủ thông tin
+                    <span className="text-[#15803D] font-medium inline-flex items-center gap-1">
+                      <CheckCircleFilled className="text-[#15803D]" /> Đầy đủ thông tin
                     </span>
                   )}
                 </td>
               </tr>
             </tfoot>
           </table>
+
         </div>
 
         {/* Hướng dẫn thao tác nhanh cho thủ kho */}
@@ -1595,7 +1593,7 @@ export const WarehousePage: React.FC = () => {
           ) : availablePickerProducts.length === 0 ? (
             <div className="text-center py-8 text-slate-500 text-xs">
               {folderProducts.length > 0
-                ? '✅ Toàn bộ các mã trong hợp đồng này đã được thêm vào bảng xuất kho!'
+                ? 'Toàn bộ các mã trong hợp đồng này đã được thêm vào bảng xuất kho.'
                 : 'Hợp đồng này chưa có mã sản phẩm nào được đăng ký trong Master Data.'}
             </div>
           ) : (

@@ -3,7 +3,7 @@ import { Modal, Table, Button, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { PklPreviewResponse, PklBreakdownItem } from '../types';
-import { ProcessType } from '../types';
+import { ProcessType, normalizeProcessType } from '../types';
 
 interface PklPreviewModalProps {
   visible: boolean;
@@ -72,7 +72,7 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       key: 'processType',
       width: 110,
       render: (type: number) =>
-        type === ProcessType.GoKhongMay ? (
+        normalizeProcessType(type) === ProcessType.GoKhongMay ? (
           <span className="text-xs text-purple-700 font-medium">
             Gò (.G)
           </span>
@@ -173,7 +173,7 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
       onCancel={onClose}
       width={1050}
       footer={[
-        <Button key="close" onClick={onClose} className="border-slate-300 text-slate-700 text-xs h-9 px-3.5">
+        <Button key="close" onClick={onClose} className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB] font-medium shadow-xs">
           Đóng
         </Button>,
         <Tooltip
@@ -193,8 +193,8 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
               onClick={onExportExcel}
               className={
                 disableExport
-                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed text-xs h-9 px-4'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4'
+                  ? 'bg-[#E5E7EB] text-[#9CA3AF] cursor-not-allowed text-xs h-8 px-3.5'
+                  : 'bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs h-8 px-3.5 shadow-xs'
               }
             >
               Xuất File Excel (.xlsx)
@@ -205,52 +205,52 @@ export const PklPreviewModal: React.FC<PklPreviewModalProps> = ({
     >
       <div className="py-2 space-y-4">
         {/* KPI Summary Cards */}
-        <div className="grid grid-cols-4 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-          <div className="bg-white p-3 rounded border border-slate-200">
-            <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+        <div className="grid grid-cols-4 gap-3 bg-[#F9FAFB] p-3 rounded-lg border border-[#E5E7EB]">
+          <div className="bg-white p-3 rounded border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+            <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
               Tổng số lượng
             </div>
             <div className="mt-1 flex items-baseline">
-              <span className="text-xl font-bold font-mono text-slate-900">
+              <span className="text-xl font-semibold font-mono text-[#111827]">
                 {data.totalQuantity.toLocaleString()}
               </span>
-              <span className="ml-1 text-xs text-slate-500">đôi</span>
+              <span className="ml-1 text-xs text-[#6B7280]">đôi</span>
             </div>
           </div>
 
-          <div className="bg-white p-3 rounded border border-slate-200">
-            <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+          <div className="bg-white p-3 rounded border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+            <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
               Tổng số kiện
             </div>
             <div className="mt-1 flex items-baseline">
-              <span className="text-xl font-bold font-mono text-slate-900">
+              <span className="text-xl font-semibold font-mono text-[#111827]">
                 {data.totalCartons.toLocaleString()}
               </span>
-              <span className="ml-1 text-xs text-slate-500">thùng</span>
+              <span className="ml-1 text-xs text-[#6B7280]">thùng</span>
             </div>
           </div>
 
-          <div className="bg-white p-3 rounded border border-slate-200">
-            <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+          <div className="bg-white p-3 rounded border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+            <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
               Trọng lượng Net (N.W)
             </div>
             <div className="mt-1 flex items-baseline">
-              <span className="text-xl font-bold font-mono text-slate-900">
+              <span className="text-xl font-semibold font-mono text-[#111827]">
                 {data.totalNetWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
-              <span className="ml-1 text-xs text-slate-500">KGS</span>
+              <span className="ml-1 text-xs text-[#6B7280]">KGS</span>
             </div>
           </div>
 
-          <div className="bg-white p-3 rounded border border-slate-200">
-            <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+          <div className="bg-white p-3 rounded border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+            <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
               Trọng lượng Gross (G.W)
             </div>
             <div className="mt-1 flex items-baseline">
-              <span className="text-xl font-bold font-mono text-slate-900">
+              <span className="text-xl font-semibold font-mono text-[#111827]">
                 {data.totalGrossWeight.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </span>
-              <span className="ml-1 text-xs text-slate-500">KGS</span>
+              <span className="ml-1 text-xs text-[#6B7280]">KGS</span>
             </div>
           </div>
         </div>

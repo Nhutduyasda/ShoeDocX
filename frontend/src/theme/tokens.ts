@@ -16,7 +16,7 @@ export const tokens = {
   colorPrimaryBorder: '#BFDBFE',
 
   // Neutrals & Surfaces
-  pageBg: '#F8FAFC',
+  pageBg: '#F6F7F9',
   surface: '#FFFFFF',
   surfaceSecondary: '#F9FAFB',
   surfaceHover: '#F1F5F9',
@@ -35,7 +35,7 @@ export const tokens = {
   textInverse: '#FFFFFF',
 
   // Semantic
-  success: '#16A34A',
+  success: '#15803D',
   successLight: '#F0FDF4',
   successBorder: '#BBF7D0',
   successText: '#15803D',
@@ -54,8 +54,16 @@ export const tokens = {
   infoLight: '#EFF6FF',
   infoBorder: '#BFDBFE',
 
+  // Sidebar
+  sidebarBg: '#172033',
+  sidebarBorder: 'rgba(255, 255, 255, 0.08)',
+  sidebarText: '#94A3B8',
+  sidebarTextActive: '#FFFFFF',
+  sidebarItemActiveBg: 'rgba(255, 255, 255, 0.08)',
+
   // Radii
-  radiusSm: 6, // buttons, inputs, tags, dropdowns
+  radiusXs: 4, // badges, tags
+  radiusSm: 6, // buttons, inputs, dropdowns
   radiusMd: 8, // cards, panels, modals
   radiusLg: 8,
 
@@ -64,7 +72,9 @@ export const tokens = {
   shadowDropdown: '0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05)',
 
   // Layout Dimensions
-  sidebarWidth: 244,
+  sidebarWidth: 250,
+  sidebarCollapsedWidth: 68,
   headerHeight: 56,
   contentMaxWidth: '100%',
 } as const;
+

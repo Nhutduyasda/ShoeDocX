@@ -37,7 +37,7 @@ public class ShipmentsController : ControllerBase
     /// </summary>
     [HttpPost("preview-pkl")]
     [Authorize(Roles = "Admin,Xnk")]
-    public ActionResult<PklPreviewResponseDto> PreviewPklBreakdown([FromBody] CreateShipmentRequestDto request)
+    public async Task<ActionResult<PklPreviewResponseDto>> PreviewPklBreakdown([FromBody] CreateShipmentRequestDto request)
     {
         if (request.Items == null || request.Items.Count == 0)
         {
@@ -46,6 +46,7 @@ public class ShipmentsController : ControllerBase
 
         try
         {
+            await ApplyAuthoritativeMasterDataAsync(request);
             var preview = _excelService.CalculatePklBreakdown(request);
             return Ok(preview);
         }
@@ -114,6 +115,7 @@ public class ShipmentsController : ControllerBase
 
         try
         {
+            await ApplyAuthoritativeMasterDataAsync(request);
             await using var transaction = await _context.Database.BeginTransactionAsync();
             // Phân loại items theo loại công đoạn
             var goItems = request.Items.Where(i => i.ProcessType == ProcessType.GoKhongMay).ToList();
@@ -467,16 +469,23 @@ public class ShipmentsController : ControllerBase
 
     private async Task<ShipmentOrder> SaveOrUpdateShipmentInternalAsync(CreateShipmentRequestDto request, ShipmentStatus status = ShipmentStatus.Draft)
     {
+        await ApplyAuthoritativeMasterDataAsync(request);
         var invoiceNo = request.InvoiceNo.Trim();
-        var existing = await _context.ShipmentOrders
-            .Include(s => s.Items)
-            .FirstOrDefaultAsync(s => s.InvoiceNo == invoiceNo);
+        ShipmentOrder? existing = null;
+        if (request.OrderId.HasValue)
+        {
+            existing = await _context.ShipmentOrders
+                .Include(s => s.Items)
+                .FirstOrDefaultAsync(s => s.Id == request.OrderId.Value)
+                ?? throw new KeyNotFoundException($"Không tìm thấy đơn hàng #{request.OrderId.Value}.");
 
-        // Kiểm tra và bổ sung giá trị từ Master Data nếu chưa có
-        var styleCodes = request.Items.Select(x => x.StyleCode.Trim().ToUpperInvariant()).Distinct().ToList();
-        var dbProducts = await _context.ProductMasters.Where(p => p.FolderId == request.ContractFolderId)
-            .Where(p => styleCodes.Contains(p.StyleCode.ToUpper()))
-            .ToDictionaryAsync(p => p.StyleCode.ToUpper(), p => p);
+            if (await _context.ShipmentOrders.AnyAsync(s => s.Id != existing.Id && s.InvoiceNo == invoiceNo))
+                throw new InvalidOperationException("Số hóa đơn đã được sử dụng bởi đơn hàng khác.");
+        }
+        else if (await _context.ShipmentOrders.AnyAsync(s => s.InvoiceNo == invoiceNo))
+        {
+            throw new InvalidOperationException("Số hóa đơn đã được sử dụng. Vui lòng cấp số mới.");
+        }
 
         if (existing != null)
         {
@@ -485,8 +494,7 @@ public class ShipmentsController : ControllerBase
                 throw new InvalidOperationException("Đơn hàng đã thông quan hải quan, không thể chỉnh sửa hoặc xóa!");
             }
 
-            if (request.OrderId != existing.Id)
-                throw new InvalidOperationException("Số hóa đơn đã được sử dụng. Tải đơn hiện có để chỉnh sửa hoặc cấp số mới.");
+            existing.InvoiceNo = invoiceNo;
             existing.ContractFolderId = request.ContractFolderId;
             existing.InvoiceDate = request.InvoiceDate;
             existing.PoSuffix = request.PoSuffix?.Trim();
@@ -506,27 +514,20 @@ public class ShipmentsController : ControllerBase
 
             foreach (var item in request.Items)
             {
-                var key = item.StyleCode.Trim().ToUpperInvariant();
-                dbProducts.TryGetValue(key, out var pm);
-
-                bool isGo = item.ProcessType == ProcessType.GoKhongMay;
-                var cmt = ResolvePrice(item.UnitPriceCMT, isGo, pm?.UnitPriceCMT_Go, pm?.UnitPriceCMT);
-                var dap = ResolvePrice(item.UnitPriceDAP, isGo, pm?.UnitPriceDAP_Go, pm?.UnitPriceDAP);
-
                 var fullCode = BuildFullItemCode(item, request.PoSuffix);
 
                 _context.ShipmentOrderItems.Add(new ShipmentOrderItem
                 {
                     ShipmentOrderId = existing.Id,
                     StyleCode = item.StyleCode.Trim().ToUpperInvariant(),
-                    Description = item.Description ?? pm?.Description ?? "",
+                    Description = item.Description ?? string.Empty,
                     Unit = item.Unit,
-                    PairPerCarton = item.PairPerCarton ?? pm?.PairPerCarton ?? 12,
+                    PairPerCarton = item.PairPerCarton!.Value,
                     FullItemCode = fullCode,
                     Quantity = item.Quantity,
                     ProcessType = item.ProcessType,
-                    UnitPriceCMT = cmt,
-                    UnitPriceDAP = dap
+                    UnitPriceCMT = item.UnitPriceCMT!.Value,
+                    UnitPriceDAP = item.UnitPriceDAP!.Value
                 });
             }
 
@@ -551,26 +552,19 @@ public class ShipmentsController : ControllerBase
 
         foreach (var item in request.Items)
         {
-            var key = item.StyleCode.Trim().ToUpperInvariant();
-            dbProducts.TryGetValue(key, out var pm);
-
-            bool isGo = item.ProcessType == ProcessType.GoKhongMay;
-            var cmt = ResolvePrice(item.UnitPriceCMT, isGo, pm?.UnitPriceCMT_Go, pm?.UnitPriceCMT);
-            var dap = ResolvePrice(item.UnitPriceDAP, isGo, pm?.UnitPriceDAP_Go, pm?.UnitPriceDAP);
-
             var fullCode = BuildFullItemCode(item, request.PoSuffix);
 
             shipment.Items.Add(new ShipmentOrderItem
             {
                 StyleCode = item.StyleCode.Trim().ToUpperInvariant(),
-                    Description = item.Description ?? pm?.Description ?? "",
+                    Description = item.Description ?? string.Empty,
                     Unit = item.Unit,
-                    PairPerCarton = item.PairPerCarton ?? pm?.PairPerCarton ?? 12,
+                    PairPerCarton = item.PairPerCarton!.Value,
                 FullItemCode = fullCode,
                 Quantity = item.Quantity,
                 ProcessType = item.ProcessType,
-                UnitPriceCMT = cmt,
-                UnitPriceDAP = dap
+                UnitPriceCMT = item.UnitPriceCMT!.Value,
+                UnitPriceDAP = item.UnitPriceDAP!.Value
             });
         }
 
@@ -616,7 +610,7 @@ public class ShipmentsController : ControllerBase
             s.CustomsTotalDap,
             s.CustomsTotalCmt,
             s.CustomsAttachmentFileName,
-            s.CustomsAttachmentFilePath,
+            HasCustomsAttachment = !string.IsNullOrWhiteSpace(s.CustomsAttachmentFileName),
             IsLocked = s.IsLocked || s.Status == ShipmentStatus.Cleared,
             ItemCount = s.Items.Count,
             TotalQuantity = s.Items.Sum(i => i.Quantity),
@@ -808,14 +802,57 @@ public class ShipmentsController : ControllerBase
             : $"{item.StyleCode} {poSuffix}".Trim();
     }
 
-    /// <summary>
-    /// Giải quyết đơn giá: ưu tiên giá người dùng nhập, sau đó giá Gò nếu là hàng Gò, cuối cùng giá thường
-    /// </summary>
-    private static decimal ResolvePrice(decimal? userPrice, bool isGo, decimal? goPricePm, decimal? standardPricePm)
+    private async Task ApplyAuthoritativeMasterDataAsync(CreateShipmentRequestDto request)
     {
-        if (userPrice.HasValue && userPrice.Value > 0) return userPrice.Value;
-        if (isGo && goPricePm.HasValue && goPricePm.Value > 0) return goPricePm.Value;
-        return standardPricePm ?? 0m;
+        if (!request.ContractFolderId.HasValue ||
+            !await _context.MasterDataFolders.AnyAsync(f => f.Id == request.ContractFolderId.Value))
+            throw new InvalidOperationException("Phải chọn hợp đồng Master Data hợp lệ.");
+
+        if (request.Items.Any(i => !Enum.IsDefined(i.ProcessType)))
+            throw new InvalidOperationException("Đơn hàng chứa loại công đoạn không hợp lệ.");
+
+        var requestedCodes = request.Items
+            .Select(i => NormalizeRequestedStyleCode(i.StyleCode))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var products = await _context.ProductMasters
+            .AsNoTracking()
+            .Where(p => p.FolderId == request.ContractFolderId && requestedCodes.Contains(p.StyleCode))
+            .ToListAsync();
+        var productMap = products.ToDictionary(p => p.StyleCode, StringComparer.OrdinalIgnoreCase);
+
+        var missingCodes = requestedCodes.Where(c => !productMap.ContainsKey(c)).ToList();
+        if (missingCodes.Count > 0)
+            throw new InvalidOperationException($"Các mã không thuộc hợp đồng đã chọn: [{string.Join(", ", missingCodes)}]");
+
+        foreach (var item in request.Items)
+        {
+            var normalizedCode = NormalizeRequestedStyleCode(item.StyleCode);
+            var product = productMap[normalizedCode];
+            var isGo = item.ProcessType == ProcessType.GoKhongMay;
+            var cmt = isGo && product.UnitPriceCMT_Go.GetValueOrDefault() > 0
+                ? product.UnitPriceCMT_Go!.Value : product.UnitPriceCMT;
+            var dap = isGo && product.UnitPriceDAP_Go.GetValueOrDefault() > 0
+                ? product.UnitPriceDAP_Go!.Value : product.UnitPriceDAP;
+            if (cmt < 0 || dap <= 0)
+                throw new InvalidOperationException($"Mã {normalizedCode} chưa có đơn giá hợp lệ cho công đoạn đã chọn.");
+
+            item.StyleCode = normalizedCode;
+            item.Description = product.Description;
+            item.Unit = product.Unit;
+            item.PairPerCarton = product.PairPerCarton;
+            item.UnitPriceCMT = cmt;
+            item.UnitPriceDAP = dap;
+            item.FullItemCode = BuildFullItemCode(item, request.PoSuffix);
+        }
+    }
+
+    private static string NormalizeRequestedStyleCode(string? styleCode)
+    {
+        var normalized = (styleCode ?? string.Empty).Trim().ToUpperInvariant();
+        return normalized.EndsWith(".G", StringComparison.OrdinalIgnoreCase)
+            ? normalized[..^2].Trim()
+            : normalized;
     }
 }
 

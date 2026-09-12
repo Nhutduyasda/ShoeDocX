@@ -247,7 +247,7 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
               size="small"
               icon={<PlusOutlined />}
               onClick={handleOpenCreateRoot}
-              className="bg-blue-600 hover:bg-blue-700 text-xs h-7 px-2"
+              className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs h-7 px-2 shadow-xs"
             >
               Tạo mới
             </Button>
@@ -273,8 +273,8 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
           onClick={() => onSelectFolder(null)}
           className={`flex items-center justify-between px-2.5 py-1.5 rounded cursor-pointer transition-colors text-xs ${
             selectedFolderId === null
-              ? 'bg-blue-600 text-white font-semibold'
-              : 'hover:bg-slate-100 text-slate-700'
+              ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
+              : 'hover:bg-[#F3F4F6] text-[#374151]'
           }`}
         >
           <div className="flex items-center space-x-2">
@@ -283,7 +283,7 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
           </div>
           <span
             className={`text-[11px] px-2 py-0.2 rounded-full font-mono ${
-              selectedFolderId === null ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-700'
+              selectedFolderId === null ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-[#E5E7EB] text-[#4B5563]'
             }`}
           >
             {totalAllProducts}

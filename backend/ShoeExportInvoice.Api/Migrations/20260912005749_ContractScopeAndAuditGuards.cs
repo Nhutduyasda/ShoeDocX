@@ -9,6 +9,14 @@ public partial class ContractScopeAndAuditGuards : Migration
     {
         // Run through DbInitializer: it adopts schema fields added by legacy releases.
         migrationBuilder.Sql("""
+            CREATE TABLE IF NOT EXISTS MasterDataFolders (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT NOT NULL, ParentId INTEGER NULL,
+                CustomerName TEXT NULL, DeliveryAddress TEXT NULL, ContractNo TEXT NULL, PoSuffix TEXT NULL,
+                DefaultPairsPerCarton INTEGER NOT NULL DEFAULT 12, DefaultUnit TEXT NOT NULL DEFAULT 'đôi',
+                DisplayOrder INTEGER NOT NULL DEFAULT 0, CreatedAt TEXT NOT NULL, UpdatedAt TEXT NULL,
+                FOREIGN KEY (ParentId) REFERENCES MasterDataFolders(Id) ON DELETE RESTRICT);
+
+            ALTER TABLE ProductMasters ADD COLUMN FolderId INTEGER NULL REFERENCES MasterDataFolders(Id) ON DELETE RESTRICT;
             ALTER TABLE ShipmentOrders ADD COLUMN ContractFolderId INTEGER NULL REFERENCES MasterDataFolders(Id) ON DELETE RESTRICT;
             ALTER TABLE CustomsSettlementPeriods ADD COLUMN ContractFolderId INTEGER NULL REFERENCES MasterDataFolders(Id) ON DELETE RESTRICT;
             ALTER TABLE ShipmentOrderItems ADD COLUMN Description TEXT NOT NULL DEFAULT '';

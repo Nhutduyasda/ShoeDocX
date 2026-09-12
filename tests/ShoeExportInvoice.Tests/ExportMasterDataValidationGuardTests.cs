@@ -67,6 +67,7 @@ public class ExportMasterDataValidationGuardTests : IDisposable
         using var context = new AppDbContext(_dbOptions);
         context.Database.EnsureCreated();
 
+        context.MasterDataFolders.Add(new MasterDataFolder { Id = 1, Name = "Contract A", ContractNo = "A" });
         // Seed an existing product in ProductMasters
         context.ProductMasters.Add(new ProductMaster
         {
@@ -78,6 +79,7 @@ public class ExportMasterDataValidationGuardTests : IDisposable
             HsCode = "64041990",
             Unit = "đôi",
             PairPerCarton = 12,
+            FolderId = 1,
             CreatedAt = DateTime.UtcNow
         });
         context.SaveChanges();
@@ -107,6 +109,7 @@ public class ExportMasterDataValidationGuardTests : IDisposable
 
         var request = new CreateShipmentRequestDto
         {
+            ContractFolderId = 1,
             InvoiceNo = "KMHD-NEW2026-0233",
             Items = new List<CreateShipmentItemDto>
             {
@@ -158,6 +161,7 @@ public class ExportMasterDataValidationGuardTests : IDisposable
 
         var request = new CreateShipmentRequestDto
         {
+            ContractFolderId = 1,
             InvoiceNo = "KMHD-NEW2026-0233",
             Items = new List<CreateShipmentItemDto>
             {

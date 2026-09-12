@@ -7,6 +7,7 @@ public interface ICustomsSettlementService
 {
     Task<SettlementReportDto> CalculateSettlementAsync(CalculateSettlementRequestDto request);
     Task<CustomsSettlementPeriod> SaveSettlementPeriodAsync(SaveSettlementPeriodRequestDto request);
+    Task<CustomsSettlementPeriod> FinalizeSettlementPeriodAsync(int id);
     Task<List<SettlementPeriodSummaryDto>> GetSettlementPeriodsAsync();
     Task<SettlementReportDto?> GetSettlementPeriodByIdAsync(int id);
     Task<byte[]> ExportSettlementExcelAsync(SettlementReportDto report);

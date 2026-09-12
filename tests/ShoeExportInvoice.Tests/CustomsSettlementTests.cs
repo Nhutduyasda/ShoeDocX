@@ -12,6 +12,57 @@ namespace ShoeExportInvoice.Tests;
 
 public class CustomsSettlementTests : IDisposable
 {
+    [Fact]
+    public async Task SaveSettlement_RejectsOverlappingPeriodForSameContract()
+    {
+        using var context = new AppDbContext(_dbOptions);
+        var folder = new MasterDataFolder { Name = "Contract A", ContractNo = "A" };
+        context.Add(folder);
+        await context.SaveChangesAsync();
+        var service = new CustomsSettlementService(context, NullLogger<CustomsSettlementService>.Instance);
+
+        await service.SaveSettlementPeriodAsync(new SaveSettlementPeriodRequestDto
+        {
+            Year = 2026, FromDate = new DateTime(2026, 1, 1), ToDate = new DateTime(2026, 1, 31),
+            ContractFolderId = folder.Id, ContractNo = "A", Status = "Draft"
+        });
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveSettlementPeriodAsync(
+            new SaveSettlementPeriodRequestDto
+            {
+                Year = 2026, FromDate = new DateTime(2026, 1, 15), ToDate = new DateTime(2026, 2, 15),
+                ContractFolderId = folder.Id, ContractNo = "A", Status = "Draft"
+            }));
+        Assert.Contains("trùng", error.Message);
+    }
+
+    [Fact]
+    public async Task Settlement_CanOnlyBeFinalizedThroughDedicatedOperation()
+    {
+        using var context = new AppDbContext(_dbOptions);
+        var service = new CustomsSettlementService(context, NullLogger<CustomsSettlementService>.Instance);
+        var request = new SaveSettlementPeriodRequestDto
+        {
+            Year = 2026,
+            FromDate = new DateTime(2026, 3, 1),
+            ToDate = new DateTime(2026, 3, 31),
+            Status = "Finalized",
+            Items = new List<SettlementItemDto>
+            {
+                new() { ProductCode = "SP-01", ProductName = "Sản phẩm", Unit = "đôi", OpeningBalance = 1 }
+            }
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveSettlementPeriodAsync(request));
+
+        request.Status = "Draft";
+        var draft = await service.SaveSettlementPeriodAsync(request);
+        var finalized = await service.FinalizeSettlementPeriodAsync(draft.Id);
+        Assert.Equal("Finalized", finalized.Status);
+
+        request.Id = draft.Id;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveSettlementPeriodAsync(request));
+    }
     private readonly Microsoft.Data.Sqlite.SqliteConnection _connection;
     private readonly DbContextOptions<AppDbContext> _dbOptions;
 

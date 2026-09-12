@@ -46,6 +46,11 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                   .WithMany(f => f.Products)
                   .HasForeignKey(e => e.FolderId)
                   .OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_ProductMasters_PairPerCarton", "PairPerCarton BETWEEN 1 AND 1000");
+                t.HasCheckConstraint("CK_ProductMasters_Prices_NonNegative", "UnitPriceCMT >= 0 AND UnitPriceDAP >= 0 AND (UnitPriceCMT_Go IS NULL OR UnitPriceCMT_Go >= 0) AND (UnitPriceDAP_Go IS NULL OR UnitPriceDAP_Go >= 0)");
+            });
         });
 
         // ShipmentOrder configuration
@@ -56,7 +61,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.HasIndex(e => new { e.ContractFolderId, e.Status, e.CustomsDeclarationType, e.ClearanceDate });
             entity.Property(e => e.IsLocked).IsConcurrencyToken();
             entity.Property(e => e.Status).IsConcurrencyToken();
-            entity.HasIndex(e => e.DeclarationNo);
+            entity.HasIndex(e => e.DeclarationNo).IsUnique().HasFilter("\"DeclarationNo\" IS NOT NULL AND \"DeclarationNo\" <> ''");
             entity.Property(e => e.CustomsGrossWeight).HasPrecision(18, 4);
             entity.Property(e => e.CustomsTotalDap).HasPrecision(18, 4);
             entity.Property(e => e.CustomsTotalCmt).HasPrecision(18, 4);
@@ -72,6 +77,13 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.HasIndex(e => e.StyleCode);
             entity.Property(e => e.UnitPriceCMT).HasPrecision(18, 4);
             entity.Property(e => e.UnitPriceDAP).HasPrecision(18, 4);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_ShipmentOrderItems_Quantity_Positive", "Quantity > 0");
+                t.HasCheckConstraint("CK_ShipmentOrderItems_PairPerCarton", "PairPerCarton BETWEEN 1 AND 1000");
+                t.HasCheckConstraint("CK_ShipmentOrderItems_Prices_NonNegative", "UnitPriceCMT >= 0 AND UnitPriceDAP >= 0");
+                t.HasCheckConstraint("CK_ShipmentOrderItems_ProcessType", "ProcessType IN (1, 2)");
+            });
         });
 
         // SystemSetting configuration
@@ -85,6 +97,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         {
             entity.HasOne<MasterDataFolder>().WithMany().HasForeignKey(e => e.ContractFolderId).OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(e => new { e.ContractFolderId, e.ToDate });
+            entity.Property(e => e.Status).IsConcurrencyToken();
+            entity.ToTable(t => t.HasCheckConstraint("CK_CustomsSettlementPeriods_Status", "Status IN ('Draft', 'Finalized')"));
             entity.HasMany(e => e.Items)
                   .WithOne(e => e.SettlementPeriod)
                   .HasForeignKey(e => e.SettlementPeriodId)
@@ -94,12 +108,13 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         // CustomsSettlementItem configuration
         modelBuilder.Entity<CustomsSettlementItem>(entity =>
         {
-            entity.HasIndex(e => new { e.SettlementPeriodId, e.ProductCode });
+            entity.HasIndex(e => new { e.SettlementPeriodId, e.ProductCode }).IsUnique();
             entity.Property(e => e.OpeningBalance).HasPrecision(18, 2);
             entity.Property(e => e.InPeriodProduction).HasPrecision(18, 2);
             entity.Property(e => e.InPeriodExport).HasPrecision(18, 2);
             entity.Property(e => e.OtherExport).HasPrecision(18, 2);
             entity.Property(e => e.ClosingBalance).HasPrecision(18, 2);
+            entity.ToTable(t => t.HasCheckConstraint("CK_CustomsSettlementItems_Inputs_NonNegative", "OpeningBalance >= 0 AND InPeriodProduction >= 0 AND InPeriodExport >= 0 AND OtherExport >= 0"));
         });
 
         // WarehouseBatch configuration
@@ -111,6 +126,11 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                   .WithMany()
                   .HasForeignKey(e => e.ContractFolderId)
                   .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.ShipmentOrder)
+                  .WithMany()
+                  .HasForeignKey(e => e.ShipmentOrderId)
+                  .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(e => e.Status).IsConcurrencyToken();
             entity.HasMany(e => e.Items)
                   .WithOne(e => e.WarehouseBatch)
                   .HasForeignKey(e => e.WarehouseBatchId)
@@ -121,6 +141,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<WarehouseBatchItem>(entity =>
         {
             entity.HasIndex(e => new { e.WarehouseBatchId, e.StyleCode });
+            entity.ToTable(t => t.HasCheckConstraint("CK_WarehouseBatchItems_Quantity_Positive", "Quantity > 0"));
         });
     }
 }

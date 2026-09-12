@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Space, Tag } from 'antd';
+import { Table, Button, Space } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   FileTextOutlined,
@@ -137,19 +137,19 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
     {
       title: 'Trạng thái',
       key: 'status',
-      width: 110,
+      width: 130,
       align: 'center',
       render: () => (
-        <Tag className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[11px] m-0">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]">
           Đã lưu hệ thống
-        </Tag>
+        </span>
       ),
     },
     {
       title: 'Thao tác',
       key: 'action',
-      align: 'center',
-      width: 160,
+      align: 'right',
+      width: 150,
       fixed: 'right',
       render: (_, record) => (
         <Space size={4}>
@@ -157,7 +157,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             size="small"
             icon={<FolderOpenOutlined className="text-xs" />}
             onClick={() => onOpenOrder(record.id)}
-            className="text-xs text-slate-700 hover:text-blue-600 border-slate-200"
+            className="text-xs text-[#374151] hover:text-[#2563EB] border-[#D1D5DB] h-7 px-2"
           >
             Mở lại
           </Button>
@@ -165,7 +165,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             size="small"
             icon={<DownloadOutlined className="text-xs" />}
             onClick={() => handleDownloadHistorical(record.id, record.invoiceNo)}
-            className="text-xs text-slate-700 hover:text-blue-600 border-slate-200"
+            className="text-xs text-[#374151] hover:text-[#2563EB] border-[#D1D5DB] h-7 px-2"
           >
             Tải Excel
           </Button>
@@ -177,113 +177,113 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex justify-between items-start flex-wrap gap-4 pb-4 border-b border-slate-200">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-[#E5E7EB]">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-2xl font-semibold text-[#111827] tracking-tight m-0">
             Tổng quan nghiệp vụ xuất khẩu
           </h1>
-          <p className="text-sm text-slate-500 mt-1 m-0">
+          <p className="text-sm text-[#4B5563] mt-1 m-0">
             Hệ thống quản lý Commercial Invoice, Packing List và dữ liệu xuất hàng nhà máy Kingmaker III
           </p>
         </div>
 
-        <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
+        <div className="flex items-center flex-wrap gap-2 min-w-0">
           <Button
-            icon={<AuditOutlined />}
+            icon={<AuditOutlined className="text-xs" />}
             onClick={() => onNavigate('settlement')}
-            className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50"
+            className="text-xs h-9 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB]"
           >
             Quyết toán đối chiếu nội bộ
           </Button>
           <Button
-            icon={<CameraOutlined />}
+            icon={<CameraOutlined className="text-xs" />}
             onClick={() => onNavigate('ocr')}
-            className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50"
+            className="text-xs h-9 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB]"
           >
             Quét OCR phiếu kho
           </Button>
           <Button
             type="primary"
-            icon={<PlusOutlined />}
+            icon={<PlusOutlined className="text-xs" />}
             onClick={() => onNavigate('shipment')}
-            className="bg-blue-600 hover:bg-blue-700 text-xs h-9 px-4"
+            className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs h-9 px-4 shadow-none"
           >
             Lập hóa đơn mới
           </Button>
         </div>
       </div>
 
-      {/* KPI Cards (Clean, Minimal, No gradients) */}
+      {/* KPI Cards (Clean, Minimal, Flat, No gradients) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+        <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
             Chứng từ đã lập
           </div>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-semibold font-mono text-slate-900">
+            <span className="text-2xl font-semibold font-mono text-[#111827]">
               {totalShipments}
             </span>
-            <span className="text-xs text-slate-400">chứng từ</span>
+            <span className="text-xs text-[#9CA3AF]">chứng từ</span>
           </div>
-          <div className="mt-2 text-[11px] text-slate-500">
+          <div className="mt-2 text-[11px] text-[#6B7280]">
             Lưu trong cơ sở dữ liệu
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+        <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
             Tổng sản lượng đã xuất
           </div>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-semibold font-mono text-slate-900">
+            <span className="text-2xl font-semibold font-mono text-[#111827]">
               {totalPairs.toLocaleString()}
             </span>
-            <span className="text-xs text-slate-400">đôi giày</span>
+            <span className="text-xs text-[#9CA3AF]">đôi giày</span>
           </div>
-          <div className="mt-2 text-[11px] text-slate-500">
+          <div className="mt-2 text-[11px] text-[#6B7280]">
             Tính trên tất cả đơn hàng
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+        <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
             Tổng giá trị DAP
           </div>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-semibold font-mono text-blue-600">
+            <span className="text-2xl font-semibold font-mono text-[#2563EB]">
               ${totalAmountDAP.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
-            <span className="text-xs text-slate-400">USD</span>
+            <span className="text-xs text-[#9CA3AF]">USD</span>
           </div>
-          <div className="mt-2 text-[11px] text-slate-500">
+          <div className="mt-2 text-[11px] text-[#6B7280]">
             Trị giá hóa đơn thương mại
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+        <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
             Danh mục mã hàng (Master)
           </div>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-semibold font-mono text-slate-900">
+            <span className="text-2xl font-semibold font-mono text-[#111827]">
               {totalProductCodes}
             </span>
-            <span className="text-xs text-slate-400">mã hình thể</span>
+            <span className="text-xs text-[#9CA3AF]">mã hình thể</span>
           </div>
-          <div className="mt-2 text-[11px] text-slate-500">
+          <div className="mt-2 text-[11px] text-[#6B7280]">
             Có sẵn giá CMT, DAP & HS Code
           </div>
         </div>
       </div>
 
       {/* Recent Shipments Table Panel */}
-      <div className="bg-white border border-slate-200 rounded-lg p-5">
-        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+      <div className="bg-white border border-[#E5E7EB] rounded-lg p-5 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+        <div className="flex items-center justify-between pb-3 mb-4 border-b border-[#F3F4F6]">
           <div>
-            <h2 className="text-sm font-semibold text-slate-900 m-0">
+            <h2 className="text-sm font-semibold text-[#111827] m-0">
               Chứng từ xuất hàng gần đây
             </h2>
-            <p className="text-xs text-slate-500 m-0 mt-0.5">
+            <p className="text-xs text-[#6B7280] m-0 mt-0.5">
               Danh sách các hóa đơn đã được lập và sẵn sàng tải Excel
             </p>
           </div>
@@ -291,7 +291,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             type="link"
             size="small"
             onClick={() => onNavigate('history')}
-            className="text-blue-600 hover:text-blue-700 text-xs p-0 flex items-center gap-1"
+            className="text-[#2563EB] hover:text-[#1D4ED8] text-xs p-0 flex items-center gap-1"
           >
             <span>Xem tất cả</span>
             <ArrowRightOutlined className="text-[10px]" />
@@ -315,15 +315,15 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div
           onClick={() => onNavigate('shipment')}
-          className="bg-white border border-slate-200 hover:border-blue-400 rounded-lg p-4 cursor-pointer transition-colors"
+          className="bg-white border border-[#E5E7EB] hover:border-[#93C5FD] rounded-lg p-4 cursor-pointer transition-colors duration-150 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
         >
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-base">
+            <div className="w-8 h-8 rounded-md bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center text-sm shrink-0">
               <FileTextOutlined />
             </div>
             <div>
-              <div className="text-xs font-semibold text-slate-900">Lập Hóa đơn INV & PKL</div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
+              <div className="text-xs font-semibold text-[#111827]">Lập Hóa đơn INV & PKL</div>
+              <div className="text-[11px] text-[#6B7280] mt-0.5">
                 Nhập kho, đối soát và tự động sinh 3 sheet Excel
               </div>
             </div>
@@ -332,15 +332,15 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
 
         <div
           onClick={() => onNavigate('ocr')}
-          className="bg-white border border-slate-200 hover:border-blue-400 rounded-lg p-4 cursor-pointer transition-colors"
+          className="bg-white border border-[#E5E7EB] hover:border-[#93C5FD] rounded-lg p-4 cursor-pointer transition-colors duration-150 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
         >
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-base">
+            <div className="w-8 h-8 rounded-md bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center text-sm shrink-0">
               <CameraOutlined />
             </div>
             <div>
-              <div className="text-xs font-semibold text-slate-900">Quét OCR Phiếu Kho</div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
+              <div className="text-xs font-semibold text-[#111827]">Quét OCR Phiếu Kho</div>
+              <div className="text-[11px] text-[#6B7280] mt-0.5">
                 Chụp ảnh bảng kê, nhận diện số đôi & công đoạn Gò
               </div>
             </div>
@@ -349,15 +349,15 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
 
         <div
           onClick={() => onNavigate('products')}
-          className="bg-white border border-slate-200 hover:border-blue-400 rounded-lg p-4 cursor-pointer transition-colors"
+          className="bg-white border border-[#E5E7EB] hover:border-[#93C5FD] rounded-lg p-4 cursor-pointer transition-colors duration-150 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
         >
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-base">
+            <div className="w-8 h-8 rounded-md bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center text-sm shrink-0">
               <DatabaseOutlined />
             </div>
             <div>
-              <div className="text-xs font-semibold text-slate-900">Master Data Hàng Hóa</div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
+              <div className="text-xs font-semibold text-[#111827]">Master Data Hàng Hóa</div>
+              <div className="text-[11px] text-[#6B7280] mt-0.5">
                 Quản lý mã hàng, đơn giá gia công CMT, DAP và quy cách
               </div>
             </div>
@@ -367,3 +367,4 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
     </div>
   );
 };
+

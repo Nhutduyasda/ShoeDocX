@@ -14,6 +14,11 @@ services:
       - ConnectionStrings__DefaultConnection=Data Source=/app/data/shoe_export.db
       - OpenAI__ApiKey=${OPENAI_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - Jwt__Key=${JWT_KEY:?JWT_KEY must be configured}
+      - BootstrapAdmin__Enabled=${BOOTSTRAP_ADMIN_ENABLED:-false}
+      - BootstrapAdmin__Username=${BOOTSTRAP_ADMIN_USERNAME:-}
+      - BootstrapAdmin__Password=${BOOTSTRAP_ADMIN_PASSWORD:-}
+      - BootstrapAdmin__FullName=${BOOTSTRAP_ADMIN_FULL_NAME:-System Administrator}
     volumes:
       # Lưu trữ cơ sở dữ liệu SQLite bền vững ra thư mục data ở máy host
       - ./data:/app/data

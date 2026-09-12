@@ -369,12 +369,9 @@ export const ProductMasterPage: React.FC = () => {
       width: 90,
       align: 'right',
       render: (pair: number) => (
-        <Tag
-          color={pair === 24 ? 'green' : 'blue'}
-          className="font-mono text-xs font-semibold px-1.5 py-0 m-0"
-        >
+        <span className="font-mono text-[11px] font-medium px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#374151] border border-[#E5E7EB]">
           {pair} đôi
-        </Tag>
+        </span>
       ),
     },
     {
@@ -429,21 +426,21 @@ export const ProductMasterPage: React.FC = () => {
   return (
     <div className="space-y-4">
       {/* 1. Page Header */}
-      <div className="flex justify-between items-start flex-wrap gap-4 pb-4 border-b border-slate-200 min-w-0">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-slate-200 min-w-0">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-semibold text-[#111827] tracking-tight m-0">
             Danh mục Hàng hóa (Master Data)
           </h1>
-          <p className="text-sm text-slate-500 mt-1 m-0">
+          <p className="text-xs text-[#6B7280] mt-1 m-0">
             Cấu trúc phân cấp theo cây thư mục đối tác, hợp đồng, đơn giá CMT/DAP và quy cách đóng gói (12 & 24 đôi/thùng)
           </p>
         </div>
 
-        <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
+        <div className="flex items-center flex-wrap gap-2 min-w-0">
           {!canManageMasterData && (
-            <Tag color="default" className="text-xs">
-              👁️ Chế độ chỉ xem (Tra cứu danh mục)
-            </Tag>
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#F3F4F6] text-[#4B5563] border border-[#E5E7EB]">
+              Chế độ chỉ xem
+            </span>
           )}
 
           {canManageMasterData && selectedRowKeys.length > 0 && (
@@ -453,7 +450,7 @@ export const ProductMasterPage: React.FC = () => {
                 setTargetMoveFolderId(null);
                 setBulkMoveModalVisible(true);
               }}
-              className="bg-purple-600 hover:bg-purple-700 text-white font-medium text-xs h-8 px-3"
+              className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB] font-medium shadow-xs"
             >
               Chuyển ({selectedRowKeys.length})
             </Button>
@@ -463,7 +460,7 @@ export const ProductMasterPage: React.FC = () => {
             icon={<DownloadOutlined />}
             onClick={handleExportExcel}
             loading={exporting}
-            className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+            className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB] font-medium shadow-xs"
           >
             Xuất Excel
           </Button>
@@ -473,7 +470,7 @@ export const ProductMasterPage: React.FC = () => {
               <Button
                 icon={<UploadOutlined />}
                 onClick={() => setImportModalVisible(true)}
-                className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+                className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB] font-medium shadow-xs"
               >
                 Nhập Excel
               </Button>
@@ -519,7 +516,7 @@ export const ProductMasterPage: React.FC = () => {
                               Bạn có chắc chắn muốn xóa toàn bộ <strong>{totalCount}</strong> sản phẩm thuộc thư mục{' '}
                               <strong>"{selectedFolder.name}"</strong>?
                             </p>
-                            <p className="text-rose-600 text-xs m-0">
+                            <p className="text-[#B91C1C] text-xs m-0">
                               Lưu ý: Thao tác này chỉ xóa các sản phẩm bên trong thư mục này (giữ nguyên cấu trúc thư mục) và không thể hoàn tác!
                             </p>
                           </div>
@@ -538,14 +535,14 @@ export const ProductMasterPage: React.FC = () => {
               <Button
                 icon={<EllipsisOutlined />}
                 loading={clearing}
-                className="text-xs h-8 px-2.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+                className="text-xs h-8 px-2.5 border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB] font-medium shadow-xs"
               >
                 Thao tác khác
               </Button>
             </Dropdown>
           )}
 
-          {/* Primary Action Button: Chỉ để icon + text "Thêm mã hàng" (bỏ dấu + trong string) */}
+          {/* Primary Action Button */}
           {canManageMasterData && (
             <Button
               type="primary"
@@ -554,7 +551,7 @@ export const ProductMasterPage: React.FC = () => {
                 setSelectedProduct(null);
                 setModalVisible(true);
               }}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs h-8 px-3.5 shadow-sm"
+              className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium text-xs h-8 px-3.5 shadow-xs"
             >
               Thêm mã hàng
             </Button>
@@ -563,9 +560,9 @@ export const ProductMasterPage: React.FC = () => {
       </div>
 
       {/* 2. Main 2-Column Split Workspace with Solid Dividing Border */}
-      <div className="flex flex-col lg:flex-row items-stretch w-full min-w-0 bg-white border border-slate-200 rounded-lg shadow-xs overflow-hidden">
+      <div className="flex flex-col lg:flex-row items-stretch w-full min-w-0 bg-white border border-[#E5E7EB] rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.05)] overflow-hidden">
         {/* Left Column: Folder Tree Panel (Width 288px / w-72) with Right Border and Padding */}
-        <div className="w-full lg:w-72 flex-shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 min-h-[600px] flex flex-col bg-white pr-0 lg:pr-4">
+        <div className="w-full lg:w-72 flex-shrink-0 border-b lg:border-b-0 lg:border-r border-[#E5E7EB] min-h-[600px] flex flex-col bg-white pr-0 lg:pr-4">
           <FolderTreePanel
             treeData={treeData}
             selectedFolderId={selectedFolder ? selectedFolder.id : null}
@@ -585,16 +582,16 @@ export const ProductMasterPage: React.FC = () => {
         {/* Right Column: Products Table and Toolbar (flex-1) */}
         <div className="flex-1 min-w-0 p-3 sm:p-4 space-y-4 bg-slate-50/40 pl-0 lg:pl-4">
           {/* Breadcrumb & Selected Folder Header */}
-          <div className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
+          <div className="bg-white border border-[#E5E7EB] rounded-lg p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
             <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
-              <span className="text-slate-400 text-xs shrink-0">Vị trí:</span>
+              <span className="text-[#9CA3AF] text-xs shrink-0">Vị trí:</span>
               <Breadcrumb
                 className="text-xs shrink-0"
                 items={[
                   {
                     title: (
                       <span
-                        className={`cursor-pointer ${!selectedFolder ? 'font-semibold text-blue-700' : 'text-slate-600'}`}
+                        className={`cursor-pointer ${!selectedFolder ? 'font-semibold text-[#2563EB]' : 'text-[#4B5563]'}`}
                         onClick={() => setSelectedFolder(null)}
                       >
                         Tất cả sản phẩm
@@ -606,8 +603,8 @@ export const ProductMasterPage: React.FC = () => {
                         {
                           title: (
                             <Tooltip title={selectedFolder.name}>
-                              <span className="font-semibold text-slate-900 inline-flex items-center gap-1 max-w-[200px] truncate align-middle">
-                                <FolderOpenOutlined className="text-amber-500 shrink-0" />
+                              <span className="font-semibold text-[#111827] inline-flex items-center gap-1 max-w-[200px] truncate align-middle">
+                                <FolderOpenOutlined className="text-[#D97706] shrink-0" />
                                 <span className="truncate">{selectedFolder.name}</span>
                               </span>
                             </Tooltip>
@@ -620,73 +617,73 @@ export const ProductMasterPage: React.FC = () => {
 
               {selectedFolder && (
                 <div className="flex flex-wrap items-center gap-2 ml-1">
-                  <Tag color={selectedFolder.defaultPairsPerCarton === 24 ? 'green' : 'blue'} className="text-xs py-0.5 px-2 m-0 shrink-0 font-medium">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]">
                     Quy cách: {selectedFolder.defaultPairsPerCarton} đôi/thùng
-                  </Tag>
+                  </span>
                   {selectedFolder.customerName && (
                     <Tooltip title={`Đối tác / Khách hàng: ${selectedFolder.customerName}`} placement="top">
-                      <Tag color="purple" className="text-xs py-0.5 px-2 m-0 max-w-[260px] truncate inline-block align-middle cursor-help font-medium">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#F3F4F6] text-[#374151] border border-[#E5E7EB] max-w-[260px] truncate cursor-help">
                         {selectedFolder.customerName}
-                      </Tag>
+                      </span>
                     </Tooltip>
                   )}
                   {selectedFolder.contractNo && (
                     <Tooltip title={`Số hợp đồng: ${selectedFolder.contractNo}`} placement="top">
-                      <Tag color="cyan" className="text-xs py-0.5 px-2 m-0 max-w-[260px] truncate inline-block align-middle cursor-help font-medium">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#F3F4F6] text-[#374151] border border-[#E5E7EB] max-w-[260px] truncate cursor-help">
                         HĐ: {selectedFolder.contractNo}
-                      </Tag>
+                      </span>
                     </Tooltip>
                   )}
                 </div>
               )}
             </div>
 
-            <div className="text-xs text-slate-500 font-mono shrink-0 self-end md:self-center">
-              Hiển thị: <strong className="text-slate-800">{totalCount}</strong> mã
+            <div className="text-xs text-[#6B7280] font-mono shrink-0 self-end md:self-center">
+              Hiển thị: <strong className="text-[#111827]">{totalCount}</strong> mã
             </div>
           </div>
 
           {/* Calm Metric Bar */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="bg-white border border-slate-200 rounded-lg p-3">
-              <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+            <div className="bg-white border border-[#E5E7EB] rounded-lg p-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+              <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
                 Mã trong phạm vi lọc
               </div>
               <div className="mt-0.5 flex items-baseline space-x-1.5">
-                <span className="text-xl font-semibold text-slate-900 font-mono">{totalCount}</span>
-                <span className="text-xs text-slate-400">mã hình thể</span>
+                <span className="text-xl font-semibold text-[#111827] font-mono">{totalCount}</span>
+                <span className="text-xs text-[#9CA3AF]">mã hình thể</span>
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-lg p-3">
-              <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+            <div className="bg-white border border-[#E5E7EB] rounded-lg p-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+              <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
                 Đơn giá CMT trung bình
               </div>
               <div className="mt-0.5 flex items-baseline space-x-1.5">
-                <span className="text-xl font-semibold text-slate-900 font-mono">${avgCmt}</span>
-                <span className="text-xs text-slate-400">USD/đôi</span>
+                <span className="text-xl font-semibold text-[#111827] font-mono">${avgCmt}</span>
+                <span className="text-xs text-[#9CA3AF]">USD/đôi</span>
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-lg p-3">
-              <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+            <div className="bg-white border border-[#E5E7EB] rounded-lg p-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+              <div className="text-[11px] font-medium text-[#6B7280] uppercase tracking-wider">
                 Đơn giá DAP trung bình
               </div>
               <div className="mt-0.5 flex items-baseline space-x-1.5">
-                <span className="text-xl font-semibold text-slate-900 font-mono">${avgDap}</span>
-                <span className="text-xs text-slate-400">USD/đôi</span>
+                <span className="text-xl font-semibold text-[#111827] font-mono">${avgDap}</span>
+                <span className="text-xs text-[#9CA3AF]">USD/đôi</span>
               </div>
             </div>
           </div>
 
           {/* Table Container */}
-          <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-3">
+          <div className="bg-white border border-[#E5E7EB] rounded-lg p-3 space-y-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
             {/* Table Toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="w-full sm:w-80">
                 <Input
                   placeholder="Tìm theo mã hình thể, mô tả hoặc HS Code..."
-                  prefix={<SearchOutlined className="text-slate-400 text-xs mr-1" />}
+                  prefix={<SearchOutlined className="text-[#9CA3AF] text-xs mr-1" />}
                   value={searchText}
                   onChange={(e) => {
                     setSearchText(e.target.value);
@@ -706,7 +703,7 @@ export const ProductMasterPage: React.FC = () => {
                     fetchTree();
                   }}
                   loading={loading}
-                  className="text-xs text-slate-700 border-slate-300 hover:bg-slate-50 h-8 px-2.5"
+                  className="text-xs text-[#374151] border-[#D1D5DB] bg-white hover:bg-[#F9FAFB] h-8 px-2.5 shadow-xs"
                 >
                   Làm mới
                 </Button>

@@ -189,9 +189,9 @@ public class WarehouseController : ControllerBase
                 return NotFound(new { message = $"Không tìm thấy lô #{request.Id.Value} để cập nhật." });
             }
 
-            if (existing.Status == WarehouseBatchStatus.ProcessedByXnk)
+            if (existing.Status != WarehouseBatchStatus.Draft)
             {
-                return BadRequest(new { message = "Lô hàng này đã được XNK tiếp nhận xử lý, không thể chỉnh sửa." });
+                return Conflict(new { message = "Chỉ lô hàng ở trạng thái Bản nháp mới được chỉnh sửa." });
             }
 
             batch = existing;
@@ -276,7 +276,7 @@ public class WarehouseController : ControllerBase
                 Note = item.Note
             };
 
-            totalQty += item.Quantity;
+            totalQty = checked(totalQty + item.Quantity);
             batch.Items.Add(batchItem);
         }
 
@@ -300,6 +300,7 @@ public class WarehouseController : ControllerBase
     /// Bàn giao lô hàng cho bộ phận XNK
     /// </summary>
     [HttpPost("batches/{id:int}/submit")]
+    [Authorize(Roles = "Admin,Kho")]
     public async Task<ActionResult<WarehouseBatchDto>> SubmitBatch(int id)
     {
         var batch = await _context.WarehouseBatches
@@ -316,6 +317,9 @@ public class WarehouseController : ControllerBase
             return BadRequest(new { message = "Lô hàng chưa có dữ liệu mặt hàng hợp lệ để bàn giao." });
         }
 
+        if (batch.Status != WarehouseBatchStatus.Draft)
+            return Conflict(new { message = "Chỉ lô hàng Bản nháp mới được bàn giao cho XNK." });
+
         batch.Status = WarehouseBatchStatus.SubmittedToXnk;
         batch.SubmittedAt = DateTime.UtcNow;
 
@@ -331,6 +335,7 @@ public class WarehouseController : ControllerBase
     /// Xóa lô hàng xuất kho (chỉ áp dụng cho bản nháp Draft)
     /// </summary>
     [HttpDelete("batches/{id:int}")]
+    [Authorize(Roles = "Admin,Kho")]
     public async Task<IActionResult> DeleteBatch(int id)
     {
         var batch = await _context.WarehouseBatches.FirstOrDefaultAsync(b => b.Id == id);
@@ -339,9 +344,9 @@ public class WarehouseController : ControllerBase
             return NotFound(new { message = $"Không tìm thấy lô #{id}." });
         }
 
-        if (batch.Status == WarehouseBatchStatus.ProcessedByXnk)
+        if (batch.Status != WarehouseBatchStatus.Draft)
         {
-            return BadRequest(new { message = "Không thể xóa lô hàng đã được XNK tiếp nhận và lên hóa đơn." });
+            return Conflict(new { message = "Chỉ lô hàng Bản nháp mới được xóa." });
         }
 
         _context.WarehouseBatches.Remove(batch);
@@ -402,6 +407,7 @@ public class WarehouseController : ControllerBase
     /// Đánh dấu lô hàng đã được XNK tiếp nhận và liên kết mã hóa đơn ShipmentOrderId
     /// </summary>
     [HttpPost("batches/{id:int}/mark-processed")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> MarkProcessed(int id, [FromQuery] int shipmentOrderId)
     {
         var batch = await _context.WarehouseBatches.FirstOrDefaultAsync(b => b.Id == id);
@@ -409,6 +415,16 @@ public class WarehouseController : ControllerBase
         {
             return NotFound(new { message = $"Không tìm thấy lô #{id}." });
         }
+
+        if (batch.Status != WarehouseBatchStatus.SubmittedToXnk)
+            return Conflict(new { message = "Chỉ lô hàng đã bàn giao XNK mới được đánh dấu hoàn tất." });
+
+        var shipment = await _context.ShipmentOrders.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == shipmentOrderId);
+        if (shipment == null)
+            return BadRequest(new { message = "ShipmentOrderId không tồn tại." });
+        if (shipment.ContractFolderId != batch.ContractFolderId)
+            return Conflict(new { message = "Đơn hàng và lô kho không thuộc cùng hợp đồng." });
 
         batch.Status = WarehouseBatchStatus.ProcessedByXnk;
         batch.ShipmentOrderId = shipmentOrderId;

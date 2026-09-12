@@ -28,6 +28,52 @@ public class AuditRegressionTests
         NullLogger<CustomsDeclarationService>.Instance, new DummyWebHostEnvironment { ContentRootPath = root ?? Path.GetTempPath() });
 
     [Fact]
+    public async Task UpdateShipment_UsesRouteIdAndOverwritesClientPricingFromContractMasterData()
+    {
+        using var db = MemoryDb();
+        var folder = new MasterDataFolder { Name = "Contract A", ContractNo = "A" };
+        db.Add(folder);
+        await db.SaveChangesAsync();
+        db.Add(new ProductMaster
+        {
+            FolderId = folder.Id, StyleCode = "STYLE-1", Description = "Authoritative description",
+            Unit = "PRS", PairPerCarton = 24, UnitPriceCMT = 3.25m, UnitPriceDAP = 12.5m
+        });
+        var order = new ShipmentOrder
+        {
+            ContractFolderId = folder.Id, InvoiceNo = "OLD-INV", CustomerName = "Customer",
+            Items = [new ShipmentOrderItem { StyleCode = "STYLE-1", FullItemCode = "STYLE-1", Quantity = 1 }]
+        };
+        db.Add(order);
+        await db.SaveChangesAsync();
+
+        var controller = new ShipmentsController(db, new FakeExcelService(), new FakeSequenceService(),
+            NullLogger<ShipmentsController>.Instance);
+        var response = await controller.UpdateShipment(order.Id, new CreateShipmentRequestDto
+        {
+            ContractFolderId = folder.Id,
+            InvoiceNo = "NEW-INV",
+            CustomerName = "Customer",
+            Items = [new CreateShipmentItemDto
+            {
+                StyleCode = "STYLE-1", Quantity = 10, UnitPriceCMT = 999m, UnitPriceDAP = 999m,
+                Description = "client value", Unit = "client", PairPerCarton = 1
+            }]
+        });
+
+        Assert.IsType<OkObjectResult>(response);
+        db.ChangeTracker.Clear();
+        var saved = await db.ShipmentOrders.Include(s => s.Items).SingleAsync();
+        Assert.Equal(order.Id, saved.Id);
+        Assert.Equal("NEW-INV", saved.InvoiceNo);
+        var item = Assert.Single(saved.Items);
+        Assert.Equal(3.25m, item.UnitPriceCMT);
+        Assert.Equal(12.5m, item.UnitPriceDAP);
+        Assert.Equal(24, item.PairPerCarton);
+        Assert.Equal("Authoritative description", item.Description);
+    }
+
+    [Fact]
     public async Task SameCodeInDifferentContracts_IsAllowed_ButSameContractCaseDuplicateIsRejected()
     {
         using var db = MemoryDb();
@@ -114,13 +160,16 @@ public class AuditRegressionTests
     public async Task FailedWorkbookGeneration_RollsBackOrdersAndSequence()
     {
         using var db = MemoryDb();
-        db.Add(new ProductMaster { StyleCode = "BM5879-464", Description = "Test", UnitPriceDAP = 8 });
+        var folder = new MasterDataFolder { Name = "Contract A", ContractNo = "A" };
+        db.Add(folder);
+        await db.SaveChangesAsync();
+        db.Add(new ProductMaster { StyleCode = "BM5879-464", Description = "Test", UnitPriceDAP = 8, UnitPriceCMT = 3, FolderId = folder.Id });
         await db.SaveChangesAsync();
         var sequence = new SequenceService(db, NullLogger<SequenceService>.Instance);
         // Force a failure after database persistence, while writing response headers.
         var controller = new ShipmentsController(db, new ExcelImportExportService(db, NullLogger<ExcelImportExportService>.Instance),
             sequence, NullLogger<ShipmentsController>.Instance);
-        var response = await controller.ExportExcel(new() { InvoiceNo = "INV999", CustomerName = "Test", StartInvoiceNumber = 999,
+        var response = await controller.ExportExcel(new() { ContractFolderId = folder.Id, InvoiceNo = "INV999", CustomerName = "Test", StartInvoiceNumber = 999,
             Items = [new() { StyleCode = "BM5879-464", Quantity = 25, UnitPriceDAP = 8, UnitPriceCMT = 3 }] });
         Assert.IsType<ObjectResult>(response);
         db.ChangeTracker.Clear();

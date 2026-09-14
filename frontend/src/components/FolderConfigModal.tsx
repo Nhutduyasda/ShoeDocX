@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
-import { Modal, Form, Input, Radio, TreeSelect, message } from 'antd';
+import { Modal, Form, Input, InputNumber, Radio, TreeSelect, message } from 'antd';
 import type { MasterDataFolder, CreateFolderRequest, UpdateFolderRequest } from '../types';
 import { masterDataFolderApi } from '../api/masterDataFolderApi';
+import { formatInvoiceNo, formatPartnerFileName } from '../api/shipmentApi';
 
 interface FolderConfigModalProps {
   visible: boolean;
@@ -23,6 +24,9 @@ export const FolderConfigModal: React.FC<FolderConfigModalProps> = ({
   const [form] = Form.useForm();
   const [loading, setLoading] = React.useState(false);
   const isEdit = !!folder;
+  const invoiceNoPattern = Form.useWatch('invoiceNoPattern', form);
+  const fileNamePattern = Form.useWatch('fileNamePattern', form);
+  const currentSequenceNumber = Form.useWatch('currentSequenceNumber', form) || 1;
 
   // Chuyển treeData sang dạng dùng cho TreeSelect
   const formatTreeSelect = (nodes: MasterDataFolder[]): any[] => {
@@ -48,6 +52,9 @@ export const FolderConfigModal: React.FC<FolderConfigModalProps> = ({
           poSuffix: folder.poSuffix,
           defaultPairsPerCarton: folder.defaultPairsPerCarton || 12,
           defaultUnit: folder.defaultUnit || 'PRS',
+          invoiceNoPattern: folder.invoiceNoPattern || 'KMHD-NEW2026-{SEQ:4}',
+          fileNamePattern: folder.fileNamePattern || 'KM3-26-DH{SEQ}.xlsx',
+          currentSequenceNumber: folder.currentSequenceNumber || 1,
         });
       } else {
         form.resetFields();
@@ -55,6 +62,9 @@ export const FolderConfigModal: React.FC<FolderConfigModalProps> = ({
           parentId: parentFolderId ?? undefined,
           defaultPairsPerCarton: 12,
           defaultUnit: 'PRS',
+          invoiceNoPattern: 'KMHD-NEW2026-{SEQ:4}',
+          fileNamePattern: 'KM3-26-DH{SEQ}.xlsx',
+          currentSequenceNumber: 1,
         });
       }
     }
@@ -68,12 +78,16 @@ export const FolderConfigModal: React.FC<FolderConfigModalProps> = ({
       if (isEdit && folder) {
         const updatePayload: UpdateFolderRequest = {
           name: values.name.trim(),
+          parentId: folder.parentId ?? null,
           customerName: values.customerName?.trim() || null,
           deliveryAddress: values.deliveryAddress?.trim() || null,
           contractNo: values.contractNo?.trim() || null,
           poSuffix: values.poSuffix?.trim() || null,
           defaultPairsPerCarton: values.defaultPairsPerCarton || 12,
           defaultUnit: values.defaultUnit?.trim() || 'PRS',
+          invoiceNoPattern: values.invoiceNoPattern.trim(),
+          fileNamePattern: values.fileNamePattern.trim(),
+          currentSequenceNumber: values.currentSequenceNumber,
         };
         await masterDataFolderApi.update(folder.id, updatePayload);
         message.success(`Đã cập nhật thư mục: ${values.name}`);
@@ -87,6 +101,9 @@ export const FolderConfigModal: React.FC<FolderConfigModalProps> = ({
           poSuffix: values.poSuffix?.trim() || null,
           defaultPairsPerCarton: values.defaultPairsPerCarton || 12,
           defaultUnit: values.defaultUnit?.trim() || 'PRS',
+          invoiceNoPattern: values.invoiceNoPattern.trim(),
+          fileNamePattern: values.fileNamePattern.trim(),
+          currentSequenceNumber: values.currentSequenceNumber,
         };
         await masterDataFolderApi.create(createPayload);
         message.success(`Đã tạo mới thư mục: ${values.name}`);
@@ -202,6 +219,35 @@ export const FolderConfigModal: React.FC<FolderConfigModalProps> = ({
             <Radio value="đôi">đôi</Radio>
           </Radio.Group>
         </Form.Item>
+
+        <div className="grid grid-cols-1 gap-1 rounded-md border border-blue-100 bg-blue-50/50 p-3">
+          <Form.Item
+            name="invoiceNoPattern"
+            label={<span className="text-xs font-medium text-slate-700">Mẫu Số Hóa Đơn (Invoice Pattern)</span>}
+            rules={[{ required: true, message: 'Vui lòng nhập mẫu số hóa đơn' }]}
+          >
+            <Input placeholder="KMHD-NEW2026-{SEQ:4}" className="font-mono text-xs" />
+          </Form.Item>
+          <Form.Item
+            name="fileNamePattern"
+            label={<span className="text-xs font-medium text-slate-700">Mẫu Đặt Tên File (File Name Pattern)</span>}
+            rules={[{ required: true, message: 'Vui lòng nhập mẫu tên file' }]}
+            extra="Dùng {SEQ} làm biến đại diện cho số thứ tự tăng dần; {SEQ:4} sẽ thêm số 0 thành 4 chữ số."
+          >
+            <Input placeholder="KM3-2026-{SEQ}.xlsx" className="font-mono text-xs" />
+          </Form.Item>
+          <Form.Item
+            name="currentSequenceNumber"
+            label={<span className="text-xs font-medium text-slate-700">Số thứ tự bắt đầu / hiện tại</span>}
+            rules={[{ required: true, message: 'Vui lòng nhập số thứ tự' }]}
+          >
+            <InputNumber min={1} precision={0} className="w-full" placeholder="233" />
+          </Form.Item>
+          <div className="rounded border border-blue-200 bg-white px-3 py-2 text-xs text-slate-600">
+            Xem trước: Số Hóa Đơn: <span className="font-mono font-medium text-blue-700">{formatInvoiceNo(invoiceNoPattern, currentSequenceNumber)}</span>
+            {' | '}Tên File: <span className="font-mono font-medium text-blue-700">{formatPartnerFileName(fileNamePattern, currentSequenceNumber)}</span>
+          </div>
+        </div>
       </Form>
     </Modal>
   );

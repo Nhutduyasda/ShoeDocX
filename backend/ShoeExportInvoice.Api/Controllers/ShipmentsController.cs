@@ -64,7 +64,7 @@ public class ShipmentsController : ControllerBase
     /// <summary>
     /// Xuất file Excel đa sheet (INV, PKL, Sheet2) chuẩn hóa đơn xuất khẩu từ file mẫu.
     /// - Nếu đơn có CẢ HAI loại hàng (Standard + GoKhongMay): tự động tách 2 file và đóng gói ZIP.
-    /// - Nếu đơn chỉ có 1 loại: trả về 1 file XLSX với tên KM3-26-DH{XXX}.xlsx.
+    /// - Nếu đơn chỉ có 1 loại: trả về 1 file XLSX theo mẫu tên file của đối tác.
     /// - Tên file đồng bộ với số cuối của Invoice No.
     /// </summary>
     [HttpPost("export-excel")]
@@ -117,6 +117,8 @@ public class ShipmentsController : ControllerBase
         {
             await ApplyAuthoritativeMasterDataAsync(request);
             await using var transaction = await _context.Database.BeginTransactionAsync();
+            var partnerFolder = await _context.MasterDataFolders
+                .FirstAsync(f => f.Id == request.ContractFolderId!.Value);
             // Phân loại items theo loại công đoạn
             var goItems = request.Items.Where(i => i.ProcessType == ProcessType.GoKhongMay).ToList();
             var standardItems = request.Items.Where(i => i.ProcessType == ProcessType.Standard).ToList();
@@ -131,7 +133,6 @@ public class ShipmentsController : ControllerBase
                 {
                     firstSeq = request.StartInvoiceNumber.Value;
                     secondSeq = firstSeq + 1;
-                    await _sequenceService.SetNextSequenceNumberAsync(secondSeq + 1);
                 }
                 else
                 {
@@ -140,13 +141,11 @@ public class ShipmentsController : ControllerBase
                     {
                         firstSeq = extractedSeq.Value;
                         secondSeq = firstSeq + 1;
-                        await _sequenceService.SetNextSequenceNumberAsync(secondSeq + 1);
                     }
                     else
                     {
-                        var seqNumbers = await _sequenceService.GetNextSequenceNumbersAsync(2);
-                        firstSeq = seqNumbers[0];
-                        secondSeq = seqNumbers[1];
+                        firstSeq = partnerFolder.CurrentSequenceNumber;
+                        secondSeq = firstSeq + 1;
                     }
                 }
 
@@ -163,10 +162,10 @@ public class ShipmentsController : ControllerBase
                     goSeq = secondSeq;
                 }
 
-                string goInvoiceNo = _sequenceService.ToInvoiceNo(goSeq);
-                string standardInvoiceNo = _sequenceService.ToInvoiceNo(standardSeq);
-                string goFileName = _sequenceService.ToFileName(goSeq);
-                string standardFileName = _sequenceService.ToFileName(standardSeq);
+                string goInvoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, goSeq);
+                string standardInvoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, standardSeq);
+                string goFileName = PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, goSeq);
+                string standardFileName = PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, standardSeq);
 
                 // Tạo 2 request riêng cho mỗi loại hàng
                 var goRequest = CloneRequestWithItems(request, goItems, goInvoiceNo);
@@ -197,7 +196,7 @@ public class ShipmentsController : ControllerBase
                 };
 
                 // Đặt tên file ZIP theo thứ tự ưu tiên
-                string zipName = $"KM3-26-DH{firstSeq}-{secondSeq}.zip";
+                string zipName = $"{Path.GetFileNameWithoutExtension(PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, firstSeq))}-{secondSeq}.zip";
 
                 Response.Headers["X-Export-Info"] = JsonSerializer.Serialize(exportResult, new JsonSerializerOptions
                 {
@@ -211,6 +210,9 @@ public class ShipmentsController : ControllerBase
                     request.Priority == ExportSequencePriority.GoFirst ? standardFileName : goFileName,
                     zipName);
 
+                partnerFolder.CurrentSequenceNumber = Math.Max(partnerFolder.CurrentSequenceNumber, secondSeq + 1);
+                partnerFolder.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
                 return File(zipBytes, "application/zip", zipName);
             }
@@ -225,7 +227,7 @@ public class ShipmentsController : ControllerBase
                     seq = request.StartInvoiceNumber.Value;
                     if (string.IsNullOrWhiteSpace(invoiceNo) || _sequenceService.ExtractSequenceNumber(invoiceNo) != seq)
                     {
-                        invoiceNo = _sequenceService.ToInvoiceNo(seq);
+                        invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, seq);
                         request.InvoiceNo = invoiceNo;
                     }
                 }
@@ -239,16 +241,13 @@ public class ShipmentsController : ControllerBase
                     else
                     {
                         // Invoice No không theo chuẩn → cấp 1 số mới
-                        var seqNumbers = await _sequenceService.GetNextSequenceNumbersAsync(1);
-                        seq = seqNumbers[0];
-                        invoiceNo = _sequenceService.ToInvoiceNo(seq);
+                        seq = partnerFolder.CurrentSequenceNumber;
+                        invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, seq);
                         request.InvoiceNo = invoiceNo;
                     }
                 }
 
-                string fileName = _sequenceService.ToFileName(seq);
-                // Cập nhật LastSequenceNumber trong CSDL theo số lớn nhất của đợt xuất này
-                await _sequenceService.SetNextSequenceNumberAsync(seq + 1);
+                string fileName = PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, seq);
 
                 // Lưu đơn hàng 1 file vào DB với trạng thái Exported (Chờ thông quan)
                     await SaveOrUpdateShipmentInternalAsync(request, ShipmentStatus.Exported);
@@ -272,6 +271,9 @@ public class ShipmentsController : ControllerBase
 
                 _logger.LogInformation("Xuất 1 file: {FileName} ({Qty} đôi)", fileName, exportResult.SingleTotalQuantity);
 
+                partnerFolder.CurrentSequenceNumber = Math.Max(partnerFolder.CurrentSequenceNumber, seq + 1);
+                partnerFolder.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
                 return File(
                     excelBytes,
@@ -372,16 +374,6 @@ public class ShipmentsController : ControllerBase
         try
         {
             await using var transaction = await _context.Database.BeginTransactionAsync();
-            // Đồng bộ sequence: nếu người dùng lưu với số cụ thể (hoặc startInvoiceNumber), cập nhật LastSequenceNumber
-            int? seq = request.StartInvoiceNumber.HasValue && request.StartInvoiceNumber.Value > 0
-                ? request.StartInvoiceNumber.Value
-                : _sequenceService.ExtractSequenceNumber(request.InvoiceNo);
-
-            if (seq.HasValue)
-            {
-                await _sequenceService.SetNextSequenceNumberAsync(seq.Value + 1);
-            }
-
             var shipment = await SaveOrUpdateShipmentInternalAsync(request);
             await transaction.CommitAsync();
 
@@ -753,9 +745,12 @@ public class ShipmentsController : ControllerBase
         var excelBytes = await _excelService.ExportShipmentMultiSheetExcelAsync(request);
 
         // Đặt tên file chuẩn từ Invoice No
+        var partnerFolder = shipment.ContractFolderId.HasValue
+            ? await _context.MasterDataFolders.AsNoTracking().FirstOrDefaultAsync(f => f.Id == shipment.ContractFolderId.Value)
+            : null;
         var seqNum = _sequenceService.ExtractSequenceNumber(shipment.InvoiceNo);
-        var fileName = seqNum.HasValue
-            ? _sequenceService.ToFileName(seqNum.Value)
+        var fileName = seqNum.HasValue && partnerFolder != null
+            ? PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, seqNum.Value)
             : $"{shipment.InvoiceNo.Trim().Replace("/", "-").Replace("\\", "-")}.xlsx";
 
         return File(

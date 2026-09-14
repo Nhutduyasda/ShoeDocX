@@ -13,7 +13,7 @@ public interface IExcelImportExportService
 
     /// <summary>
     /// Xuất file Excel đa sheet (INV, PKL, Sheet2) từ file mẫu.
-    /// Sheet2 luôn chứa toàn bộ ProductMaster (không lọc theo đơn hiện tại).
+    /// Sheet2 chứa ProductMaster thuộc đúng folder đối tác hiện tại và các folder con trực tiếp.
     /// </summary>
     Task<byte[]> ExportShipmentMultiSheetExcelAsync(CreateShipmentRequestDto request);
 

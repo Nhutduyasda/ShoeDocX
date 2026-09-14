@@ -40,6 +40,17 @@ public class MasterDataFolder
 
     public int DisplayOrder { get; set; } = 0;
 
+    [Required]
+    [MaxLength(150)]
+    public string InvoiceNoPattern { get; set; } = "KMHD-NEW2026-{SEQ:4}";
+
+    [Required]
+    [MaxLength(150)]
+    public string FileNamePattern { get; set; } = "KM3-26-DH{SEQ}.xlsx";
+
+    [Range(1, int.MaxValue)]
+    public int CurrentSequenceNumber { get; set; } = 1;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAt { get; set; }

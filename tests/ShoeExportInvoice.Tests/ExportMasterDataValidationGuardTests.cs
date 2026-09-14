@@ -177,6 +177,44 @@ public class ExportMasterDataValidationGuardTests : IDisposable
         var fileResult = Assert.IsType<FileContentResult>(result);
         Assert.Equal("KM3-26-DH233.xlsx", fileResult.FileDownloadName);
         Assert.Equal(1, fakeExcelService.ExportCallCount);
+        Assert.Equal(234, (await context.MasterDataFolders.FindAsync(1))!.CurrentSequenceNumber);
+    }
+
+    [Fact]
+    public async Task ExportExcel_UsesSelectedPartnerPatterns_AndAdvancesPartnerSequence()
+    {
+        using var context = new AppDbContext(_dbOptions);
+        var folder = (await context.MasterDataFolders.FindAsync(1))!;
+        folder.InvoiceNoPattern = "PARTNER-{SEQ:4}";
+        folder.FileNamePattern = "KM3-2026-{SEQ}.xlsx";
+        folder.CurrentSequenceNumber = 233;
+        await context.SaveChangesAsync();
+
+        var controller = new ShipmentsController(
+            context,
+            new FakeExcelService(),
+            new FakeSequenceService(),
+            NullLogger<ShipmentsController>.Instance)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var result = await controller.ExportExcel(new CreateShipmentRequestDto
+        {
+            ContractFolderId = 1,
+            InvoiceNo = "PARTNER-0233",
+            StartInvoiceNumber = 233,
+            ContractNo = "A",
+            CustomerName = "Partner A",
+            Items = new List<CreateShipmentItemDto>
+            {
+                new() { StyleCode = "42072-030", Quantity = 24, ProcessType = ProcessType.Standard }
+            }
+        });
+
+        var fileResult = Assert.IsType<FileContentResult>(result);
+        Assert.Equal("KM3-2026-233.xlsx", fileResult.FileDownloadName);
+        Assert.Equal(234, (await context.MasterDataFolders.FindAsync(1))!.CurrentSequenceNumber);
     }
 
     [Fact]

@@ -122,6 +122,24 @@ export function toStandardFileName(sequenceNumber: number): string {
   return `KM3-26-DH${sequenceNumber}.xlsx`;
 }
 
+export function formatSequencePattern(pattern: string | null | undefined, sequenceNumber: number): string {
+  const effective = (pattern || '').trim();
+  const withToken = effective.replace(/\{SEQ(?::(\d+))?\}/gi, (_match, widthText?: string) => {
+    const width = widthText ? Number.parseInt(widthText, 10) : 0;
+    return width > 0 ? String(sequenceNumber).padStart(Math.min(width, 20), '0') : String(sequenceNumber);
+  });
+  return withToken === effective ? effective.replace(/x+$/i, String(sequenceNumber)) : withToken;
+}
+
+export function formatInvoiceNo(pattern: string | null | undefined, sequenceNumber: number): string {
+  return formatSequencePattern(pattern || 'KMHD-NEW2026-{SEQ:4}', sequenceNumber);
+}
+
+export function formatPartnerFileName(pattern: string | null | undefined, sequenceNumber: number): string {
+  const value = formatSequencePattern(pattern || 'KM3-26-DH{SEQ}.xlsx', sequenceNumber);
+  return value.toLowerCase().endsWith('.xlsx') ? value : `${value}.xlsx`;
+}
+
 /**
  * Trích xuất tên file chuẩn từ Invoice No.
  * Ví dụ: "KMHD-NEW2026-0233" → "KM3-26-DH233.xlsx"

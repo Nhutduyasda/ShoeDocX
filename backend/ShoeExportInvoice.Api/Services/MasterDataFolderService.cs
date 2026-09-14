@@ -45,6 +45,9 @@ public class MasterDataFolderService : IMasterDataFolderService
             DefaultPairsPerCarton = f.DefaultPairsPerCarton > 0 ? f.DefaultPairsPerCarton : 12,
             DefaultUnit = f.DefaultUnit ?? "đôi",
             DisplayOrder = f.DisplayOrder,
+            InvoiceNoPattern = f.InvoiceNoPattern,
+            FileNamePattern = f.FileNamePattern,
+            CurrentSequenceNumber = f.CurrentSequenceNumber,
             CreatedAt = f.CreatedAt,
             ProductCount = productCounts.TryGetValue(f.Id, out var cnt) ? cnt : 0,
             Children = new List<MasterDataFolderDto>()
@@ -110,6 +113,9 @@ public class MasterDataFolderService : IMasterDataFolderService
             DefaultPairsPerCarton = f.DefaultPairsPerCarton > 0 ? f.DefaultPairsPerCarton : 12,
             DefaultUnit = f.DefaultUnit ?? "đôi",
             DisplayOrder = f.DisplayOrder,
+            InvoiceNoPattern = f.InvoiceNoPattern,
+            FileNamePattern = f.FileNamePattern,
+            CurrentSequenceNumber = f.CurrentSequenceNumber,
             CreatedAt = f.CreatedAt,
             ProductCount = count,
             TotalProductCount = count
@@ -130,6 +136,9 @@ public class MasterDataFolderService : IMasterDataFolderService
             DefaultPairsPerCarton = dto.DefaultPairsPerCarton > 0 ? dto.DefaultPairsPerCarton : 12,
             DefaultUnit = !string.IsNullOrWhiteSpace(dto.DefaultUnit) ? dto.DefaultUnit.Trim() : "đôi",
             DisplayOrder = dto.DisplayOrder,
+            InvoiceNoPattern = dto.InvoiceNoPattern.Trim(),
+            FileNamePattern = dto.FileNamePattern.Trim(),
+            CurrentSequenceNumber = dto.CurrentSequenceNumber,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -151,6 +160,9 @@ public class MasterDataFolderService : IMasterDataFolderService
             DefaultPairsPerCarton = folder.DefaultPairsPerCarton,
             DefaultUnit = folder.DefaultUnit,
             DisplayOrder = folder.DisplayOrder,
+            InvoiceNoPattern = folder.InvoiceNoPattern,
+            FileNamePattern = folder.FileNamePattern,
+            CurrentSequenceNumber = folder.CurrentSequenceNumber,
             CreatedAt = folder.CreatedAt,
             ProductCount = 0,
             TotalProductCount = 0
@@ -173,6 +185,9 @@ public class MasterDataFolderService : IMasterDataFolderService
         folder.DefaultPairsPerCarton = dto.DefaultPairsPerCarton > 0 ? dto.DefaultPairsPerCarton : 12;
         folder.DefaultUnit = !string.IsNullOrWhiteSpace(dto.DefaultUnit) ? dto.DefaultUnit.Trim() : "đôi";
         folder.DisplayOrder = dto.DisplayOrder;
+        folder.InvoiceNoPattern = dto.InvoiceNoPattern.Trim();
+        folder.FileNamePattern = dto.FileNamePattern.Trim();
+        folder.CurrentSequenceNumber = dto.CurrentSequenceNumber;
         folder.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();

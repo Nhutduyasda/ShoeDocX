@@ -691,15 +691,14 @@ public class ExcelImportExportService : IExcelImportExportService
         pklSheet.Cell(pklTotalRow, 8).FormulaA1 = $"ROUNDUP(G{pklTotalRow}+F{pklTotalRow}*0.1,0)";
 
         // ==========================================
-        // 4. CẬP NHẬT SHEET2 (Master Data — TOÀN BỘ danh mục)
-        // Quy tắc: Sheet2 LUÔN chứa TẤT CẢ ProductMaster trong hệ thống,
-        // bất kể file đang là Gò hay Thành hình, để đảm bảo VLOOKUP hoạt động đầy đủ.
+        // 4. CẬP NHẬT SHEET2 (Master Data đúng phạm vi đối tác)
         // ==========================================
         if (sheet2 != null)
         {
-            // Load toàn bộ danh mục từ DB
-            var allProducts = _context != null
-                ? await _context.ProductMasters.Where(p => p.FolderId == request.ContractFolderId)
+            var targetFolderId = request.ContractFolderId;
+            var allProducts = _context != null && targetFolderId.HasValue
+                ? await _context.ProductMasters
+                    .Where(p => p.FolderId == targetFolderId.Value || p.Folder!.ParentId == targetFolderId.Value)
                     .AsNoTracking()
                     .OrderBy(p => p.StyleCode)
                     .ToListAsync()
@@ -715,7 +714,8 @@ public class ExcelImportExportService : IExcelImportExportService
                         UnitPriceDAP_Go = g.FirstOrDefault(i => i.ProcessType == ProcessType.GoKhongMay)?.UnitPriceDAP
                     }).ToList();
             }
-            sheet2.Clear(XLClearOptions.Contents);
+            // Template có thể chứa danh mục của đối tác cũ: xóa toàn bộ nội dung trước khi ghi lại.
+            sheet2.RangeUsed()?.Clear(XLClearOptions.Contents);
             int sheet2Row = 1;
 
             foreach (var pm in allProducts)
@@ -753,12 +753,6 @@ public class ExcelImportExportService : IExcelImportExportService
                 sheet2Row++;
             }
 
-            // Xóa các dòng cũ thừa (nếu lần này ít dòng hơn lần trước)
-            int oldLastRow = sheet2.LastRowUsed()?.RowNumber() ?? 0;
-            if (oldLastRow > sheet2Row - 1 && sheet2Row > 1)
-            {
-                sheet2.Rows(sheet2Row, oldLastRow).Delete();
-            }
         }
 
         using var ms = new MemoryStream();

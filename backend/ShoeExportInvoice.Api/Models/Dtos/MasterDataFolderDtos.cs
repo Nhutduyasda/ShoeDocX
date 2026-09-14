@@ -14,6 +14,9 @@ public class MasterDataFolderDto
     public int DefaultPairsPerCarton { get; set; } = 12;
     public string DefaultUnit { get; set; } = "đôi";
     public int DisplayOrder { get; set; } = 0;
+    public string InvoiceNoPattern { get; set; } = "KMHD-NEW2026-{SEQ:4}";
+    public string FileNamePattern { get; set; } = "KM3-26-DH{SEQ}.xlsx";
+    public int CurrentSequenceNumber { get; set; } = 1;
     public int ProductCount { get; set; }
     public int TotalProductCount { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -47,6 +50,15 @@ public class CreateFolderDto
     public string DefaultUnit { get; set; } = "đôi";
 
     public int DisplayOrder { get; set; } = 0;
+
+    [Required, MaxLength(150)]
+    public string InvoiceNoPattern { get; set; } = "KMHD-NEW2026-{SEQ:4}";
+
+    [Required, MaxLength(150)]
+    public string FileNamePattern { get; set; } = "KM3-26-DH{SEQ}.xlsx";
+
+    [Range(1, int.MaxValue, ErrorMessage = "Số thứ tự phải lớn hơn 0")]
+    public int CurrentSequenceNumber { get; set; } = 1;
 }
 
 public class UpdateFolderDto
@@ -76,6 +88,15 @@ public class UpdateFolderDto
     public string DefaultUnit { get; set; } = "đôi";
 
     public int DisplayOrder { get; set; } = 0;
+
+    [Required, MaxLength(150)]
+    public string InvoiceNoPattern { get; set; } = "KMHD-NEW2026-{SEQ:4}";
+
+    [Required, MaxLength(150)]
+    public string FileNamePattern { get; set; } = "KM3-26-DH{SEQ}.xlsx";
+
+    [Range(1, int.MaxValue, ErrorMessage = "Số thứ tự phải lớn hơn 0")]
+    public int CurrentSequenceNumber { get; set; } = 1;
 }
 
 public class MoveFolderDto

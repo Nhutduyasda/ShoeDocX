@@ -235,6 +235,62 @@ public class MasterDataFolderTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateFolder_WithDocumentPatterns_PersistsAndFormatsPreview()
+    {
+        using var context = new AppDbContext(_dbOptions);
+        var folderService = new MasterDataFolderService(context, NullLogger<MasterDataFolderService>.Instance);
+
+        var created = await folderService.CreateFolderAsync(new CreateFolderDto
+        {
+            Name = "Partner 2026",
+            InvoiceNoPattern = "KMHD-NEW2026-{SEQ:4}",
+            FileNamePattern = "KM3-2026-{SEQ}.xlsx",
+            CurrentSequenceNumber = 233
+        });
+
+        Assert.Equal(233, created.CurrentSequenceNumber);
+        Assert.Equal("KMHD-NEW2026-0233", PartnerDocumentPatternFormatter.InvoiceNo(created.InvoiceNoPattern, created.CurrentSequenceNumber));
+        Assert.Equal("KM3-2026-233.xlsx", PartnerDocumentPatternFormatter.FileName(created.FileNamePattern, created.CurrentSequenceNumber));
+    }
+
+    [Fact]
+    public async Task ExportShipment_Sheet2_ContainsOnlyTargetPartnerAndDirectChildProducts()
+    {
+        using var context = new AppDbContext(_dbOptions);
+        var target = new MasterDataFolder { Name = "Target" };
+        var child = new MasterDataFolder { Name = "Target child", Parent = target };
+        var other = new MasterDataFolder { Name = "Other" };
+        context.MasterDataFolders.AddRange(target, child, other);
+        await context.SaveChangesAsync();
+
+        context.ProductMasters.AddRange(
+            new ProductMaster { StyleCode = "TARGET-ROOT", Description = "Root product", FolderId = target.Id, UnitPriceCMT = 1, UnitPriceDAP = 2 },
+            new ProductMaster { StyleCode = "TARGET-CHILD", Description = "Child product", FolderId = child.Id, UnitPriceCMT = 3, UnitPriceDAP = 4 },
+            new ProductMaster { StyleCode = "OTHER-CODE", Description = "Other product", FolderId = other.Id, UnitPriceCMT = 5, UnitPriceDAP = 6 });
+        await context.SaveChangesAsync();
+
+        var service = new ExcelImportExportService(context, NullLogger<ExcelImportExportService>.Instance);
+        var bytes = await service.ExportShipmentMultiSheetExcelAsync(new CreateShipmentRequestDto
+        {
+            ContractFolderId = target.Id,
+            InvoiceNo = "KMHD-NEW2026-0233",
+            PoSuffix = "PO-NEW",
+            ContractNo = "C-2026",
+            CustomerName = "Target customer",
+            Items = new List<CreateShipmentItemDto>
+            {
+                new() { StyleCode = "TARGET-ROOT", Quantity = 12, ProcessType = ProcessType.Standard }
+            }
+        });
+
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var values = workbook.Worksheet("Sheet2").Column(1).CellsUsed().Select(c => c.GetString()).ToList();
+        Assert.Contains("TARGET-ROOT", values);
+        Assert.Contains("TARGET-CHILD", values);
+        Assert.DoesNotContain("OTHER-CODE", values);
+    }
+
+    [Fact]
     public async Task DeleteAllAsync_WithFolderId_DeletesOnlyProductsInTargetFolderAndSubfolders()
     {
         using var context = new AppDbContext(_dbOptions);

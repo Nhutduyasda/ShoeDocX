@@ -54,6 +54,9 @@ export interface MasterDataFolder {
   defaultPairsPerCarton: number;
   defaultUnit?: string | null;
   displayOrder: number;
+  invoiceNoPattern: string;
+  fileNamePattern: string;
+  currentSequenceNumber: number;
   productCount: number;
   totalProductCount: number;
   children?: MasterDataFolder[];
@@ -71,10 +74,14 @@ export interface CreateFolderRequest {
   defaultPairsPerCarton?: number;
   defaultUnit?: string | null;
   displayOrder?: number;
+  invoiceNoPattern?: string;
+  fileNamePattern?: string;
+  currentSequenceNumber?: number;
 }
 
 export interface UpdateFolderRequest {
   name: string;
+  parentId?: number | null;
   customerName?: string | null;
   deliveryAddress?: string | null;
   contractNo?: string | null;
@@ -82,6 +89,9 @@ export interface UpdateFolderRequest {
   defaultPairsPerCarton?: number;
   defaultUnit?: string | null;
   displayOrder?: number;
+  invoiceNoPattern?: string;
+  fileNamePattern?: string;
+  currentSequenceNumber?: number;
 }
 
 export interface MoveFolderRequest {

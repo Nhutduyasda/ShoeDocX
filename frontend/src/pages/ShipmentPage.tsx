@@ -46,7 +46,7 @@ import {
   InboxOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { shipmentApi, invoiceNoToFileName, extractSequenceNumber, toStandardFileName } from '../api/shipmentApi';
+import { shipmentApi, invoiceNoToFileName, extractSequenceNumber, formatInvoiceNo, formatPartnerFileName } from '../api/shipmentApi';
 import { productMasterApi } from '../api/productMasterApi';
 import { masterDataFolderApi } from '../api/masterDataFolderApi';
 import { warehouseApi } from '../api/warehouseApi';
@@ -190,10 +190,18 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     // 1. Cập nhật Đối tác & Header
     setSelectedPartnerId(targetPartner.id);
     form.setFieldsValue({
+      invoiceNo: formatInvoiceNo(targetPartner.invoiceNoPattern, targetPartner.currentSequenceNumber),
       customerName: targetPartner.customerName || targetPartner.name,
       address: targetPartner.deliveryAddress || '',
       contractNo: targetPartner.contractNo || '',
       poSuffix: targetPartner.poSuffix || '',
+    });
+    setStartInvoiceNum(targetPartner.currentSequenceNumber);
+    setSequenceEditValue(targetPartner.currentSequenceNumber);
+    setSequenceInfo({
+      nextNumber: targetPartner.currentSequenceNumber,
+      previewInvoiceNo: formatInvoiceNo(targetPartner.invoiceNoPattern, targetPartner.currentSequenceNumber),
+      previewFileName: formatPartnerFileName(targetPartner.fileNamePattern, targetPartner.currentSequenceNumber),
     });
 
     // 2. Tự động ráp đúng đơn giá CMT, DAP, Mô tả của đối tác mới vào bảng hàng hóa (giữ nguyên Số lượng đôi)
@@ -360,7 +368,6 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     void loadPartnerFolders();
     void loadProducts();
     void loadShipmentsHistory();
-    void loadSequence();
     if (!hasCompletedTour()) {
       const timer = setTimeout(startOnboardingTour, 800);
       return () => clearTimeout(timer);
@@ -403,7 +410,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       setSequenceInfo({
         nextNumber: seq,
         previewInvoiceNo: clean,
-        previewFileName: toStandardFileName(seq),
+        previewFileName: formatPartnerFileName(selectedPartner?.fileNamePattern, seq),
       });
     }
   };
@@ -424,7 +431,10 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         nodes.flatMap(f => {
           const merged = { ...f, customerName: f.customerName || parent?.customerName,
             contractNo: f.contractNo || parent?.contractNo, deliveryAddress: f.deliveryAddress || parent?.deliveryAddress,
-            poSuffix: f.poSuffix || parent?.poSuffix };
+            poSuffix: f.poSuffix || parent?.poSuffix,
+            invoiceNoPattern: f.invoiceNoPattern || parent?.invoiceNoPattern || 'KMHD-NEW2026-{SEQ:4}',
+            fileNamePattern: f.fileNamePattern || parent?.fileNamePattern || 'KM3-26-DH{SEQ}.xlsx',
+            currentSequenceNumber: f.currentSequenceNumber || parent?.currentSequenceNumber || 1 };
           return [merged, ...flatten(f.children || [], merged)];
         });
       const roots = flatten(tree);
@@ -436,10 +446,18 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         const curCustomer = form.getFieldValue('customerName');
         if (!curCustomer || curCustomer === 'CÔNG TY TNHH KINGMAKER III (VIỆT NAM) FOOTWEAR') {
           form.setFieldsValue({
+            invoiceNo: formatInvoiceNo(km3.invoiceNoPattern, km3.currentSequenceNumber),
             customerName: km3.customerName || km3.name,
             address: km3.deliveryAddress || form.getFieldValue('address'),
             contractNo: km3.contractNo || form.getFieldValue('contractNo'),
             poSuffix: km3.poSuffix || form.getFieldValue('poSuffix'),
+          });
+          setStartInvoiceNum(km3.currentSequenceNumber);
+          setSequenceEditValue(km3.currentSequenceNumber);
+          setSequenceInfo({
+            nextNumber: km3.currentSequenceNumber,
+            previewInvoiceNo: formatInvoiceNo(km3.invoiceNoPattern, km3.currentSequenceNumber),
+            previewFileName: formatPartnerFileName(km3.fileNamePattern, km3.currentSequenceNumber),
           });
         }
       }
@@ -451,10 +469,18 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const applyPartnerPreset = (partner: MasterDataFolder, clearItems = false) => {
     setSelectedPartnerId(partner.id);
     form.setFieldsValue({
+      invoiceNo: formatInvoiceNo(partner.invoiceNoPattern, partner.currentSequenceNumber),
       customerName: partner.customerName || partner.name,
       address: partner.deliveryAddress || '',
       contractNo: partner.contractNo || '',
       poSuffix: partner.poSuffix || '',
+    });
+    setStartInvoiceNum(partner.currentSequenceNumber);
+    setSequenceEditValue(partner.currentSequenceNumber);
+    setSequenceInfo({
+      nextNumber: partner.currentSequenceNumber,
+      previewInvoiceNo: formatInvoiceNo(partner.invoiceNoPattern, partner.currentSequenceNumber),
+      previewFileName: formatPartnerFileName(partner.fileNamePattern, partner.currentSequenceNumber),
     });
 
     setSuggestionBannerData(null);
@@ -582,6 +608,18 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
   const handleGenerateInvoiceNo = async () => {
     try {
+      if (selectedPartnerId) {
+        const partner = await masterDataFolderApi.getById(selectedPartnerId);
+        const invoiceNo = formatInvoiceNo(partner.invoiceNoPattern, partner.currentSequenceNumber);
+        const previewFileName = formatPartnerFileName(partner.fileNamePattern, partner.currentSequenceNumber);
+        setPartnerFolders((prev) => prev.map((p) => p.id === partner.id ? { ...p, ...partner } : p));
+        setSequenceInfo({ nextNumber: partner.currentSequenceNumber, previewInvoiceNo: invoiceNo, previewFileName });
+        setStartInvoiceNum(partner.currentSequenceNumber);
+        setSequenceEditValue(partner.currentSequenceNumber);
+        form.setFieldsValue({ invoiceNo });
+        message.info(`Đã điền số hóa đơn tiếp theo: ${invoiceNo}`);
+        return;
+      }
       const info = await shipmentApi.getSequence();
       setSequenceInfo(info);
       setStartInvoiceNum(info.nextNumber);
@@ -622,22 +660,29 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
       // Tự động làm mới danh sách lịch sử và cập nhật số sequence tiếp theo cho form
       await loadShipmentsHistory();
-      try {
-        const nextInfo = await shipmentApi.getSequence();
-        setSequenceInfo(nextInfo);
-        form.setFieldValue('invoiceNo', nextInfo.previewInvoiceNo);
-      } catch {
-        // Ignored
+      if (selectedPartnerId) {
+        try {
+          const partner = await masterDataFolderApi.getById(selectedPartnerId);
+          const nextInfo = {
+            nextNumber: partner.currentSequenceNumber,
+            previewInvoiceNo: formatInvoiceNo(partner.invoiceNoPattern, partner.currentSequenceNumber),
+            previewFileName: formatPartnerFileName(partner.fileNamePattern, partner.currentSequenceNumber),
+          };
+          setPartnerFolders((prev) => prev.map((p) => p.id === partner.id ? { ...p, ...partner } : p));
+          setSequenceInfo(nextInfo);
+          setStartInvoiceNum(nextInfo.nextNumber);
+          form.setFieldValue('invoiceNo', nextInfo.previewInvoiceNo);
+        } catch { /* Ignored */ }
       }
 
       if (isZip && exportSummary?.hasTwoFiles) {
-        const firstNum = req.priority === ExportSequencePriority.GoFirst 
-          ? exportSummary.goSequenceNumber 
-          : exportSummary.standardSequenceNumber;
         const secondNum = req.priority === ExportSequencePriority.GoFirst 
           ? exportSummary.standardSequenceNumber 
           : exportSummary.goSequenceNumber;
-        const zipName = `KM3-26-DH${firstNum}-${secondNum}.zip`;
+        const firstFileName = req.priority === ExportSequencePriority.GoFirst
+          ? exportSummary.goFileName
+          : exportSummary.standardFileName;
+        const zipName = `${(firstFileName || 'shipment.xlsx').replace(/\.xlsx$/i, '')}-${secondNum}.zip`;
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -679,7 +724,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           },
         });
       } else {
-        const fileName = exportSummary?.singleFileName ?? invoiceNoToFileName(req.invoiceNo);
+        const fallbackSeq = extractSequenceNumber(req.invoiceNo);
+        const fileName = exportSummary?.singleFileName
+          ?? (fallbackSeq ? formatPartnerFileName(selectedPartner?.fileNamePattern, fallbackSeq) : invoiceNoToFileName(req.invoiceNo));
         const savedInvoiceNo = exportSummary?.singleInvoiceNo ?? req.invoiceNo;
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -930,7 +977,10 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         setSequenceInfo({
           nextNumber: seq,
           previewInvoiceNo: order.invoiceNo,
-          previewFileName: toStandardFileName(seq),
+          previewFileName: formatPartnerFileName(
+            partnerFolders.find((p) => p.id === order.contractFolderId)?.fileNamePattern,
+            seq,
+          ),
         });
       }
       setActiveTab('create');
@@ -1198,7 +1248,30 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       return;
     }
     try {
-      const info = await shipmentApi.setSequence(sequenceEditValue);
+      if (!selectedPartner) {
+        message.error('Vui lòng chọn đối tác trước khi cập nhật số thứ tự.');
+        return;
+      }
+      const updated = await masterDataFolderApi.update(selectedPartner.id, {
+        name: selectedPartner.name,
+        parentId: selectedPartner.parentId ?? null,
+        customerName: selectedPartner.customerName,
+        deliveryAddress: selectedPartner.deliveryAddress,
+        contractNo: selectedPartner.contractNo,
+        poSuffix: selectedPartner.poSuffix,
+        defaultPairsPerCarton: selectedPartner.defaultPairsPerCarton,
+        defaultUnit: selectedPartner.defaultUnit,
+        displayOrder: selectedPartner.displayOrder,
+        invoiceNoPattern: selectedPartner.invoiceNoPattern,
+        fileNamePattern: selectedPartner.fileNamePattern,
+        currentSequenceNumber: sequenceEditValue,
+      });
+      const info = {
+        nextNumber: updated.currentSequenceNumber,
+        previewInvoiceNo: formatInvoiceNo(updated.invoiceNoPattern, updated.currentSequenceNumber),
+        previewFileName: formatPartnerFileName(updated.fileNamePattern, updated.currentSequenceNumber),
+      };
+      setPartnerFolders((prev) => prev.map((p) => p.id === updated.id ? { ...p, ...updated } : p));
       setSequenceInfo(info);
       setStartInvoiceNum(sequenceEditValue);
       // Đồng bộ 2 chiều: cập nhật trực tiếp ô Số Hóa đơn (Invoice No) trong Form
@@ -1264,15 +1337,15 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     ? {
         label: 'Hàng Thành hình',
         type: 'standard' as const,
-        fileName: `KM3-26-DH${firstSeqNum}.xlsx`,
-        invoiceNo: `KMHD-NEW2026-0${firstSeqNum}`,
+        fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, firstSeqNum),
+        invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, firstSeqNum),
         qty: standardQty,
       }
     : {
         label: 'Hàng Gò không may',
         type: 'go' as const,
-        fileName: `KM3-26-DH${firstSeqNum}.xlsx`,
-        invoiceNo: `KMHD-NEW2026-0${firstSeqNum}`,
+        fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, firstSeqNum),
+        invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, firstSeqNum),
         qty: goQty,
       };
 
@@ -1280,15 +1353,15 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     ? {
         label: 'Hàng Gò không may',
         type: 'go' as const,
-        fileName: `KM3-26-DH${secondSeqNum}.xlsx`,
-        invoiceNo: `KMHD-NEW2026-0${secondSeqNum}`,
+        fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, secondSeqNum),
+        invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, secondSeqNum),
         qty: goQty,
       }
     : {
         label: 'Hàng Thành hình',
         type: 'standard' as const,
-        fileName: `KM3-26-DH${secondSeqNum}.xlsx`,
-        invoiceNo: `KMHD-NEW2026-0${secondSeqNum}`,
+        fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, secondSeqNum),
+        invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, secondSeqNum),
         qty: standardQty,
       };
 
@@ -2156,7 +2229,10 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                   <Form.Item noStyle shouldUpdate={(prev, cur) => prev.invoiceNo !== cur.invoiceNo}>
                     {({ getFieldValue }) => {
                       const inv: string = getFieldValue('invoiceNo') ?? '';
-                      const fileName = inv ? invoiceNoToFileName(inv) : '';
+                      const seq = extractSequenceNumber(inv);
+                      const fileName = inv
+                        ? (seq ? formatPartnerFileName(selectedPartner?.fileNamePattern, seq) : invoiceNoToFileName(inv))
+                        : '';
                       return fileName ? (
                         <div className="-mt-3 mb-3 flex items-center space-x-1.5 text-xs text-blue-700">
                           <span className="text-slate-400">→ File:</span>
@@ -2650,7 +2726,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             <div className="text-xs text-slate-500">
               {sequenceEditValue > 0 && (
                 <span>
-                  → <span className="font-mono text-blue-600">KMHD-NEW2026-0{sequenceEditValue}</span>
+                  → <span className="font-mono text-blue-600">{formatInvoiceNo(selectedPartner?.invoiceNoPattern, sequenceEditValue)}</span>
                 </span>
               )}
             </div>
@@ -2777,7 +2853,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           <div className="space-y-2">
             <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider flex items-center justify-between">
               <span>Bảng Xem trước Tức thời (Live Preview)</span>
-              <span className="font-mono text-[11px] text-slate-500">ZIP: KM3-26-DH{firstSeqNum}-{secondSeqNum}.zip</span>
+              <span className="font-mono text-[11px] text-slate-500">
+                ZIP: {previewFile1.fileName.replace(/\.xlsx$/i, '')}-{secondSeqNum}.zip
+              </span>
             </div>
             <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 overflow-hidden bg-white">
               {[previewFile1, previewFile2].map((f, idx) => (

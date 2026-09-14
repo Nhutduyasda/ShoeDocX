@@ -68,7 +68,7 @@ public class CustomsSettlementService : ICustomsSettlementService
             .FirstOrDefaultAsync();
 
         var previousClosingBalances = previousPeriod?.Items
-            .ToDictionary(i => NormalizeProductCode(i.ProductCode), i => i.ClosingBalance)
+            .ToDictionary(i => SettlementKey(i.ProductCode, i.ProcessType), i => i.ClosingBalance)
             ?? new Dictionary<string, decimal>();
 
         // 5. Gom nhóm các mặt hàng đã xuất theo Mã hình thể (loại bỏ .G)
@@ -81,8 +81,9 @@ public class CustomsSettlementService : ICustomsSettlementService
             {
                 string code = NormalizeProductCode(item.StyleCode);
                 if (string.IsNullOrEmpty(code)) continue;
+                string settlementKey = SettlementKey(code, item.ProcessType);
 
-                if (!exportGroupMap.TryGetValue(code, out var existing))
+                if (!exportGroupMap.TryGetValue(settlementKey, out var existing))
                 {
                     productMasters.TryGetValue(code.ToUpper(), out var pm);
                     string name = pm?.Description ?? item.FullItemCode;
@@ -98,7 +99,7 @@ public class CustomsSettlementService : ICustomsSettlementService
                     existing.DeclarationNos.Add(declNo);
                 }
 
-                exportGroupMap[code] = existing;
+                exportGroupMap[settlementKey] = existing;
             }
         }
 
@@ -106,7 +107,7 @@ public class CustomsSettlementService : ICustomsSettlementService
         // Gồm các mã có xuất trong kỳ + các mã có tồn từ kỳ trước + tất cả ProductMasters trong danh mục
         var allProductCodes = exportGroupMap.Keys
             .Union(previousClosingBalances.Keys)
-            .Union(productMasters.Keys.Select(k => NormalizeProductCode(k)))
+            .Union(productMasters.Keys.Select(k => SettlementKey(k, ProcessType.Standard)))
             .Distinct()
             .OrderBy(c => c)
             .ToList();
@@ -114,11 +115,13 @@ public class CustomsSettlementService : ICustomsSettlementService
         var items = new List<SettlementItemDto>();
         int stt = 1;
 
-        foreach (var code in allProductCodes)
+        foreach (var key in allProductCodes)
         {
+            var code = SettlementKeyCode(key);
+            var processType = SettlementKeyProcessType(key);
             productMasters.TryGetValue(code.ToUpper(), out var pm);
-            previousClosingBalances.TryGetValue(code, out decimal prevClosing);
-            bool hasExport = exportGroupMap.TryGetValue(code, out var exp);
+            previousClosingBalances.TryGetValue(key, out decimal prevClosing);
+            bool hasExport = exportGroupMap.TryGetValue(key, out var exp);
 
             decimal openingBalance = prevClosing;
             decimal inPeriodProduction = 0; // Người dùng sẽ nhập bổ sung
@@ -136,6 +139,7 @@ public class CustomsSettlementService : ICustomsSettlementService
             {
                 Id = stt++,
                 ProductCode = code,
+                ProcessType = processType,
                 ProductName = pm?.Description ?? (hasExport ? exp.ProductName : code),
                 Unit = !string.IsNullOrWhiteSpace(pm?.Unit) ? pm.Unit : "đôi",
                 HsCode = pm?.HsCode ?? "64041990",
@@ -174,14 +178,14 @@ public class CustomsSettlementService : ICustomsSettlementService
     {
         var calculated = await CalculateSettlementAsync(new CalculateSettlementRequestDto {
             Year = year, FromDate = from, ToDate = to, ContractFolderId = folderId, ContractNo = contractNo });
-        if (input.GroupBy(i => NormalizeProductCode(i.ProductCode)).Any(g => g.Count() > 1))
+        if (input.GroupBy(i => SettlementKey(i.ProductCode, i.ProcessType)).Any(g => g.Count() > 1))
             throw new InvalidOperationException("Danh sách kho chứa mã trùng sau chuẩn hóa.");
-        var actual = calculated.Items.ToDictionary(i => NormalizeProductCode(i.ProductCode));
+        var actual = calculated.Items.ToDictionary(i => SettlementKey(i.ProductCode, i.ProcessType));
         foreach (var item in input)
         {
             if (item.OpeningBalance < 0 || item.InPeriodProduction < 0 || item.OtherExport < 0)
                 throw new InvalidOperationException("Số liệu kho đầu vào không được âm.");
-            var code = NormalizeProductCode(item.ProductCode);
+            var code = SettlementKey(item.ProductCode, item.ProcessType);
             item.InPeriodExport = actual.TryGetValue(code, out var row) ? row.InPeriodExport : 0;
             item.ClosingBalance = item.OpeningBalance + item.InPeriodProduction - item.InPeriodExport - item.OtherExport;
             actual.Remove(code);
@@ -270,6 +274,7 @@ public class CustomsSettlementService : ICustomsSettlementService
             period.Items.Add(new CustomsSettlementItem
             {
                 ProductCode = item.ProductCode.Trim(),
+                ProcessType = item.ProcessType,
                 ProductName = item.ProductName?.Trim() ?? string.Empty,
                 Unit = !string.IsNullOrWhiteSpace(item.Unit) ? item.Unit.Trim() : "đôi",
                 HsCode = !string.IsNullOrWhiteSpace(item.HsCode) ? item.HsCode.Trim() : "64041990",
@@ -366,6 +371,7 @@ public class CustomsSettlementService : ICustomsSettlementService
             {
                 Id = idx++,
                 ProductCode = i.ProductCode,
+                ProcessType = i.ProcessType,
                 ProductName = i.ProductName,
                 Unit = i.Unit,
                 HsCode = i.HsCode,
@@ -539,7 +545,10 @@ public class CustomsSettlementService : ICustomsSettlementService
             ws.Cell(currentRow, 9).Style.NumberFormat.Format = "#,##0";
             ws.Cell(currentRow, 9).Style.Font.Bold = true;
 
-            ws.Cell(currentRow, 10).SetValue(item.Note ?? string.Empty);
+            var processLabel = item.ProcessType == ProcessType.GoKhongMay ? "Gò không may" : "Thành hình";
+            ws.Cell(currentRow, 10).SetValue(string.IsNullOrWhiteSpace(item.Note)
+                ? processLabel
+                : $"{processLabel} - {item.Note}");
 
             currentRow++;
         }
@@ -836,6 +845,7 @@ public class CustomsSettlementService : ICustomsSettlementService
                         InvoiceNo = order.InvoiceNo,
                         ContractNo = order.ContractNo,
                         ProductCode = norm,
+                        ProcessType = item.ProcessType,
                         FullItemCode = item.FullItemCode,
                         Quantity = item.Quantity,
                         UnitPriceCMT = item.UnitPriceCMT,
@@ -878,6 +888,16 @@ public class CustomsSettlementService : ICustomsSettlementService
 
         return clean;
     }
+
+    private static string SettlementKey(string productCode, ProcessType processType) =>
+        $"{NormalizeProductCode(productCode)}|{(int)processType}";
+
+    private static string SettlementKeyCode(string key) => key[..key.LastIndexOf('|')];
+
+    private static ProcessType SettlementKeyProcessType(string key) =>
+        Enum.TryParse<ProcessType>(key[(key.LastIndexOf('|') + 1)..], out var processType)
+            ? processType
+            : ProcessType.Standard;
 
     /// <summary>
     /// Thống kê phân tích kim ngạch, sản lượng, doanh thu CMT và phân bổ luồng tờ khai theo 12 tháng
@@ -1112,6 +1132,8 @@ public class CustomsSettlementService : ICustomsSettlementService
             rows.Add(new WarehouseDataRowDto
             {
                 ProductCode = rawCode,
+                ProcessType = rawCode.Trim().EndsWith(".G", StringComparison.OrdinalIgnoreCase)
+                    ? ProcessType.GoKhongMay : ProcessType.Standard,
                 OpeningBalance = Math.Max(0, opening),
                 InPeriodProduction = Math.Max(0, production)
             });
@@ -1137,8 +1159,8 @@ public class CustomsSettlementService : ICustomsSettlementService
         var warehouseMap = new Dictionary<string, (decimal Opening, decimal Production)>();
         foreach (var r in rows)
         {
-            string norm = NormalizeProductCode(r.ProductCode);
-            if (string.IsNullOrWhiteSpace(norm)) continue;
+            string norm = SettlementKey(r.ProductCode, r.ProcessType);
+            if (string.IsNullOrWhiteSpace(NormalizeProductCode(r.ProductCode))) continue;
 
             if (!warehouseMap.TryGetValue(norm, out var existing))
             {
@@ -1153,6 +1175,7 @@ public class CustomsSettlementService : ICustomsSettlementService
         {
             Id = i.Id,
             ProductCode = i.ProductCode,
+            ProcessType = i.ProcessType,
             ProductName = i.ProductName,
             Unit = i.Unit,
             HsCode = i.HsCode,
@@ -1166,17 +1189,19 @@ public class CustomsSettlementService : ICustomsSettlementService
             RelatedDeclarationNos = i.RelatedDeclarationNos
         }).ToList();
 
-        var existingMap = resultItems.ToDictionary(i => NormalizeProductCode(i.ProductCode), i => i);
+        var existingMap = resultItems.ToDictionary(i => SettlementKey(i.ProductCode, i.ProcessType), i => i);
         int matchedCount = 0;
         int addedFromWarehouse = 0;
         var warnings = new List<string>();
 
         foreach (var kvp in warehouseMap)
         {
-            string code = kvp.Key;
+            string key = kvp.Key;
+            string code = SettlementKeyCode(key);
+            var processType = SettlementKeyProcessType(key);
             var (whOpening, whProd) = kvp.Value;
 
-            if (existingMap.TryGetValue(code, out var item))
+            if (existingMap.TryGetValue(key, out var item))
             {
                 item.OpeningBalance = whOpening;
                 item.InPeriodProduction = whProd;
@@ -1190,6 +1215,7 @@ public class CustomsSettlementService : ICustomsSettlementService
                 {
                     Id = resultItems.Count + 1,
                     ProductCode = code,
+                    ProcessType = processType,
                     ProductName = pm?.Description ?? code,
                     Unit = !string.IsNullOrWhiteSpace(pm?.Unit) ? pm.Unit : "đôi",
                     HsCode = pm?.HsCode ?? "64041990",
@@ -1203,7 +1229,7 @@ public class CustomsSettlementService : ICustomsSettlementService
                     RelatedDeclarationNos = new List<string>()
                 };
                 resultItems.Add(newItem);
-                existingMap[code] = newItem;
+                existingMap[key] = newItem;
                 addedFromWarehouse++;
             }
         }

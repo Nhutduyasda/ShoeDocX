@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using System.Security.Claims;
 using ShoeExportInvoice.Api.Controllers;
 using ShoeExportInvoice.Api.Data;
 using ShoeExportInvoice.Api.Models.Dtos;
@@ -196,6 +197,68 @@ public class AuditRegressionTests
             Assert.Equal(values.Max() + 1, await service.GetCurrentNextNumberAsync());
         }
         finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task PartnerSequenceConcurrentReservations_AreAtomicAndDistinct()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"xnk-partner-sequence-{Guid.NewGuid():N}.db");
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite($"Data Source={path};Pooling=False;Default Timeout=30").Options;
+        try
+        {
+            int folderId;
+            using (var db = new AppDbContext(options))
+            {
+                await db.Database.EnsureCreatedAsync();
+                var folder = new MasterDataFolder { Name = "Concurrent partner", CurrentSequenceNumber = 233 };
+                db.Add(folder); await db.SaveChangesAsync(); folderId = folder.Id;
+            }
+            var values = await Task.WhenAll(Enumerable.Range(0, 6).Select(_ => Task.Run(async () =>
+            {
+                using var db = new AppDbContext(options);
+                return (await new SequenceService(db, NullLogger<SequenceService>.Instance)
+                    .ReservePartnerSequenceNumbersAsync(folderId))[0];
+            })));
+            Assert.Equal(6, values.Distinct().Count());
+            Assert.Equal(Enumerable.Range(233, 6), values.OrderBy(x => x));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void SizeBreakdownMismatch_IsRejectedWithSpecificMessage()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ShipmentSizeBreakdownValidator.Validate([
+            new CreateShipmentItemDto { StyleCode = "STYLE-1", Quantity = 24, SizeBreakdownJson = "{\"36\":10,\"37\":12}" }
+        ]));
+        Assert.Contains("22 đôi", ex.Message);
+        Assert.Contains("24 đôi", ex.Message);
+    }
+
+    [Fact]
+    public async Task AdminUnlockClearedShipment_WritesAuditAndReturnsOrderToEditableStatus()
+    {
+        using var db = MemoryDb();
+        var order = new ShipmentOrder { InvoiceNo = "AMA-1", CustomerName = "Test", Status = ShipmentStatus.Cleared, IsLocked = true };
+        db.Add(order); await db.SaveChangesAsync();
+        var controller = new ShipmentsController(db, new FakeExcelService(), new FakeSequenceService(), NullLogger<ShipmentsController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity([
+                        new Claim(ClaimTypes.NameIdentifier, "admin-id"), new Claim(ClaimTypes.Name, "Admin User"), new Claim(ClaimTypes.Role, "Admin")
+                    ], "test"))
+                }
+            }
+        };
+        Assert.IsType<OkObjectResult>(await controller.UnlockClearedShipment(order.Id, new("Khai bổ sung AMA sau thông quan")));
+        Assert.False(order.IsLocked);
+        Assert.Equal(ShipmentStatus.Exported, order.Status);
+        var audit = Assert.Single(await db.ShipmentUnlockAudits.ToListAsync());
+        Assert.Equal("admin-id", audit.UnlockedByUserId);
+        Assert.Contains("AMA", audit.Reason);
     }
 
     [Fact]

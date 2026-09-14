@@ -1,3 +1,5 @@
+using ShoeExportInvoice.Api.Models.Entities;
+
 namespace ShoeExportInvoice.Api.Models.Dtos;
 
 public class CalculateSettlementRequestDto
@@ -13,6 +15,7 @@ public class SettlementItemDto
 {
     public int Id { get; set; }
     public string ProductCode { get; set; } = string.Empty;
+    public ProcessType ProcessType { get; set; } = ProcessType.Standard;
     public string ProductName { get; set; } = string.Empty;
     public string Unit { get; set; } = "đôi";
     public string HsCode { get; set; } = "64041990";
@@ -96,6 +99,7 @@ public class SettlementDrillDownItemDto
     public int? ContractFolderId { get; set; }
     public string? ContractNo { get; set; }
     public string ProductCode { get; set; } = string.Empty;
+    public ProcessType ProcessType { get; set; } = ProcessType.Standard;
     public string FullItemCode { get; set; } = string.Empty;
     public int Quantity { get; set; }
     public decimal UnitPriceCMT { get; set; }
@@ -150,6 +154,7 @@ public class CustomsChannelStatDto
 public class WarehouseDataRowDto
 {
     public string ProductCode { get; set; } = string.Empty;
+    public ProcessType ProcessType { get; set; } = ProcessType.Standard;
     public decimal OpeningBalance { get; set; } = 0;
     public decimal InPeriodProduction { get; set; } = 0;
 }

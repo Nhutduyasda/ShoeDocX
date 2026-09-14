@@ -20,6 +20,7 @@ public class UserDto
     {
         Department.Admin => "Ban Giám Đốc",
         Department.Xnk => "Phòng Xuất Nhập Khẩu",
+        Department.XnkManager => "Trưởng phòng Xuất Nhập Khẩu",
         Department.Kho => "Kho Thành Phẩm",
         Department.KeToan => "Phòng Kế Toán",
         _ => Department.ToString()

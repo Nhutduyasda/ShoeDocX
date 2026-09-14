@@ -71,6 +71,9 @@ public class CreateShipmentItemDto
     [EnumDataType(typeof(ProcessType))]
     public ProcessType ProcessType { get; set; } = ProcessType.Standard;
 
+    [MaxLength(2000)]
+    public string? SizeBreakdownJson { get; set; }
+
     [Range(typeof(decimal), "0", "999999999.9999")]
     public decimal? UnitPriceCMT { get; set; }
 

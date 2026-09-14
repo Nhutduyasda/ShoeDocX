@@ -613,6 +613,7 @@ public class CustomsSettlementTests : IDisposable
             {
                 Id = 1,
                 ProductCode = "42072-030",
+                ProcessType = ProcessType.GoKhongMay,
                 ProductName = "Sandals Comfort",
                 Unit = "PRS",
                 OpeningBalance = 0,

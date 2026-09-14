@@ -65,6 +65,10 @@ export const shipmentApi = {
     await apiClient.put(`/shipments/${id}`, request);
   },
 
+  unlockClearedShipment: async (id: number, reason: string): Promise<void> => {
+    await apiClient.post(`/shipments/${id}/unlock-cleared`, { reason });
+  },
+
   // Lấy danh sách lịch sử các đơn hàng đã tạo
   getShipments: async (): Promise<SavedShipmentSummary[]> => {
     const response = await apiClient.get<SavedShipmentSummary[]>('/shipments');

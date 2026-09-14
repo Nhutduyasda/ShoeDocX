@@ -19,6 +19,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<CustomsSettlementItem> CustomsSettlementItems => Set<CustomsSettlementItem>();
     public DbSet<WarehouseBatch> WarehouseBatches => Set<WarehouseBatch>();
     public DbSet<WarehouseBatchItem> WarehouseBatchItems => Set<WarehouseBatchItem>();
+    public DbSet<ShipmentUnlockAudit> ShipmentUnlockAudits => Set<ShipmentUnlockAudit>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -108,13 +109,19 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         // CustomsSettlementItem configuration
         modelBuilder.Entity<CustomsSettlementItem>(entity =>
         {
-            entity.HasIndex(e => new { e.SettlementPeriodId, e.ProductCode }).IsUnique();
+            entity.HasIndex(e => new { e.SettlementPeriodId, e.ProductCode, e.ProcessType }).IsUnique();
             entity.Property(e => e.OpeningBalance).HasPrecision(18, 2);
             entity.Property(e => e.InPeriodProduction).HasPrecision(18, 2);
             entity.Property(e => e.InPeriodExport).HasPrecision(18, 2);
             entity.Property(e => e.OtherExport).HasPrecision(18, 2);
             entity.Property(e => e.ClosingBalance).HasPrecision(18, 2);
             entity.ToTable(t => t.HasCheckConstraint("CK_CustomsSettlementItems_Inputs_NonNegative", "OpeningBalance >= 0 AND InPeriodProduction >= 0 AND InPeriodExport >= 0 AND OtherExport >= 0"));
+        });
+
+        modelBuilder.Entity<ShipmentUnlockAudit>(entity =>
+        {
+            entity.HasIndex(e => new { e.ShipmentOrderId, e.UnlockedAt });
+            entity.HasOne(e => e.ShipmentOrder).WithMany().HasForeignKey(e => e.ShipmentOrderId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // WarehouseBatch configuration

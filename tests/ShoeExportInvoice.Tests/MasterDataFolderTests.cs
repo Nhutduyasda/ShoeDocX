@@ -254,18 +254,22 @@ public class MasterDataFolderTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportShipment_Sheet2_ContainsOnlyTargetPartnerAndDirectChildProducts()
+    public async Task ExportShipment_Sheet2_ContainsOnlyTargetPartnerAndAllDescendantProducts()
     {
         using var context = new AppDbContext(_dbOptions);
         var target = new MasterDataFolder { Name = "Target" };
         var child = new MasterDataFolder { Name = "Target child", Parent = target };
+        var grandchild = new MasterDataFolder { Name = "Target grandchild", Parent = child };
+        var greatGrandchild = new MasterDataFolder { Name = "Target great-grandchild", Parent = grandchild };
         var other = new MasterDataFolder { Name = "Other" };
-        context.MasterDataFolders.AddRange(target, child, other);
+        context.MasterDataFolders.AddRange(target, child, grandchild, greatGrandchild, other);
         await context.SaveChangesAsync();
 
         context.ProductMasters.AddRange(
             new ProductMaster { StyleCode = "TARGET-ROOT", Description = "Root product", FolderId = target.Id, UnitPriceCMT = 1, UnitPriceDAP = 2 },
             new ProductMaster { StyleCode = "TARGET-CHILD", Description = "Child product", FolderId = child.Id, UnitPriceCMT = 3, UnitPriceDAP = 4 },
+            new ProductMaster { StyleCode = "TARGET-GRANDCHILD", Description = "Grandchild product", FolderId = grandchild.Id, UnitPriceCMT = 3, UnitPriceDAP = 4 },
+            new ProductMaster { StyleCode = "TARGET-DEEP", Description = "Deep product", FolderId = greatGrandchild.Id, UnitPriceCMT = 3, UnitPriceDAP = 4 },
             new ProductMaster { StyleCode = "OTHER-CODE", Description = "Other product", FolderId = other.Id, UnitPriceCMT = 5, UnitPriceDAP = 6 });
         await context.SaveChangesAsync();
 
@@ -287,6 +291,8 @@ public class MasterDataFolderTests : IDisposable
         var values = workbook.Worksheet("Sheet2").Column(1).CellsUsed().Select(c => c.GetString()).ToList();
         Assert.Contains("TARGET-ROOT", values);
         Assert.Contains("TARGET-CHILD", values);
+        Assert.Contains("TARGET-GRANDCHILD", values);
+        Assert.Contains("TARGET-DEEP", values);
         Assert.DoesNotContain("OTHER-CODE", values);
     }
 

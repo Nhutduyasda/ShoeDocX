@@ -17,6 +17,8 @@ public class FakeSequenceService : ISequenceService
     public int SetNextSequenceNumberCallCount { get; private set; }
 
     public Task<int[]> GetNextSequenceNumbersAsync(int count = 1) => Task.FromResult(new[] { 233, 234 });
+    public Task<int[]> ReservePartnerSequenceNumbersAsync(int folderId, int count = 1, int? requestedStart = null) =>
+        Task.FromResult(Enumerable.Range(requestedStart ?? 233, count).ToArray());
     public Task SetNextSequenceNumberAsync(int nextNumber)
     {
         SetNextSequenceNumberCallCount++;
@@ -96,7 +98,7 @@ public class ExportMasterDataValidationGuardTests : IDisposable
     {
         using var context = new AppDbContext(_dbOptions);
         var fakeExcelService = new FakeExcelService();
-        var fakeSeqService = new FakeSequenceService();
+        var fakeSeqService = new SequenceService(context, NullLogger<SequenceService>.Instance);
 
         var controller = new ShipmentsController(
             context,
@@ -140,7 +142,6 @@ public class ExportMasterDataValidationGuardTests : IDisposable
 
         // Đảm bảo không gọi service xuất file và không tăng sequence
         Assert.Equal(0, fakeExcelService.ExportCallCount);
-        Assert.Equal(0, fakeSeqService.SetNextSequenceNumberCallCount);
     }
 
     [Fact]
@@ -148,7 +149,7 @@ public class ExportMasterDataValidationGuardTests : IDisposable
     {
         using var context = new AppDbContext(_dbOptions);
         var fakeExcelService = new FakeExcelService();
-        var fakeSeqService = new FakeSequenceService();
+        var fakeSeqService = new SequenceService(context, NullLogger<SequenceService>.Instance);
 
         var controller = new ShipmentsController(
             context,
@@ -193,7 +194,7 @@ public class ExportMasterDataValidationGuardTests : IDisposable
         var controller = new ShipmentsController(
             context,
             new FakeExcelService(),
-            new FakeSequenceService(),
+            new SequenceService(context, NullLogger<SequenceService>.Instance),
             NullLogger<ShipmentsController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }

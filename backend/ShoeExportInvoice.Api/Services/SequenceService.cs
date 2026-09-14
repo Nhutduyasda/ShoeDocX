@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ShoeExportInvoice.Api.Data;
 using ShoeExportInvoice.Api.Models.Entities;
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace ShoeExportInvoice.Api.Services;
 
@@ -63,6 +64,51 @@ public class SequenceService : ISequenceService
         if (transaction != null) await transaction.CommitAsync();
         _logger.LogInformation("Đã cấp {Count} số thứ tự: {Numbers}", count, string.Join(", ", numbers));
         return numbers;
+    }
+
+    public async Task<int[]> ReservePartnerSequenceNumbersAsync(int folderId, int count = 1, int? requestedStart = null)
+    {
+        if (folderId <= 0) throw new ArgumentOutOfRangeException(nameof(folderId));
+        if (count is <= 0 or > 100) throw new ArgumentOutOfRangeException(nameof(count));
+
+        await using var ownedTransaction = _context.Database.CurrentTransaction == null
+            ? await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)
+            : null;
+
+        var connection = _context.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.Transaction = _context.Database.CurrentTransaction?.GetDbTransaction();
+        command.CommandText = """
+            UPDATE MasterDataFolders
+            SET CurrentSequenceNumber =
+                (CASE WHEN CurrentSequenceNumber > $requestedStart THEN CurrentSequenceNumber ELSE $requestedStart END) + $count,
+                UpdatedAt = $updatedAt
+            WHERE Id = $folderId
+            RETURNING CurrentSequenceNumber - $count;
+            """;
+        var requested = requestedStart.GetValueOrDefault(1);
+        command.Parameters.Add(CreateParameter(command, "$requestedStart", Math.Max(1, requested)));
+        command.Parameters.Add(CreateParameter(command, "$count", count));
+        command.Parameters.Add(CreateParameter(command, "$updatedAt", DateTime.UtcNow));
+        command.Parameters.Add(CreateParameter(command, "$folderId", folderId));
+
+        var scalar = await command.ExecuteScalarAsync();
+        if (scalar == null || scalar == DBNull.Value)
+            throw new KeyNotFoundException($"Không tìm thấy thư mục đối tác #{folderId}.");
+
+        var first = Convert.ToInt32(scalar);
+        if (ownedTransaction != null) await ownedTransaction.CommitAsync();
+        _context.ChangeTracker.Clear();
+        return Enumerable.Range(first, count).ToArray();
+    }
+
+    private static System.Data.Common.DbParameter CreateParameter(System.Data.Common.DbCommand command, string name, object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        return parameter;
     }
 
     /// <inheritdoc/>

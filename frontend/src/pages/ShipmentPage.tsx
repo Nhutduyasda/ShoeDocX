@@ -53,7 +53,7 @@ import { warehouseApi } from '../api/warehouseApi';
 import { hasCompletedTour, startOnboardingTour } from '../services/tourService';
 import { customsApi } from '../api/customsApi';
 import { useAuth } from '../contexts/AuthContext';
-import { isKeToanUser } from '../types/auth';
+import { canUnlockClearedShipment, isKeToanUser } from '../types/auth';
 import type { NavTabKey } from '../layouts/AppLayout';
 import type { WarehouseBatchSummary } from '../types/warehouse';
 import type {
@@ -93,6 +93,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 }, ref) => {
   const { user } = useAuth();
   const isKeToan = isKeToanUser(user);
+  const canUnlockCleared = canUnlockClearedShipment(user);
   const [form] = Form.useForm();
   const [quickPasteVisible, setQuickPasteVisible] = useState<boolean>(false);
   const [ocrModalVisible, setOcrModalVisible] = useState<boolean>(false);
@@ -553,6 +554,21 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           message.error(`Dòng #${i + 1}: Số lượng phải lớn hơn 0.`);
           return null;
         }
+        if (items[i].sizeBreakdownJson?.trim()) {
+          try {
+            const breakdown = JSON.parse(items[i].sizeBreakdownJson!) as Record<string, unknown>;
+            const quantities = Object.values(breakdown);
+            if (Array.isArray(breakdown) || quantities.some((v) => !Number.isInteger(v) || Number(v) < 0)) throw new Error();
+            const total = quantities.reduce<number>((sum, value) => sum + Number(value), 0);
+            if (total !== items[i].quantity) {
+              message.error(`Dòng #${i + 1} (${items[i].styleCode}): tổng Size Breakdown ${total} đôi không bằng số lượng ${items[i].quantity} đôi.`);
+              return null;
+            }
+          } catch {
+            message.error(`Dòng #${i + 1} (${items[i].styleCode}): Size Breakdown không đúng JSON số lượng theo size.`);
+            return null;
+          }
+        }
       }
 
       // Ưu tiên giá trị ô Input (Source of Truth)
@@ -906,6 +922,28 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const handleOpenCustomsSync = (order?: SavedShipmentSummary) => {
     setSelectedOrderForCustoms(order || null);
     setCustomsModalOpen(true);
+  };
+
+  const handleUnlockClearedShipment = (order: SavedShipmentSummary) => {
+    let reason = '';
+    Modal.confirm({
+      title: `Mở khóa hóa đơn ${order.invoiceNo}`,
+      content: (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-slate-600">Nhập lý do khai bổ sung sau thông quan (AMA). Thao tác sẽ được ghi vào lịch sử audit.</p>
+          <Input.TextArea rows={3} placeholder="Lý do mở khóa (tối thiểu 10 ký tự)" onChange={(e) => { reason = e.target.value; }} />
+        </div>
+      ),
+      okText: 'Mở khóa',
+      okButtonProps: { danger: true },
+      cancelText: 'Hủy',
+      onOk: async () => {
+        if (reason.trim().length < 10) throw new Error('Lý do mở khóa phải có ít nhất 10 ký tự.');
+        await shipmentApi.unlockClearedShipment(order.id, reason.trim());
+        message.success('Đã mở khóa đơn hàng và ghi lịch sử audit.');
+        await loadShipmentsHistory();
+      },
+    });
   };
 
   const handleDownloadCustomsAttachment = async (orderId: number) => {
@@ -1856,7 +1894,11 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             </Tooltip>
 
             {isLocked ? (
-              <Tooltip title="Đơn hàng đã thông quan hải quan, hồ sơ đã bị khóa (Read-only)">
+              canUnlockCleared ? (
+                <Button size="small" danger onClick={() => handleUnlockClearedShipment(record)}>
+                  Mở khóa AMA
+                </Button>
+              ) : <Tooltip title="Đơn hàng đã thông quan hải quan, hồ sơ đã bị khóa (Read-only)">
                 <span>
                   <Button
                     size="small"

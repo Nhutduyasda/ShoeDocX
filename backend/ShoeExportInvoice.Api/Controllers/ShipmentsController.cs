@@ -6,6 +6,7 @@ using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Models.Entities;
 using ShoeExportInvoice.Api.Services;
 using System.Text.Json;
+using System.Security.Claims;
 
 namespace ShoeExportInvoice.Api.Controllers;
 
@@ -46,6 +47,7 @@ public class ShipmentsController : ControllerBase
 
         try
         {
+            ShipmentSizeBreakdownValidator.Validate(request.Items);
             await ApplyAuthoritativeMasterDataAsync(request);
             var preview = _excelService.CalculatePklBreakdown(request);
             return Ok(preview);
@@ -115,10 +117,12 @@ public class ShipmentsController : ControllerBase
 
         try
         {
+            ShipmentSizeBreakdownValidator.Validate(request.Items);
             await ApplyAuthoritativeMasterDataAsync(request);
-            await using var transaction = await _context.Database.BeginTransactionAsync();
             var partnerFolder = await _context.MasterDataFolders
+                .AsNoTracking()
                 .FirstAsync(f => f.Id == request.ContractFolderId!.Value);
+            await using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
             // Phân loại items theo loại công đoạn
             var goItems = request.Items.Where(i => i.ProcessType == ProcessType.GoKhongMay).ToList();
             var standardItems = request.Items.Where(i => i.ProcessType == ProcessType.Standard).ToList();
@@ -127,27 +131,10 @@ public class ShipmentsController : ControllerBase
 
             if (hasBothTypes)
             {
-                // ===== TÁCH 2 FILE: Lấy 2 số thứ tự liên tiếp =====
-                int firstSeq, secondSeq;
-                if (request.StartInvoiceNumber.HasValue && request.StartInvoiceNumber.Value > 0)
-                {
-                    firstSeq = request.StartInvoiceNumber.Value;
-                    secondSeq = firstSeq + 1;
-                }
-                else
-                {
-                    var extractedSeq = _sequenceService.ExtractSequenceNumber(request.InvoiceNo);
-                    if (extractedSeq.HasValue)
-                    {
-                        firstSeq = extractedSeq.Value;
-                        secondSeq = firstSeq + 1;
-                    }
-                    else
-                    {
-                        firstSeq = partnerFolder.CurrentSequenceNumber;
-                        secondSeq = firstSeq + 1;
-                    }
-                }
+                // Cấp phát nguyên tử trong DB để hai phiên xuất đồng thời không thể nhận cùng số.
+                var requestedStart = request.StartInvoiceNumber ?? _sequenceService.ExtractSequenceNumber(request.InvoiceNo);
+                var reserved = await _sequenceService.ReservePartnerSequenceNumbersAsync(partnerFolder.Id, 2, requestedStart);
+                int firstSeq = reserved[0], secondSeq = reserved[1];
 
                 int standardSeq, goSeq;
                 if (request.Priority == ExportSequencePriority.GoFirst)
@@ -210,42 +197,16 @@ public class ShipmentsController : ControllerBase
                     request.Priority == ExportSequencePriority.GoFirst ? standardFileName : goFileName,
                     zipName);
 
-                partnerFolder.CurrentSequenceNumber = Math.Max(partnerFolder.CurrentSequenceNumber, secondSeq + 1);
-                partnerFolder.UpdatedAt = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
                 return File(zipBytes, "application/zip", zipName);
             }
             else
             {
                 // ===== 1 FILE DUY NHẤT =====
-                string invoiceNo = request.InvoiceNo?.Trim() ?? string.Empty;
-                int seq;
-
-                if (request.StartInvoiceNumber.HasValue && request.StartInvoiceNumber.Value > 0)
-                {
-                    seq = request.StartInvoiceNumber.Value;
-                    if (string.IsNullOrWhiteSpace(invoiceNo) || _sequenceService.ExtractSequenceNumber(invoiceNo) != seq)
-                    {
-                        invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, seq);
-                        request.InvoiceNo = invoiceNo;
-                    }
-                }
-                else
-                {
-                    var extractedSeq = _sequenceService.ExtractSequenceNumber(invoiceNo);
-                    if (extractedSeq.HasValue)
-                    {
-                        seq = extractedSeq.Value;
-                    }
-                    else
-                    {
-                        // Invoice No không theo chuẩn → cấp 1 số mới
-                        seq = partnerFolder.CurrentSequenceNumber;
-                        invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, seq);
-                        request.InvoiceNo = invoiceNo;
-                    }
-                }
+                var requestedStart = request.StartInvoiceNumber ?? _sequenceService.ExtractSequenceNumber(request.InvoiceNo);
+                int seq = (await _sequenceService.ReservePartnerSequenceNumbersAsync(partnerFolder.Id, 1, requestedStart))[0];
+                string invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, seq);
+                request.InvoiceNo = invoiceNo;
 
                 string fileName = PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, seq);
 
@@ -271,9 +232,6 @@ public class ShipmentsController : ControllerBase
 
                 _logger.LogInformation("Xuất 1 file: {FileName} ({Qty} đôi)", fileName, exportResult.SingleTotalQuantity);
 
-                partnerFolder.CurrentSequenceNumber = Math.Max(partnerFolder.CurrentSequenceNumber, seq + 1);
-                partnerFolder.UpdatedAt = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
                 return File(
                     excelBytes,
@@ -461,7 +419,8 @@ public class ShipmentsController : ControllerBase
 
     private async Task<ShipmentOrder> SaveOrUpdateShipmentInternalAsync(CreateShipmentRequestDto request, ShipmentStatus status = ShipmentStatus.Draft)
     {
-        await ApplyAuthoritativeMasterDataAsync(request);
+            ShipmentSizeBreakdownValidator.Validate(request.Items);
+            await ApplyAuthoritativeMasterDataAsync(request);
         var invoiceNo = request.InvoiceNo.Trim();
         ShipmentOrder? existing = null;
         if (request.OrderId.HasValue)
@@ -518,6 +477,7 @@ public class ShipmentsController : ControllerBase
                     FullItemCode = fullCode,
                     Quantity = item.Quantity,
                     ProcessType = item.ProcessType,
+                    SizeBreakdownJson = item.SizeBreakdownJson,
                     UnitPriceCMT = item.UnitPriceCMT!.Value,
                     UnitPriceDAP = item.UnitPriceDAP!.Value
                 });
@@ -555,6 +515,7 @@ public class ShipmentsController : ControllerBase
                 FullItemCode = fullCode,
                 Quantity = item.Quantity,
                 ProcessType = item.ProcessType,
+                SizeBreakdownJson = item.SizeBreakdownJson,
                 UnitPriceCMT = item.UnitPriceCMT!.Value,
                 UnitPriceDAP = item.UnitPriceDAP!.Value
             });
@@ -734,6 +695,7 @@ public class ShipmentsController : ControllerBase
                     Description = i.Description,
                     Quantity = i.Quantity,
                     ProcessType = i.ProcessType,
+                    SizeBreakdownJson = i.SizeBreakdownJson,
                     UnitPriceCMT = i.UnitPriceCMT,
                     UnitPriceDAP = i.UnitPriceDAP,
                     Unit = i.Unit,
@@ -758,6 +720,42 @@ public class ShipmentsController : ControllerBase
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             fileName);
     }
+
+    [HttpPost("{id:int}/unlock-cleared")]
+    [Authorize(Roles = "Admin,XnkManager")]
+    public async Task<IActionResult> UnlockClearedShipment(int id, [FromBody] UnlockClearedShipmentRequest request)
+    {
+        var reason = request.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason) || reason.Length < 10)
+            return BadRequest(new { message = "Lý do mở khóa phải có ít nhất 10 ký tự." });
+
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        var shipment = await _context.ShipmentOrders.FirstOrDefaultAsync(s => s.Id == id);
+        if (shipment == null) return NotFound(new { message = $"Không tìm thấy đơn hàng #{id}." });
+        if (shipment.Status != ShipmentStatus.Cleared || !shipment.IsLocked)
+            return BadRequest(new { message = "Chỉ có thể mở khóa đơn hàng đã thông quan và đang bị khóa." });
+
+        _context.ShipmentUnlockAudits.Add(new ShipmentUnlockAudit
+        {
+            ShipmentOrderId = shipment.Id,
+            Reason = reason,
+            PreviousStatus = shipment.Status,
+            UnlockedByUserId = User.FindFirstValue(ClaimTypes.NameIdentifier),
+            UnlockedByUserName = User.Identity?.Name ?? "Unknown",
+            UnlockedAt = DateTime.UtcNow
+        });
+        shipment.IsLocked = false;
+        shipment.Status = ShipmentStatus.Exported;
+        await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        return Ok(new { message = "Đã mở khóa đơn hàng để khai bổ sung AMA.", shipment.Id, shipment.Status, shipment.IsLocked });
+    }
+
+    [HttpGet("{id:int}/unlock-audits")]
+    [Authorize(Roles = "Admin,XnkManager,KeToan")]
+    public async Task<IActionResult> GetUnlockAudits(int id) => Ok(await _context.ShipmentUnlockAudits
+        .AsNoTracking().Where(a => a.ShipmentOrderId == id).OrderByDescending(a => a.UnlockedAt).ToListAsync());
 
     // ====== Helper methods ======
 
@@ -853,3 +851,4 @@ public class ShipmentsController : ControllerBase
 
 /// <summary>Request body cho PUT /api/shipments/sequence</summary>
 public record SetSequenceRequest(int NextNumber);
+public record UnlockClearedShipmentRequest(string Reason);

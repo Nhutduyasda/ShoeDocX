@@ -256,6 +256,7 @@ export interface ShipmentOrderItem {
   fullItemCode: string;
   quantity: number;
   processType: ProcessType;
+  sizeBreakdownJson?: string | null;
   unitPriceCMT: number;
   unitPriceDAP: number;
 }
@@ -266,6 +267,7 @@ export interface CreateShipmentItem {
   description?: string;
   quantity: number;
   processType: ProcessType;
+  sizeBreakdownJson?: string | null;
   unitPriceCMT?: number;
   unitPriceDAP?: number;
   unit?: string;
@@ -496,6 +498,7 @@ export interface ConfirmCustomsSyncRequest {
 export interface SettlementItem {
   id: number;
   productCode: string;
+  processType: ProcessType;
   productName: string;
   unit: string;
   hsCode?: string;
@@ -513,6 +516,7 @@ export interface SettlementItem {
 
 export interface WarehouseDataRow {
   productCode: string;
+  processType: ProcessType;
   openingBalance: number;
   inPeriodProduction: number;
 }

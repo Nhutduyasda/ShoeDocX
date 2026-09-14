@@ -7,6 +7,7 @@ public interface ISequenceService
     /// Ví dụ: GetNextAsync(2) trả về [233, 234] và lưu 234 là số cuối cùng đã dùng.
     /// </summary>
     Task<int[]> GetNextSequenceNumbersAsync(int count = 1);
+    Task<int[]> ReservePartnerSequenceNumbersAsync(int folderId, int count = 1, int? requestedStart = null);
 
     /// <summary>
     /// Ghi đè số thứ tự bắt đầu. Lần xuất tiếp theo sẽ dùng số này.

@@ -30,6 +30,9 @@ public class ShipmentOrderItem
 
     public ProcessType ProcessType { get; set; } = ProcessType.Standard;
 
+    [MaxLength(2000)]
+    public string? SizeBreakdownJson { get; set; }
+
     [Column(TypeName = "decimal(18, 4)")]
     [Range(0, 999999999.9999)]
     public decimal UnitPriceCMT { get; set; }

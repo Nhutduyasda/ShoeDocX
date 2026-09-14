@@ -45,6 +45,7 @@ import {
 import dayjs, { Dayjs } from 'dayjs';
 import { masterDataFolderApi } from '../api/masterDataFolderApi';
 import type { MasterDataFolder } from '../types';
+import { ProcessType } from '../types';
 import { settlementApi } from '../api/settlementApi';
 import type {
   SettlementItem,
@@ -266,6 +267,7 @@ export const CustomsSettlementPage: React.FC = () => {
 
           rows.push({
             productCode: rawCode,
+            processType: rawCode.toUpperCase().endsWith('.G') ? ProcessType.GoKhongMay : ProcessType.Standard,
             openingBalance: Math.max(0, opening),
             inPeriodProduction: Math.max(0, prod),
           });
@@ -557,6 +559,9 @@ export const CustomsSettlementPage: React.FC = () => {
             >
               {code}
             </span>
+            <Tag color={record.processType === ProcessType.GoKhongMay ? 'orange' : 'blue'} className="m-0 text-[10px]">
+              {record.processType === ProcessType.GoKhongMay ? 'Gò không may' : 'Thành hình'}
+            </Tag>
             {isNeg && (
               <Tooltip title={`Cảnh báo: Âm tồn ${Math.abs(record.closingBalance).toLocaleString()} đôi!`}>
                 <WarningOutlined className="text-rose-600 text-xs shrink-0" />

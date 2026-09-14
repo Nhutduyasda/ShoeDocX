@@ -1,4 +1,4 @@
-export type Department = 'Admin' | 'Xnk' | 'Kho' | 'KeToan' | 0 | 1 | 2 | 3;
+export type Department = 'Admin' | 'XnkManager' | 'Xnk' | 'Kho' | 'KeToan' | 0 | 1 | 2 | 3 | 4;
 
 export interface User {
   id: string;
@@ -34,6 +34,15 @@ export const isAdminUser = (user?: User | null): boolean => {
   return deptStr === 'admin' || (user.department as unknown) === 0 || (user.departmentName ? user.departmentName.toLowerCase().includes('giám đốc') : false);
 };
 
+export const canUnlockClearedShipment = (user?: User | null): boolean => {
+  if (isAdminUser(user)) return true;
+  if (!user) return false;
+  return String(user.department).toLowerCase() === 'xnkmanager'
+    || (user.department as unknown) === 4
+    || user.departmentName?.toLowerCase().includes('trưởng phòng xnk')
+    || user.departmentName?.toLowerCase().includes('trưởng phòng xuất nhập khẩu');
+};
+
 export const getAllowedTabsForUser = (user?: User | null): NavTabKey[] => {
   if (!user) return ['shipment'];
   if (isAdminUser(user)) {
@@ -43,6 +52,9 @@ export const getAllowedTabsForUser = (user?: User | null): NavTabKey[] => {
     return ['warehouse', 'products'];
   }
   if (isXnkUser(user)) {
+    return ['shipment', 'history', 'ocr', 'products'];
+  }
+  if (canUnlockClearedShipment(user)) {
     return ['shipment', 'history', 'ocr', 'products'];
   }
   if (isKeToanUser(user)) {

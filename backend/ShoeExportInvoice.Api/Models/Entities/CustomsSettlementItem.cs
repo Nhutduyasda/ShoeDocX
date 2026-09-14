@@ -18,6 +18,8 @@ public class CustomsSettlementItem
     [MaxLength(50)]
     public string ProductCode { get; set; } = string.Empty; // Mã hình thể (vd: 42072-030)
 
+    public ProcessType ProcessType { get; set; } = ProcessType.Standard;
+
     [MaxLength(255)]
     public string ProductName { get; set; } = string.Empty; // Tên sản phẩm / Mô tả hải quan
 

@@ -7,7 +7,8 @@ public enum Department
     Admin = 0,
     Xnk = 1,
     Kho = 2,
-    KeToan = 3
+    KeToan = 3,
+    XnkManager = 4
 }
 
 public class ApplicationUser : IdentityUser

@@ -696,9 +696,12 @@ public class ExcelImportExportService : IExcelImportExportService
         if (sheet2 != null)
         {
             var targetFolderId = request.ContractFolderId;
+            var partnerFolderIds = _context != null && targetFolderId.HasValue
+                ? await GetFolderAndDescendantIdsAsync(targetFolderId.Value)
+                : new HashSet<int>();
             var allProducts = _context != null && targetFolderId.HasValue
                 ? await _context.ProductMasters
-                    .Where(p => p.FolderId == targetFolderId.Value || p.Folder!.ParentId == targetFolderId.Value)
+                    .Where(p => p.FolderId.HasValue && partnerFolderIds.Contains(p.FolderId.Value))
                     .AsNoTracking()
                     .OrderBy(p => p.StyleCode)
                     .ToListAsync()
@@ -758,6 +761,37 @@ public class ExcelImportExportService : IExcelImportExportService
         using var ms = new MemoryStream();
         await Task.Run(() => workbook.SaveAs(ms));
         return ms.ToArray();
+    }
+
+    private async Task<HashSet<int>> GetFolderAndDescendantIdsAsync(int rootFolderId)
+    {
+        var folderRelations = await _context.MasterDataFolders
+            .AsNoTracking()
+            .Select(f => new { f.Id, f.ParentId })
+            .ToListAsync();
+
+        var childrenByParent = folderRelations
+            .Where(f => f.ParentId.HasValue)
+            .GroupBy(f => f.ParentId!.Value)
+            .ToDictionary(g => g.Key, g => g.Select(f => f.Id).ToList());
+
+        var result = new HashSet<int> { rootFolderId };
+        var pending = new Queue<int>();
+        pending.Enqueue(rootFolderId);
+
+        while (pending.Count > 0)
+        {
+            var parentId = pending.Dequeue();
+            if (!childrenByParent.TryGetValue(parentId, out var childIds)) continue;
+
+            foreach (var childId in childIds)
+            {
+                // HashSet đồng thời ngăn lặp vô hạn nếu dữ liệu cũ vô tình chứa chu kỳ.
+                if (result.Add(childId)) pending.Enqueue(childId);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>

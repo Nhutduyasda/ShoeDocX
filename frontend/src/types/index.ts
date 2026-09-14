@@ -592,6 +592,7 @@ export interface MatchWarehouseDataRequest {
 
 export interface SettlementReport {
   periodId?: number;
+  version?: number;
   year: number;
   fromDate: string;
   toDate: string;
@@ -623,6 +624,7 @@ export interface CalculateSettlementRequest {
 
 export interface SaveSettlementPeriodRequest {
   id?: number;
+  expectedVersion?: number;
   year: number;
   fromDate: string;
   toDate: string;

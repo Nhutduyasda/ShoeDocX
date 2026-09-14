@@ -95,9 +95,9 @@ public class UpdateFolderDto
     [Required, MaxLength(150)]
     public string FileNamePattern { get; set; } = "KM3-26-DH{SEQ}.xlsx";
 
-    [Range(1, int.MaxValue, ErrorMessage = "Số thứ tự phải lớn hơn 0")]
-    public int CurrentSequenceNumber { get; set; } = 1;
 }
+
+public record SetFolderSequenceDto(int NextNumber, string Reason);
 
 public class MoveFolderDto
 {

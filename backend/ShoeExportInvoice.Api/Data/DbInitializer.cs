@@ -48,6 +48,18 @@ public static class DbInitializer
         await EnsureColumn("CustomsSettlementItems", "HsCode", "TEXT NOT NULL DEFAULT ''");
         await EnsureColumn("MasterDataFolders", "DeliveryAddress", "TEXT NULL");
         await EnsureColumn("MasterDataFolders", "PoSuffix", "TEXT NULL");
+        using (var duplicateCmd = connection.CreateCommand())
+        {
+            duplicateCmd.CommandText = """
+                SELECT group_concat(Id, ',') FROM MasterDataFolders
+                WHERE (IFNULL(ParentId, 0), lower(trim(Name))) IN (
+                    SELECT IFNULL(ParentId, 0), lower(trim(Name)) FROM MasterDataFolders
+                    GROUP BY IFNULL(ParentId, 0), lower(trim(Name)) HAVING COUNT(*) > 1);
+                """;
+            var duplicateIds = await duplicateCmd.ExecuteScalarAsync() as string;
+            if (!string.IsNullOrWhiteSpace(duplicateIds))
+                throw new InvalidOperationException($"Duplicate sibling folders must be resolved before migration. IDs: {duplicateIds}");
+        }
         await context.Database.CloseConnectionAsync();
         await context.Database.MigrateAsync();
         var unresolved = await context.ShipmentOrders.CountAsync(o => o.ContractFolderId == null);

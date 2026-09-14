@@ -28,7 +28,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return null;
   });
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('auth_token'));
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   const logout = useCallback(() => {
@@ -40,15 +40,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Fetch current user on mount if token exists
   useEffect(() => {
     const initAuth = async () => {
-      const savedToken = localStorage.getItem('auth_token');
-      if (savedToken) {
-        try {
-          const me = await authApi.getMe();
-          setUser(me);
-          localStorage.setItem('auth_user', JSON.stringify(me));
-        } catch {
-          logout();
-        }
+      try {
+        const me = await authApi.getMe();
+        setUser(me);
+        setToken('cookie-session');
+        localStorage.setItem('auth_user', JSON.stringify(me));
+      } catch {
+        setUser(null);
+        setToken(null);
+        localStorage.removeItem('auth_user');
       }
       setLoading(false);
     };
@@ -68,7 +68,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const res = await authApi.login(data);
     setToken(res.token);
     setUser(res.user);
-    localStorage.setItem('auth_token', res.token);
     localStorage.setItem('auth_user', JSON.stringify(res.user));
     message.success(`Xin chào ${res.user.fullName} (${res.user.departmentName})`);
   };

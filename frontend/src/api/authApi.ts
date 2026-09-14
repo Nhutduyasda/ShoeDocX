@@ -17,8 +17,8 @@ export const authApi = {
     return res.data;
   },
 
-  logout: () => {
-    localStorage.removeItem('auth_token');
+  logout: async () => {
+    try { await apiClient.post('/auth/logout'); } catch { /* local logout still completes */ }
     localStorage.removeItem('auth_user');
   },
 };

@@ -19,17 +19,20 @@ public class ShipmentsController : ControllerBase
     private readonly IExcelImportExportService _excelService;
     private readonly ISequenceService _sequenceService;
     private readonly ILogger<ShipmentsController> _logger;
+    private readonly IBusinessAuditService? _audit;
 
     public ShipmentsController(
         AppDbContext context,
         IExcelImportExportService excelService,
         ISequenceService sequenceService,
-        ILogger<ShipmentsController> logger)
+        ILogger<ShipmentsController> logger,
+        IBusinessAuditService? audit = null)
     {
         _context = context;
         _excelService = excelService;
         _sequenceService = sequenceService;
         _logger = logger;
+        _audit = audit;
     }
 
     /// <summary>
@@ -312,17 +315,20 @@ public class ShipmentsController : ControllerBase
     /// Ghi đè số thứ tự bắt đầu. Lần xuất tiếp theo sẽ bắt đầu từ nextNumber.
     /// </summary>
     [HttpPut("sequence")]
-    [Authorize(Roles = "Admin,Xnk")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> SetSequence([FromBody] SetSequenceRequest body)
     {
-        if (body == null || body.NextNumber <= 0)
+        if (body == null || body.NextNumber <= 0 || string.IsNullOrWhiteSpace(body.Reason) || body.Reason.Trim().Length < 10)
         {
-            return BadRequest(new { message = "nextNumber phải lớn hơn 0." });
+            return BadRequest(new { message = "nextNumber phải lớn hơn 0 và lý do phải có ít nhất 10 ký tự." });
         }
 
         try
         {
             await _sequenceService.SetNextSequenceNumberAsync(body.NextNumber);
+            _audit?.Add(HttpContext, "Shipment.GlobalSequenceOverride", "SystemSetting", "LastSequenceNumber",
+                next: new { body.NextNumber }, reason: body.Reason.Trim());
+            if (_audit != null) await _context.SaveChangesAsync();
             return Ok(new
             {
                 message = $"Đã ghi đè thành công. Lần xuất tiếp theo sẽ bắt đầu từ {body.NextNumber}.",
@@ -561,13 +567,16 @@ public class ShipmentsController : ControllerBase
     /// </summary>
     [HttpGet]
     [Authorize(Roles = "Admin,Xnk,KeToan")]
-    public async Task<ActionResult<IEnumerable<object>>> GetShipments()
+    public async Task<ActionResult<PagedResultDto<object>>> GetShipments([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
-        var dbShipments = await _context.ShipmentOrders
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+        var query = _context.ShipmentOrders
             .AsNoTracking()
-            .Include(s => s.Items)
-            .OrderByDescending(s => s.CreatedAt)
-            .ToListAsync();
+            .Include(s => s.Items);
+        var totalCount = await query.CountAsync();
+        var dbShipments = await query.OrderByDescending(s => s.CreatedAt).ThenByDescending(s => s.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
 
         var shipments = dbShipments.Select(s => new
         {
@@ -606,7 +615,7 @@ public class ShipmentsController : ControllerBase
             })
         }).ToList();
 
-        return Ok(shipments);
+        return Ok(new PagedResultDto<object> { Items = shipments.Cast<object>().ToList(), TotalCount = totalCount, Page = page, PageSize = pageSize });
     }
 
     [HttpGet("by-folder")]
@@ -721,7 +730,7 @@ public class ShipmentsController : ControllerBase
     /// Xóa một đơn hàng theo Id (bảo vệ bởi Lock Guard: Không cho phép xóa đơn đã thông quan)
     /// </summary>
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = "Admin,Xnk")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteShipment(int id)
     {
         await using var transaction = await _context.Database.BeginTransactionAsync();
@@ -738,6 +747,15 @@ public class ShipmentsController : ControllerBase
         {
             return BadRequest(new { message = "Đơn hàng đã thông quan hải quan, không thể chỉnh sửa hoặc xóa!" });
         }
+        if (await _context.WarehouseBatches.AnyAsync(b => b.ShipmentOrderId == id))
+            return Conflict(new { message = "Đơn hàng đang được liên kết với lô kho." });
+        var businessDate = shipment.ClearanceDate?.Date ?? shipment.InvoiceDate.Date;
+        if (await _context.CustomsSettlementPeriods.AnyAsync(p => p.Status == "Finalized" &&
+                p.ContractFolderId == shipment.ContractFolderId && p.FromDate <= businessDate && p.ToDate >= businessDate))
+            return Conflict(new { message = "Đơn hàng đã thuộc kỳ quyết toán chốt sổ." });
+
+        _audit?.Add(HttpContext, "Shipment.Delete", "ShipmentOrder", shipment.Id,
+            previous: new { shipment.InvoiceNo, shipment.Status, shipment.IsLocked });
 
         _context.ShipmentOrderItems.RemoveRange(shipment.Items);
         _context.ShipmentOrders.Remove(shipment);
@@ -750,61 +768,8 @@ public class ShipmentsController : ControllerBase
     /// <summary>
     /// Xóa toàn bộ lịch sử đơn hàng xuất khẩu (Shipment Orders)
     /// </summary>
-    [HttpDelete("all")]
-    [Authorize(Roles = "Admin,Xnk")]
-    public async Task<IActionResult> DeleteAllShipments([FromQuery] bool includeCleared = true)
-    {
-        await using var transaction = await _context.Database.BeginTransactionAsync();
-
-        var query = _context.ShipmentOrders.AsQueryable();
-        if (!includeCleared)
-        {
-            query = query.Where(s => !s.IsLocked && s.Status != ShipmentStatus.Cleared);
-        }
-
-        var shipments = await query.Include(s => s.Items).ToListAsync();
-        int count = shipments.Count;
-        if (count == 0)
-        {
-            return Ok(new { message = "Không có đơn hàng xuất khẩu nào để xóa.", deletedCount = 0 });
-        }
-
-        var shipmentIds = shipments.Select(s => s.Id).ToList();
-
-        // Gỡ liên kết trong WarehouseBatches nếu có
-        var linkedBatches = await _context.WarehouseBatches
-            .Where(b => b.ShipmentOrderId.HasValue && shipmentIds.Contains(b.ShipmentOrderId.Value))
-            .ToListAsync();
-        foreach (var batch in linkedBatches)
-        {
-            batch.ShipmentOrderId = null;
-        }
-
-        // Xóa các bản ghi audit liên quan
-        var audits = await _context.ShipmentUnlockAudits
-            .Where(a => shipmentIds.Contains(a.ShipmentOrderId))
-            .ToListAsync();
-        if (audits.Count > 0)
-        {
-            _context.ShipmentUnlockAudits.RemoveRange(audits);
-        }
-
-        // Xóa chi tiết mặt hàng
-        var items = shipments.SelectMany(s => s.Items).ToList();
-        if (items.Count > 0)
-        {
-            _context.ShipmentOrderItems.RemoveRange(items);
-        }
-
-        // Xóa đơn hàng
-        _context.ShipmentOrders.RemoveRange(shipments);
-
-        await _context.SaveChangesAsync();
-        await transaction.CommitAsync();
-
-        _logger?.LogInformation("Đã xóa toàn bộ {Count} đơn hàng xuất khẩu khỏi hệ thống.", count);
-        return Ok(new { message = $"Đã xóa thành công {count} đơn hàng xuất khẩu.", deletedCount = count });
-    }
+    [NonAction]
+    public IActionResult DeleteAllShipments() => NotFound();
 
     /// <summary>
     /// Xuất file Excel từ một đơn hàng đã lưu trong cơ sở dữ liệu
@@ -923,6 +888,9 @@ public class ShipmentsController : ControllerBase
         });
         shipment.IsLocked = false;
         shipment.Status = ShipmentStatus.Exported;
+        _audit?.Add(HttpContext, "Shipment.Unlock", "ShipmentOrder", shipment.Id,
+            previous: new { Status = ShipmentStatus.Cleared, IsLocked = true },
+            next: new { Status = ShipmentStatus.Exported, IsLocked = false }, reason: reason);
         await _context.SaveChangesAsync();
         await transaction.CommitAsync();
 
@@ -1081,5 +1049,5 @@ public class ShipmentsController : ControllerBase
 }
 
 /// <summary>Request body cho PUT /api/shipments/sequence</summary>
-public record SetSequenceRequest(int NextNumber);
+public record SetSequenceRequest(int NextNumber, string Reason = "");
 public record UnlockClearedShipmentRequest(string Reason);

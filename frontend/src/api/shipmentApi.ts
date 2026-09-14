@@ -84,8 +84,8 @@ export const shipmentApi = {
 
   // Lấy danh sách lịch sử các đơn hàng đã tạo
   getShipments: async (): Promise<SavedShipmentSummary[]> => {
-    const response = await apiClient.get<SavedShipmentSummary[]>('/shipments');
-    return response.data;
+    const response = await apiClient.get<{ items: SavedShipmentSummary[] }>('/shipments', { params: { page: 1, pageSize: 200 } });
+    return response.data.items;
   },
 
   // Lấy chi tiết đơn hàng theo Id
@@ -111,17 +111,13 @@ export const shipmentApi = {
   },
 
   /** Ghi đè số thứ tự bắt đầu. Lần xuất tiếp theo sẽ dùng nextNumber này. */
-  setSequence: async (nextNumber: number): Promise<SequenceInfo> => {
-    const response = await apiClient.put<SequenceInfo>('/shipments/sequence', { nextNumber });
+  setSequence: async (nextNumber: number, reason: string): Promise<SequenceInfo> => {
+    const response = await apiClient.put<SequenceInfo>('/shipments/sequence', { nextNumber, reason });
     return response.data;
   },
 
   deleteShipment: async (id: number): Promise<void> => {
     await apiClient.delete(`/shipments/${id}`);
-  },
-
-  deleteAllShipments: async (): Promise<void> => {
-    await apiClient.delete('/shipments/all?includeCleared=true');
   },
 
   getBatchPrintData: async (shipmentIds: number[], documentType: string = 'ALL'): Promise<{ documentType: string; documents: DocumentPreviewResponse[] }> => {

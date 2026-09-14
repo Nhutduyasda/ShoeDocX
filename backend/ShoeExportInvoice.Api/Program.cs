@@ -106,6 +106,12 @@ builder.Services.AddAuthentication(options =>
     };
     options.Events = new JwtBearerEvents
     {
+        OnMessageReceived = context =>
+        {
+            if (string.IsNullOrWhiteSpace(context.Token) && context.Request.Cookies.TryGetValue("shoedocx_access", out var cookieToken))
+                context.Token = cookieToken;
+            return Task.CompletedTask;
+        },
         OnTokenValidated = async context =>
         {
             var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -115,6 +121,15 @@ builder.Services.AddAuthentication(options =>
             if (user == null || !user.IsActive || string.IsNullOrWhiteSpace(tokenStamp) ||
                 !string.Equals(tokenStamp, user.SecurityStamp, StringComparison.Ordinal))
                 context.Fail("The user session is no longer valid.");
+            else
+            {
+                var role = context.Principal?.FindFirstValue(ClaimTypes.Role);
+                var jti = context.Principal?.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti);
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                if (!string.Equals(role, user.Department.ToString(), StringComparison.Ordinal) ||
+                    (!string.IsNullOrWhiteSpace(jti) && await db.RevokedJwts.AnyAsync(r => r.Jti == jti && r.ExpiresAt > DateTime.UtcNow)))
+                    context.Fail("The user permissions or session have changed.");
+            }
         }
     };
 });
@@ -150,6 +165,7 @@ builder.Services.AddScoped<IOcrExtractionService, OcrExtractionService>();
 builder.Services.AddScoped<ISequenceService, SequenceService>();
 builder.Services.AddScoped<ICustomsDeclarationService, CustomsDeclarationService>();
 builder.Services.AddScoped<ICustomsSettlementService, CustomsSettlementService>();
+builder.Services.AddScoped<IBusinessAuditService, BusinessAuditService>();
 
 // CORS Policy for Vite Frontend
 builder.Services.AddCors(options =>
@@ -231,6 +247,11 @@ using (var scope = app.Services.CreateScope())
     try
     {
         await DbInitializer.InitializeAsync(context, logger);
+        var storageOptions = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<XnkOptions>>().Value;
+        var environment = services.GetRequiredService<IWebHostEnvironment>();
+        if (args.Contains("--migrate-customs-storage"))
+            await CustomsStorageMaintenance.MigrateLegacyAsync(context, environment, storageOptions, logger);
+        await CustomsStorageMaintenance.CheckIntegrityAsync(context, environment, storageOptions, logger);
         if (builder.Configuration.GetValue<bool>("BootstrapAdmin:Enabled"))
         {
             var username = builder.Configuration["BootstrapAdmin:Username"];
@@ -247,7 +268,7 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-if (args.Contains("--migrate-only")) return;
+if (args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage")) return;
 
 // Swagger UI
 if (app.Environment.IsDevelopment())

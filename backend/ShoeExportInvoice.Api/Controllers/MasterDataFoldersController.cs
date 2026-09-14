@@ -12,13 +12,15 @@ public class MasterDataFoldersController : ControllerBase
 {
     private readonly IMasterDataFolderService _folderService;
     private readonly ILogger<MasterDataFoldersController> _logger;
+    private readonly IBusinessAuditService? _audit;
 
     public MasterDataFoldersController(
         IMasterDataFolderService folderService,
-        ILogger<MasterDataFoldersController> logger)
+        ILogger<MasterDataFoldersController> logger, IBusinessAuditService? audit = null)
     {
         _folderService = folderService;
         _logger = logger;
+        _audit = audit;
     }
 
     /// <summary>
@@ -71,7 +73,7 @@ public class MasterDataFoldersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi tạo mới thư mục");
-            return StatusCode(500, new { message = "Lỗi hệ thống khi tạo thư mục: " + ex.Message });
+            return StatusCode(500, new { message = "Không thể tạo thư mục.", traceId = HttpContext.TraceIdentifier });
         }
     }
 
@@ -103,7 +105,7 @@ public class MasterDataFoldersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi cập nhật thư mục ID={Id}", id);
-            return StatusCode(500, new { message = "Lỗi hệ thống khi cập nhật thư mục: " + ex.Message });
+            return StatusCode(500, new { message = "Không thể cập nhật thư mục.", traceId = HttpContext.TraceIdentifier });
         }
     }
 
@@ -121,6 +123,8 @@ public class MasterDataFoldersController : ControllerBase
             {
                 return NotFound(new { message = $"Không tìm thấy thư mục có ID = {id}" });
             }
+            _audit?.Add(HttpContext, "Folder.Move", "MasterDataFolder", id, next: dto);
+            if (_audit != null) await HttpContext.RequestServices.GetRequiredService<ShoeExportInvoice.Api.Data.AppDbContext>().SaveChangesAsync();
             return Ok(new { success = true, message = "Di chuyển thư mục thành công." });
         }
         catch (InvalidOperationException ex)
@@ -130,7 +134,7 @@ public class MasterDataFoldersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi di chuyển thư mục ID={Id}", id);
-            return StatusCode(500, new { message = "Lỗi hệ thống khi di chuyển thư mục: " + ex.Message });
+            return StatusCode(500, new { message = "Không thể di chuyển thư mục.", traceId = HttpContext.TraceIdentifier });
         }
     }
 
@@ -143,11 +147,14 @@ public class MasterDataFoldersController : ControllerBase
     {
         try
         {
+            var previous = await _folderService.GetByIdAsync(id);
             var success = await _folderService.DeleteFolderAsync(id, cascade);
             if (!success)
             {
                 return NotFound(new { message = $"Không tìm thấy thư mục có ID = {id}" });
             }
+            _audit?.Add(HttpContext, "Folder.Delete", "MasterDataFolder", id, previous: previous);
+            if (_audit != null) await HttpContext.RequestServices.GetRequiredService<ShoeExportInvoice.Api.Data.AppDbContext>().SaveChangesAsync();
             return NoContent();
         }
         catch (InvalidOperationException ex)
@@ -157,7 +164,7 @@ public class MasterDataFoldersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi xóa thư mục ID={Id}", id);
-            return StatusCode(500, new { message = "Lỗi hệ thống khi xóa thư mục: " + ex.Message });
+            return StatusCode(500, new { message = "Không thể xóa thư mục.", traceId = HttpContext.TraceIdentifier });
         }
     }
 
@@ -176,7 +183,27 @@ public class MasterDataFoldersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi di chuyển danh sách sản phẩm sang thư mục");
-            return StatusCode(500, new { message = "Lỗi hệ thống: " + ex.Message });
+            return StatusCode(500, new { message = "Không thể di chuyển sản phẩm.", traceId = HttpContext.TraceIdentifier });
         }
+    }
+
+    [HttpPut("{id:int}/sequence")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> SetSequence(int id, [FromBody] SetFolderSequenceDto request)
+    {
+        if (request.NextNumber <= 0 || string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 10)
+            return BadRequest(new { message = "Số tiếp theo phải dương và lý do phải có ít nhất 10 ký tự." });
+        try
+        {
+            var previous = await _folderService.GetByIdAsync(id);
+            await _folderService.SetSequenceAsync(id, request.NextNumber);
+            _audit?.Add(HttpContext, "Folder.SequenceOverride", "MasterDataFolder", id,
+                previous: new { previous?.CurrentSequenceNumber }, next: new { request.NextNumber }, reason: request.Reason.Trim());
+            if (_audit != null)
+                await HttpContext.RequestServices.GetRequiredService<ShoeExportInvoice.Api.Data.AppDbContext>().SaveChangesAsync();
+            return Ok(new { nextNumber = request.NextNumber });
+        }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
     }
 }

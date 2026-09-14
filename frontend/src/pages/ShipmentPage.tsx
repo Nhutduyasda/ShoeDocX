@@ -1049,35 +1049,6 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     });
   };
 
-  const handleDeleteAllShipments = () => {
-    Modal.confirm({
-      title: 'CẢNH BÁO: Xóa tất cả đơn hàng xuất khẩu?',
-      icon: <ExclamationCircleOutlined className="text-rose-600" />,
-      content: (
-        <div className="text-xs text-slate-600 space-y-2 mt-2">
-          <p>
-            Thao tác này sẽ xóa vĩnh viễn toàn bộ <strong>{savedShipments.length}</strong> đơn hàng/hóa đơn xuất khẩu trong hệ thống.
-          </p>
-          <p className="text-rose-600 font-semibold">
-            Lưu ý: Dữ liệu Master Data, thư mục và người dùng vẫn được bảo toàn. Bạn có chắc chắn muốn tiếp tục?
-          </p>
-        </div>
-      ),
-      okText: 'Xác nhận xóa tất cả',
-      okButtonProps: { danger: true },
-      cancelText: 'Hủy bỏ',
-      onOk: async () => {
-        try {
-          await shipmentApi.deleteAllShipments();
-          message.success('Đã xóa toàn bộ đơn hàng thành công.');
-          await loadShipmentsHistory();
-        } catch {
-          message.error('Không thể xóa toàn bộ đơn hàng.');
-        }
-      },
-    });
-  };
-
   const handleDownloadCustomsAttachment = async (orderId: number) => {
     try {
       message.loading({ content: 'Đang tải file tờ khai hải quan đính kèm...', key: 'dl-customs' });
@@ -2265,23 +2236,6 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 >
                   Lập hóa đơn mới
                 </Button>
-              )}
-              {!isKeToan && savedShipments.length > 0 && (
-                <Dropdown
-                  menu={{
-                    items: [{
-                      key: 'delete-all',
-                      danger: true,
-                      icon: <DeleteOutlined />,
-                      label: `Xóa tất cả (${savedShipments.length})`,
-                      onClick: handleDeleteAllShipments,
-                    }],
-                  }}
-                  trigger={['click']}
-                  placement="bottomRight"
-                >
-                  <Button icon={<EllipsisOutlined />} className="h-8" aria-label="Thao tác khác" />
-                </Dropdown>
               )}
             </div>
           </div>

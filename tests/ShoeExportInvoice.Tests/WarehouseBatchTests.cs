@@ -20,6 +20,9 @@ public class WarehouseBatchTests
 
         var context = new AppDbContext(options);
         context.Database.EnsureCreated();
+        var folder = new MasterDataFolder { Name = "Test Contract" };
+        context.MasterDataFolders.Add(folder);
+        context.SaveChanges();
 
         // Seed some product master data
         context.ProductMasters.AddRange(
@@ -29,12 +32,14 @@ public class WarehouseBatchTests
                 Description = "Giày thể thao mẫu 40700-066",
                 UnitPriceCMT = 2.5m,
                 UnitPriceCMT_Go = 1.8m
+                ,FolderId = folder.Id
             },
             new ProductMaster
             {
                 StyleCode = "40700-011",
                 Description = "Giày mẫu 40700-011",
                 UnitPriceCMT = 3.0m
+                ,FolderId = folder.Id
             }
         );
         context.SaveChanges();
@@ -53,6 +58,7 @@ public class WarehouseBatchTests
             BatchNumber = "LẦN 14",
             ExportDate = new DateTime(2026, 8, 27),
             ContractNote = "5BUY HD THÀNH HÌNH",
+            ContractFolderId = context.MasterDataFolders.Single().Id,
             Items = new List<SaveWarehouseBatchItemRequestDto>
             {
                 new() { StyleCode = "40700-066", Quantity = 288, ProcessType = ProcessType.Standard },
@@ -94,6 +100,7 @@ public class WarehouseBatchTests
             BatchNumber = "LẦN 15",
             ExportDate = new DateTime(2026, 8, 28),
             ContractNote = "6BUY COLUM",
+            ContractFolderId = context.MasterDataFolders.Single().Id,
             Items = new List<SaveWarehouseBatchItemRequestDto>
             {
                 new() { StyleCode = "40700-011", Quantity = 500, ProcessType = ProcessType.Standard }

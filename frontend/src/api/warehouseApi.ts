@@ -14,8 +14,8 @@ export const warehouseApi = {
     toDate?: string;
     search?: string;
   }): Promise<WarehouseBatchSummary[]> => {
-    const res = await apiClient.get<WarehouseBatchSummary[]>('/warehouse/batches', { params });
-    return res.data;
+    const res = await apiClient.get<{ items: WarehouseBatchSummary[] }>('/warehouse/batches', { params: { ...params, page: 1, pageSize: 200 } });
+    return res.data.items;
   },
 
   getBatchById: async (id: number): Promise<WarehouseBatch> => {
@@ -28,8 +28,10 @@ export const warehouseApi = {
     return res.data;
   },
 
-  submitBatch: async (id: number): Promise<WarehouseBatch> => {
-    const res = await apiClient.post<WarehouseBatch>(`/warehouse/batches/${id}/submit`);
+  submitBatch: async (id: number, expectedVersion?: number): Promise<WarehouseBatch> => {
+    const res = await apiClient.post<WarehouseBatch>(`/warehouse/batches/${id}/submit`, null, {
+      params: { expectedVersion },
+    });
     return res.data;
   },
 

@@ -40,6 +40,7 @@ public class CustomsSettlementPeriod
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAt { get; set; }
+    public long Version { get; set; } = 1;
 
     public List<CustomsSettlementItem> Items { get; set; } = new();
 }

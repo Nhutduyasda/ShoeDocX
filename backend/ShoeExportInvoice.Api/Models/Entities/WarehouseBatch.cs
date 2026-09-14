@@ -23,6 +23,7 @@ public class WarehouseBatch
     public string? CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? SubmittedAt { get; set; }
+    public long Version { get; set; } = 1;
 
     public ICollection<WarehouseBatchItem> Items { get; set; } = new List<WarehouseBatchItem>();
 }

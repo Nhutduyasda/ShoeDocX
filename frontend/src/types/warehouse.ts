@@ -26,6 +26,7 @@ export interface WarehouseBatch {
   createdBy?: string | null;
   createdAt: string;
   submittedAt?: string | null;
+  version: number;
   items: WarehouseBatchItem[];
 }
 
@@ -43,6 +44,7 @@ export interface WarehouseBatchSummary {
   thanhHinhCount: number;
   createdAt: string;
   submittedAt?: string | null;
+  version: number;
 }
 
 export interface SaveWarehouseBatchRequest {
@@ -51,7 +53,7 @@ export interface SaveWarehouseBatchRequest {
   exportDate: string;
   contractNote: string;
   contractFolderId?: number | null;
-  submitImmediately?: boolean;
+  expectedVersion?: number;
   items: {
     styleCode: string;
     quantity: number;

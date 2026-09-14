@@ -5,9 +5,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Models.Entities;
+using ShoeExportInvoice.Api.Data;
 
 namespace ShoeExportInvoice.Api.Controllers;
 
@@ -18,15 +20,19 @@ public class AuthController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
+    private readonly AppDbContext? _db;
+    private readonly IWebHostEnvironment? _environment;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
         IConfiguration configuration,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger, AppDbContext? db = null, IWebHostEnvironment? environment = null)
     {
         _userManager = userManager;
         _configuration = configuration;
         _logger = logger;
+        _db = db;
+        _environment = environment;
     }
 
     [HttpPost("login")]
@@ -54,6 +60,15 @@ public class AuthController : ControllerBase
         await _userManager.ResetAccessFailedCountAsync(user);
 
         var token = GenerateJwtToken(user, request.RememberMe);
+        if (ControllerContext.HttpContext != null)
+            Response.Cookies.Append("shoedocx_access", token, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = _environment?.IsDevelopment() != true,
+                SameSite = SameSiteMode.Strict,
+                Expires = DateTimeOffset.UtcNow.AddHours(request.RememberMe ? 24 : 8),
+                Path = "/"
+            });
 
         var response = new LoginResponseDto
         {
@@ -122,6 +137,29 @@ public class AuthController : ControllerBase
         }
 
         return Ok(new { message = "Đổi mật khẩu thành công." });
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    public async Task<IActionResult> Logout()
+    {
+        var jti = User.FindFirstValue(JwtRegisteredClaimNames.Jti);
+        var exp = User.FindFirstValue(JwtRegisteredClaimNames.Exp);
+        var db = _db ?? HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+        if (!string.IsNullOrWhiteSpace(jti) && long.TryParse(exp, out var seconds))
+        {
+            var now = DateTime.UtcNow;
+            await db.RevokedJwts.Where(r => r.ExpiresAt <= now).ExecuteDeleteAsync();
+            db.RevokedJwts.Add(new RevokedJwt
+            {
+                Jti = jti,
+                UserId = User.FindFirstValue(ClaimTypes.NameIdentifier),
+                ExpiresAt = DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime
+            });
+            await db.SaveChangesAsync();
+        }
+        Response.Cookies.Delete("shoedocx_access", new CookieOptions { Path = "/" });
+        return NoContent();
     }
 
     private string GenerateJwtToken(ApplicationUser user, bool rememberMe)

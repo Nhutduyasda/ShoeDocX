@@ -20,6 +20,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<WarehouseBatch> WarehouseBatches => Set<WarehouseBatch>();
     public DbSet<WarehouseBatchItem> WarehouseBatchItems => Set<WarehouseBatchItem>();
     public DbSet<ShipmentUnlockAudit> ShipmentUnlockAudits => Set<ShipmentUnlockAudit>();
+    public DbSet<BusinessAuditLog> BusinessAuditLogs => Set<BusinessAuditLog>();
+    public DbSet<RevokedJwt> RevokedJwts => Set<RevokedJwt>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -118,10 +120,21 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.ToTable(t => t.HasCheckConstraint("CK_CustomsSettlementItems_Inputs_NonNegative", "OpeningBalance >= 0 AND InPeriodProduction >= 0 AND InPeriodExport >= 0 AND OtherExport >= 0"));
         });
 
+        modelBuilder.Entity<BusinessAuditLog>(entity =>
+        {
+            entity.HasIndex(e => new { e.ResourceType, e.ResourceId, e.CreatedAt });
+            entity.HasIndex(e => e.CreatedAt);
+        });
+        modelBuilder.Entity<RevokedJwt>(entity =>
+        {
+            entity.HasIndex(e => e.Jti).IsUnique();
+            entity.HasIndex(e => e.ExpiresAt);
+        });
+
         modelBuilder.Entity<ShipmentUnlockAudit>(entity =>
         {
             entity.HasIndex(e => new { e.ShipmentOrderId, e.UnlockedAt });
-            entity.HasOne(e => e.ShipmentOrder).WithMany().HasForeignKey(e => e.ShipmentOrderId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.ShipmentOrder).WithMany().HasForeignKey(e => e.ShipmentOrderId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // WarehouseBatch configuration
@@ -138,6 +151,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                   .HasForeignKey(e => e.ShipmentOrderId)
                   .OnDelete(DeleteBehavior.Restrict);
             entity.Property(e => e.Status).IsConcurrencyToken();
+            entity.Property(e => e.Version).IsConcurrencyToken();
+            entity.HasIndex(e => e.ShipmentOrderId).IsUnique().HasFilter("\"ShipmentOrderId\" IS NOT NULL");
             entity.HasMany(e => e.Items)
                   .WithOne(e => e.WarehouseBatch)
                   .HasForeignKey(e => e.WarehouseBatchId)

@@ -414,6 +414,7 @@ export const CustomsSettlementPage: React.FC = () => {
 
       const payload: SaveSettlementPeriodRequest = {
         id: report?.periodId,
+        expectedVersion: report?.version,
         year: values.year,
         fromDate: dateRange[0].format('YYYY-MM-DD'),
         toDate: dateRange[1].format('YYYY-MM-DD'),
@@ -515,7 +516,11 @@ export const CustomsSettlementPage: React.FC = () => {
         customsOffice: customsOffice.trim() || report.customsOffice,
       };
 
-      const blob = await settlementApi.exportSettlementExcel(currentReport);
+      if (!currentReport.periodId) {
+        message.warning('Hãy lưu kỳ quyết toán trước khi xuất báo cáo chính thức.');
+        return;
+      }
+      const blob = await settlementApi.exportSettlementExcelById(currentReport.periodId);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

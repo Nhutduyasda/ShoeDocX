@@ -189,6 +189,18 @@ docker compose restart
 
 ## 🔑 Cấu Hình OCR Vision API
 
+## Phân quyền và bảo vệ dữ liệu nghiệp vụ
+
+- **Kho** tạo/sửa lô nháp và bàn giao lô cho XNK.
+- **XNK** tiếp nhận lô, tạo hóa đơn và đồng bộ hồ sơ hải quan.
+- **Kế toán** lập và chốt kỳ quyết toán; XNK không thể chốt qua API.
+- **Admin** thực hiện các override nhạy cảm có lý do và audit. Hồ sơ đã thông quan không được hard-delete.
+- API xóa toàn bộ shipment và các API xuất chứng từ từ payload tùy ý đã bị ngừng. Báo cáo chính thức phải xuất từ bản ghi đã lưu.
+
+File tờ khai mặc định được lưu tại `data/customs` trong volume bền vững. Khi nâng cấp từ bản cũ, sao lưu dữ liệu rồi chạy API với tham số `--migrate-customs-storage`; file nguồn trong `Uploads/Customs` được giữ lại để đối chiếu.
+
+JWT được đặt trong cookie `HttpOnly`, `SameSite=Strict`; logout revoke token hiện tại. Thay đổi department hoặc vô hiệu user có hiệu lực trên request kế tiếp.
+
 Hệ thống hỗ trợ 2 cách cấu hình API Key:
 
 ### Cách 1: Cấu hình trong `appsettings.json`

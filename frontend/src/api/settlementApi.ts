@@ -7,6 +7,7 @@ import type {
   SettlementItem,
   WarehouseDataRow,
   WarehouseImportResult,
+  PagedResult,
 } from '../types';
 
 export const settlementApi = {
@@ -45,10 +46,10 @@ export const settlementApi = {
    * Lấy danh sách các kỳ quyết toán đã lưu
    */
   getSettlementPeriods: async (): Promise<SettlementPeriodSummary[]> => {
-    const response = await apiClient.get<SettlementPeriodSummary[]>(
-      '/customs-settlement/periods'
+    const response = await apiClient.get<PagedResult<SettlementPeriodSummary>>(
+      '/customs-settlement/periods', { params: { page: 1, pageSize: 200 } }
     );
-    return response.data;
+    return response.data.items;
   },
 
   /**
@@ -57,20 +58,6 @@ export const settlementApi = {
   getSettlementPeriodById: async (id: number): Promise<SettlementReport> => {
     const response = await apiClient.get<SettlementReport>(
       `/customs-settlement/periods/${id}`
-    );
-    return response.data;
-  },
-
-  /**
-   * Xuất file Excel chuẩn đối chiếu nội bộ (Cần xác minh mẫu pháp lý trước khi nộp)
-   */
-  exportSettlementExcel: async (report: SettlementReport): Promise<Blob> => {
-    const response = await apiClient.post(
-      '/customs-settlement/export-excel',
-      report,
-      {
-        responseType: 'blob',
-      }
     );
     return response.data;
   },

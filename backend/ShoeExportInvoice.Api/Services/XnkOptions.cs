@@ -4,7 +4,7 @@ namespace ShoeExportInvoice.Api.Services;
 
 public sealed class XnkOptions
 {
-    [Required] public string CustomsStoragePath { get; set; } = "Uploads/Customs";
+    [Required] public string CustomsStoragePath { get; set; } = "data/customs";
     [Required] public string ShipmentTemplatePath { get; set; } = "Templates/Shipment_Template.xlsx";
     [Range(1, 104857600)] public long MaxUploadBytes { get; set; } = 20971520;
     [Required] public string InvoicePrefix { get; set; } = "KMHD-NEW2026-0";

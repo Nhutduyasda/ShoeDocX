@@ -8,18 +8,20 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/customs-settlement")]
-[Authorize(Roles = "Admin,Xnk,KeToan")]
+[Authorize(Roles = "Admin,KeToan")]
 public class CustomsSettlementController : ControllerBase
 {
     private readonly ICustomsSettlementService _settlementService;
     private readonly ILogger<CustomsSettlementController> _logger;
+    private readonly IBusinessAuditService? _audit;
 
     public CustomsSettlementController(
         ICustomsSettlementService settlementService,
-        ILogger<CustomsSettlementController> logger)
+        ILogger<CustomsSettlementController> logger, IBusinessAuditService? audit = null)
     {
         _settlementService = settlementService;
         _logger = logger;
+        _audit = audit;
     }
 
     [HttpPost("{id:int}/finalize")]
@@ -27,7 +29,12 @@ public class CustomsSettlementController : ControllerBase
     {
         try
         {
-            return Ok(await _settlementService.FinalizeSettlementPeriodAsync(id));
+            var period = await _settlementService.FinalizeSettlementPeriodAsync(id);
+            _audit?.Add(HttpContext, "Settlement.Finalize", "CustomsSettlementPeriod", id,
+                previous: new { Status = "Draft" }, next: new { Status = "Finalized" });
+            if (_audit != null)
+                await HttpContext.RequestServices.GetRequiredService<ShoeExportInvoice.Api.Data.AppDbContext>().SaveChangesAsync();
+            return Ok(period);
         }
         catch (KeyNotFoundException ex)
         {
@@ -71,6 +78,10 @@ public class CustomsSettlementController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+        {
+            return Conflict(new { message = "Kỳ quyết toán vừa được thay đổi. Vui lòng tải lại." });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi tổng hợp báo cáo quyết toán");
@@ -106,6 +117,10 @@ public class CustomsSettlementController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+        {
+            return Conflict(new { message = "Kỳ quyết toán vừa được thay đổi. Vui lòng tải lại." });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi lưu kỳ báo cáo quyết toán năm {Year}", request?.Year);
@@ -121,11 +136,15 @@ public class CustomsSettlementController : ControllerBase
     /// </summary>
     [HttpGet]
     [HttpGet("periods")]
-    public async Task<ActionResult<List<SettlementPeriodSummaryDto>>> GetSettlementPeriods()
+    public async Task<ActionResult<PagedResultDto<SettlementPeriodSummaryDto>>> GetSettlementPeriods(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50)
     {
         try
         {
-            var list = await _settlementService.GetSettlementPeriodsAsync();
+            if (page < 1 || pageSize is < 1 or > 200)
+                return BadRequest(new { message = "page phải >= 1 và pageSize phải từ 1 đến 200." });
+            var list = await _settlementService.GetSettlementPeriodsPagedAsync(page, pageSize);
             return Ok(list);
         }
         catch (InvalidOperationException ex)
@@ -176,7 +195,7 @@ public class CustomsSettlementController : ControllerBase
     /// <summary>
     /// Xuất file Excel Báo cáo Quyết toán chuẩn đối chiếu nội bộ (Cần xác minh mẫu pháp lý trước khi nộp).
     /// </summary>
-    [HttpPost("export-excel")]
+    [NonAction]
     public async Task<IActionResult> ExportSettlementExcel(
         [FromBody] SettlementReportDto report)
     {

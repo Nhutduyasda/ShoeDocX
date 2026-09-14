@@ -16,15 +16,17 @@ public class CustomsController : ControllerBase
     private readonly ICustomsDeclarationService _customsService;
     private readonly AppDbContext _context;
     private readonly ILogger<CustomsController> _logger;
+    private readonly IBusinessAuditService? _audit;
 
     public CustomsController(
         ICustomsDeclarationService customsService,
         AppDbContext context,
-        ILogger<CustomsController> logger)
+        ILogger<CustomsController> logger, IBusinessAuditService? audit = null)
     {
         _customsService = customsService;
         _context = context;
         _logger = logger;
+        _audit = audit;
     }
 
     /// <summary>
@@ -103,6 +105,9 @@ public class CustomsController : ControllerBase
             }
 
             var updatedOrder = await _customsService.ConfirmSyncAsync(targetOrderId, request, fileStream, fileName);
+            _audit?.Add(HttpContext, "Customs.ConfirmSync", "ShipmentOrder", updatedOrder.Id,
+                next: new { updatedOrder.DeclarationNo, updatedOrder.Status, updatedOrder.IsLocked });
+            if (_audit != null) await _context.SaveChangesAsync();
 
             return Ok(new
             {
@@ -121,7 +126,6 @@ public class CustomsController : ControllerBase
                 customsTotalDap = updatedOrder.CustomsTotalDap,
                 customsTotalCmt = updatedOrder.CustomsTotalCmt,
                 customsAttachmentFileName = updatedOrder.CustomsAttachmentFileName,
-                customsAttachmentFilePath = updatedOrder.CustomsAttachmentFilePath,
                 isLocked = updatedOrder.IsLocked,
                 status = updatedOrder.Status,
                 statusName = updatedOrder.Status.ToString()
@@ -431,8 +435,14 @@ public class CustomsController : ControllerBase
     /// Lọc danh sách hồ sơ tờ khai hải quan theo các tiêu chí: Đối tác, Năm, Hợp đồng, Luồng, Trạng thái, Từ khóa
     /// </summary>
     [HttpGet("declarations")]
-    public async Task<ActionResult<List<CustomsDeclarationSummaryDto>>> GetDeclarations([FromQuery] CustomsDeclarationFilterDto filter)
+    public async Task<ActionResult<PagedResultDto<CustomsDeclarationSummaryDto>>> GetDeclarations(
+        [FromQuery] CustomsDeclarationFilterDto filter,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50)
     {
+        if (page < 1 || pageSize is < 1 or > 200)
+            return BadRequest(new { message = "page phải >= 1 và pageSize phải từ 1 đến 200." });
+
         var query = _context.ShipmentOrders
             .AsNoTracking()
             .Include(s => s.Items)
@@ -490,12 +500,21 @@ public class CustomsController : ControllerBase
                 s.Items.Any(i => i.StyleCode.ToLower().Contains(kw) || (i.FullItemCode != null && i.FullItemCode.ToLower().Contains(kw))));
         }
 
+        var totalCount = await query.CountAsync();
         var rows = await query
             .OrderByDescending(s => s.InvoiceDate)
             .ThenByDescending(s => s.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync();
 
-        return Ok(rows.Select(ToShipmentSummary).ToList());
+        return Ok(new PagedResultDto<CustomsDeclarationSummaryDto>
+        {
+            Items = rows.Select(ToShipmentSummary).ToList(),
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        });
     }
 
     private async Task<List<int>> GetFolderAndDescendantIdsAsync(int rootId)
@@ -538,7 +557,6 @@ public class CustomsController : ControllerBase
         CustomsTotalDap = s.CustomsTotalDap,
         CustomsTotalCmt = s.CustomsTotalCmt,
         CustomsAttachmentFileName = s.CustomsAttachmentFileName,
-        CustomsAttachmentFilePath = s.CustomsAttachmentFilePath,
         HasCustomsAttachment = !string.IsNullOrWhiteSpace(s.CustomsAttachmentFileName),
         IsLocked = s.IsLocked || s.Status == ShipmentStatus.Cleared,
         ItemCount = s.Items.Count,

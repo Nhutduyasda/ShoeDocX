@@ -13,15 +13,17 @@ public class ProductMastersController : ControllerBase
     private readonly IProductMasterService _productService;
     private readonly IExcelImportExportService _excelService;
     private readonly ILogger<ProductMastersController> _logger;
+    private readonly IBusinessAuditService? _audit;
 
     public ProductMastersController(
         IProductMasterService productService,
         IExcelImportExportService excelService,
-        ILogger<ProductMastersController> logger)
+        ILogger<ProductMastersController> logger, IBusinessAuditService? audit = null)
     {
         _productService = productService;
         _excelService = excelService;
         _logger = logger;
+        _audit = audit;
     }
 
     /// <summary>
@@ -89,7 +91,7 @@ public class ProductMastersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi tạo mới sản phẩm");
-            return StatusCode(500, new { message = "Lỗi hệ thống khi tạo sản phẩm: " + ex.Message });
+            return StatusCode(500, new { message = "Không thể tạo sản phẩm.", traceId = HttpContext.TraceIdentifier });
         }
     }
 
@@ -121,7 +123,7 @@ public class ProductMastersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi cập nhật sản phẩm");
-            return StatusCode(500, new { message = "Lỗi hệ thống khi cập nhật sản phẩm: " + ex.Message });
+            return StatusCode(500, new { message = "Không thể cập nhật sản phẩm.", traceId = HttpContext.TraceIdentifier });
         }
     }
 
@@ -144,10 +146,16 @@ public class ProductMastersController : ControllerBase
     /// Xóa toàn bộ sản phẩm trong một thư mục (hoặc toàn bộ danh mục nếu không truyền folderId)
     /// </summary>
     [HttpDelete("all")]
-    [Authorize(Roles = "Admin,Xnk")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteAll([FromQuery] int? folderId = null)
     {
+        if (!folderId.HasValue || folderId.Value <= 0)
+            return BadRequest(new { message = "folderId hợp lệ là bắt buộc; không hỗ trợ xóa toàn bộ hệ thống." });
         var count = await _productService.DeleteAllAsync(folderId);
+        _audit?.Add(HttpContext, "ProductMaster.BulkDelete", "MasterDataFolder", folderId.Value,
+            previous: new { DeletedCount = count });
+        if (_audit != null)
+            await HttpContext.RequestServices.GetRequiredService<ShoeExportInvoice.Api.Data.AppDbContext>().SaveChangesAsync();
         var msg = folderId.HasValue
             ? $"Đã xóa thành công {count} sản phẩm trong thư mục được chọn."
             : $"Đã xóa thành công toàn bộ {count} sản phẩm trong danh mục.";
@@ -167,6 +175,8 @@ public class ProductMastersController : ControllerBase
         }
 
         var count = await _productService.BulkUpdateUnitAsync(dto.Unit);
+        _audit?.Add(HttpContext, "ProductMaster.BulkUpdateUnit", "ProductMaster", "all", next: new { dto.Unit, UpdatedCount = count });
+        if (_audit != null) await HttpContext.RequestServices.GetRequiredService<ShoeExportInvoice.Api.Data.AppDbContext>().SaveChangesAsync();
         return Ok(new { message = $"Đã cập nhật ĐVT thành '{dto.Unit}' cho toàn bộ {count} sản phẩm.", updatedCount = count });
     }
 
@@ -197,7 +207,7 @@ public class ProductMastersController : ControllerBase
     /// <summary>
     /// Xuất Commercial Invoice (INV) và Packing List (PKL) theo dữ liệu lô hàng cụ thể
     /// </summary>
-    [HttpPost("export-shipment")]
+    [NonAction]
     [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> ExportShipment([FromBody] ShipmentExportModel model)
     {
@@ -306,7 +316,7 @@ public class ProductMastersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi import file Excel: {FileName}", file.FileName);
-            return StatusCode(500, new { message = "Không thể xử lý file Excel: " + ex.Message });
+            return StatusCode(500, new { message = "Không thể xử lý file Excel.", traceId = HttpContext.TraceIdentifier });
         }
     }
 
@@ -326,7 +336,7 @@ public class ProductMastersController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi kiểm tra chéo mã hàng Master Data");
-            return StatusCode(500, new { message = "Lỗi hệ thống khi kiểm tra chéo mã hàng: " + ex.Message });
+            return StatusCode(500, new { message = "Không thể kiểm tra mã hàng.", traceId = HttpContext.TraceIdentifier });
         }
     }
 }

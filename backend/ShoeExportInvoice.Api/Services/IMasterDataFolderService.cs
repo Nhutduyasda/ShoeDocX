@@ -11,4 +11,5 @@ public interface IMasterDataFolderService
     Task<bool> MoveFolderAsync(int id, MoveFolderDto dto);
     Task<bool> DeleteFolderAsync(int id, bool cascadeProducts = false);
     Task<int> BulkMoveProductsAsync(BulkMoveProductsDto dto);
+    Task SetSequenceAsync(int id, int nextNumber);
 }

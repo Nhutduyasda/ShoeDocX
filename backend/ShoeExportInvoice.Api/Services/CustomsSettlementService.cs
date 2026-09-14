@@ -12,15 +12,18 @@ public class CustomsSettlementService : ICustomsSettlementService
     private readonly AppDbContext _context;
     private readonly ILogger<CustomsSettlementService> _logger;
     private readonly XnkOptions _options;
+    private readonly IBusinessAuditService? _audit;
 
     public CustomsSettlementService(
         AppDbContext context,
         ILogger<CustomsSettlementService> logger,
-        Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null)
+        Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null,
+        IBusinessAuditService? audit = null)
     {
         _context = context;
         _logger = logger;
         _options = options?.Value ?? new XnkOptions();
+        _audit = audit;
     }
 
     /// <summary>
@@ -249,6 +252,8 @@ public class CustomsSettlementService : ICustomsSettlementService
         else
         {
             if (period.Status == "Finalized") throw new InvalidOperationException("Kỳ quyết toán đã chốt, không thể sửa.");
+            if (request.ExpectedVersion.HasValue && period.Version != request.ExpectedVersion.Value)
+                throw new DbUpdateConcurrencyException("Kỳ quyết toán vừa được thay đổi.");
             period.ContractFolderId = request.ContractFolderId;
             period.Year = request.Year;
             period.FromDate = request.FromDate.Date;
@@ -261,6 +266,7 @@ public class CustomsSettlementService : ICustomsSettlementService
             period.Address = request.Address?.Trim();
             period.Note = request.Note?.Trim();
             period.UpdatedAt = DateTime.UtcNow;
+            period.Version++;
 
             _context.CustomsSettlementItems.RemoveRange(period.Items);
             period.Items.Clear();
@@ -305,8 +311,11 @@ public class CustomsSettlementService : ICustomsSettlementService
             throw new InvalidOperationException("Chỉ kỳ quyết toán bản nháp mới có thể chốt sổ.");
         if (period.Items.Count == 0)
             throw new InvalidOperationException("Không thể chốt kỳ quyết toán không có dữ liệu.");
+        if (period.Items.Any(i => i.ClosingBalance < 0))
+            throw new InvalidOperationException("Không thể chốt kỳ quyết toán khi còn tồn cuối âm.");
 
         period.Status = "Finalized";
+        period.Version++;
         period.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
         return period;
@@ -337,6 +346,7 @@ public class CustomsSettlementService : ICustomsSettlementService
             ItemCount = p.Items.Count,
             TotalExportQuantity = p.Items.Sum(i => i.InPeriodExport),
             TotalClosingBalance = p.Items.Sum(i => i.ClosingBalance)
+            ,Version = p.Version
         }).ToList();
     }
 
@@ -367,6 +377,7 @@ public class CustomsSettlementService : ICustomsSettlementService
             TaxCode = period.TaxCode ?? _options.DefaultTaxCode,
             Address = period.Address ?? _options.DefaultAddress,
             Note = period.Note,
+            Version = period.Version,
             Items = period.Items.Select(i => new SettlementItemDto
             {
                 Id = idx++,
@@ -887,6 +898,42 @@ public class CustomsSettlementService : ICustomsSettlementService
         }
 
         return clean;
+    }
+
+    public async Task<PagedResultDto<SettlementPeriodSummaryDto>> GetSettlementPeriodsPagedAsync(int page, int pageSize)
+    {
+        var query = _context.CustomsSettlementPeriods.AsNoTracking();
+        var totalCount = await query.CountAsync();
+        var list = await query
+            .OrderByDescending(p => p.FromDate)
+            .ThenByDescending(p => p.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(p => new SettlementPeriodSummaryDto
+            {
+                Id = p.Id,
+                Year = p.Year,
+                FromDate = p.FromDate,
+                ToDate = p.ToDate,
+                ContractFolderId = p.ContractFolderId,
+                ContractNo = p.ContractNo,
+                CustomsOffice = p.CustomsOffice,
+                Status = p.Status,
+                CreatedAt = p.CreatedAt,
+                ItemCount = p.Items.Count,
+                TotalExportQuantity = p.Items.Sum(i => i.InPeriodExport),
+                TotalClosingBalance = p.Items.Sum(i => i.ClosingBalance),
+                Version = p.Version
+            })
+            .ToListAsync();
+
+        return new PagedResultDto<SettlementPeriodSummaryDto>
+        {
+            Items = list,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
     }
 
     private static string SettlementKey(string productCode, ProcessType processType) =>

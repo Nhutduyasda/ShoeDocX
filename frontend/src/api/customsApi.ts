@@ -3,6 +3,7 @@ import type {
   CustomsReconciliationResult,
   ConfirmCustomsSyncRequest,
   SavedShipmentSummary,
+  PagedResult,
 } from '../types';
 
 export interface CustomsArchiveTreeNode {
@@ -161,10 +162,10 @@ export const customsApi = {
    * Lọc danh sách hồ sơ tờ khai hải quan theo bộ lọc đa chiều
    */
   getDeclarations: async (filter?: CustomsDeclarationFilter): Promise<SavedShipmentSummary[]> => {
-    const response = await apiClient.get<SavedShipmentSummary[]>('/customs/declarations', {
-      params: filter,
+    const response = await apiClient.get<PagedResult<SavedShipmentSummary>>('/customs/declarations', {
+      params: { ...filter, page: 1, pageSize: 200 },
     });
-    return response.data;
+    return response.data.items;
   },
 };
 

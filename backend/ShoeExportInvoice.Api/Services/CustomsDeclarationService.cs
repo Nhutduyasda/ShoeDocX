@@ -1000,6 +1000,13 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         var safeDeclaration = Regex.Replace(parsed.DeclarationNo, @"[^A-Za-z0-9_-]", "_");
         var savedFileName = $"{safeDeclaration}_{Guid.NewGuid():N}{ext}";
         var fullPath = Path.Combine(storageDir, savedFileName);
+        string? previousPath = null;
+        if (!string.IsNullOrWhiteSpace(order.CustomsAttachmentFilePath))
+        {
+            var candidate = Path.GetFullPath(Path.Combine(_environment.ContentRootPath, order.CustomsAttachmentFilePath));
+            if (candidate.StartsWith(storageDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                previousPath = candidate;
+        }
         try
         {
             await File.WriteAllBytesAsync(fullPath, original.ToArray());
@@ -1018,6 +1025,8 @@ public class CustomsDeclarationService : ICustomsDeclarationService
             order.IsLocked = true;
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
+            if (!string.IsNullOrWhiteSpace(previousPath) && !string.Equals(previousPath, fullPath, StringComparison.OrdinalIgnoreCase) && File.Exists(previousPath))
+                File.Delete(previousPath);
             return order;
         }
         catch

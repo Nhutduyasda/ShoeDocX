@@ -67,6 +67,7 @@ export const WarehousePage: React.FC = () => {
 
   // Thông tin phiếu xuất kho
   const [batchId, setBatchId] = useState<number | null>(null);
+  const [batchVersion, setBatchVersion] = useState<number | null>(null);
   const [batchNumber, setBatchNumber] = useState<string>('LẦN 14');
   const [exportDate, setExportDate] = useState<Dayjs>(dayjs());
   const [contractNote, setContractNote] = useState<string>('5BUY HD THÀNH HÌNH');
@@ -577,6 +578,7 @@ export const WarehousePage: React.FC = () => {
   // Xóa trắng bảng tạo mới đợt xuất kho
   const handleCreateNewBatch = useCallback(() => {
     setBatchId(null);
+    setBatchVersion(null);
     setStatus('Draft');
     setSubmittedAt(null);
     setShipmentOrderId(null);
@@ -798,11 +800,11 @@ export const WarehousePage: React.FC = () => {
     try {
       const payload = {
         id: batchId ?? undefined,
+        expectedVersion: batchId ? batchVersion ?? undefined : undefined,
         batchNumber: batchNumber.trim(),
         exportDate: exportDate.format('YYYY-MM-DD'),
         contractNote: contractNote.trim(),
         contractFolderId: contractFolderId,
-        submitImmediately: false,
         items: validItems.map((r) => ({
           styleCode: r.styleCode.trim(),
           quantity: r.quantity || 0,
@@ -813,6 +815,7 @@ export const WarehousePage: React.FC = () => {
 
       const result = await warehouseApi.saveBatch(payload);
       setBatchId(result.id);
+      setBatchVersion(result.version);
       setStatus(result.status || 'Draft');
       message.success(`Đã lưu bản nháp thành công! (Lô: ${result.batchName || batchNumber})`);
       loadHistory();
@@ -823,7 +826,7 @@ export const WarehousePage: React.FC = () => {
       setSaving(false);
       savingRef.current = false;
     }
-  }, [rows, batchId, batchNumber, exportDate, contractNote, contractFolderId, loadHistory, isLocked]);
+  }, [rows, batchId, batchVersion, batchNumber, exportDate, contractNote, contractFolderId, loadHistory, isLocked]);
 
   // Bàn giao cho XNK (Submit to XNK) với chốt chặn an toàn Validation Guard
   const handleSubmitToXnk = async () => {
@@ -858,11 +861,11 @@ export const WarehousePage: React.FC = () => {
       try {
         const payload = {
           id: batchId ?? undefined,
+          expectedVersion: batchId ? batchVersion ?? undefined : undefined,
           batchNumber: batchNumber.trim(),
           exportDate: exportDate.format('YYYY-MM-DD'),
           contractNote: contractNote.trim(),
           contractFolderId: contractFolderId,
-          submitImmediately: true,
           items: validItems.map((r) => {
             // Tự động bảo toàn công đoạn nếu phát hiện sản phẩm chỉ có 1 loại giá
             let finalType = r.processType;
@@ -884,8 +887,10 @@ export const WarehousePage: React.FC = () => {
           }),
         };
 
-        const result = await warehouseApi.saveBatch(payload);
+        const draft = await warehouseApi.saveBatch(payload);
+        const result = await warehouseApi.submitBatch(draft.id, draft.version);
         setBatchId(result.id);
+        setBatchVersion(result.version);
         setStatus('SubmittedToXnk');
         setSubmittedAt(result.submittedAt || new Date().toISOString());
         loadHistory();
@@ -952,6 +957,7 @@ export const WarehousePage: React.FC = () => {
     try {
       const batch = await warehouseApi.getBatchById(id);
       setBatchId(batch.id);
+      setBatchVersion(batch.version);
       setBatchNumber(batch.batchNumber);
       setExportDate(dayjs(batch.exportDate));
       setContractNote(batch.contractNote);

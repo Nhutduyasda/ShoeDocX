@@ -13,6 +13,7 @@ services:
       - ASPNETCORE_URLS=http://+:5270
       - ConnectionStrings__DefaultConnection=Data Source=/app/data/shoe_export.db
       - OpenAI__ApiKey=${OPENAI_API_KEY:-}
+      - Xnk__CustomsStoragePath=/app/data/customs
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - Jwt__Key=${JWT_KEY:?JWT_KEY must be configured}
       - BootstrapAdmin__Enabled=${BOOTSTRAP_ADMIN_ENABLED:-false}

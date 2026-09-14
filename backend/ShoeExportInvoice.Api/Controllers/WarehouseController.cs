@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShoeExportInvoice.Api.Data;
 using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Models.Entities;
+using ShoeExportInvoice.Api.Services;
 
 namespace ShoeExportInvoice.Api.Controllers;
 
@@ -14,11 +15,13 @@ public class WarehouseController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly ILogger<WarehouseController> _logger;
+    private readonly IBusinessAuditService? _audit;
 
-    public WarehouseController(AppDbContext context, ILogger<WarehouseController> logger)
+    public WarehouseController(AppDbContext context, ILogger<WarehouseController> logger, IBusinessAuditService? audit = null)
     {
         _context = context;
         _logger = logger;
+        _audit = audit;
     }
 
     /// <summary>
@@ -26,11 +29,13 @@ public class WarehouseController : ControllerBase
     /// Hỗ trợ lọc theo trạng thái, khoảng ngày xuất và tìm kiếm từ khóa
     /// </summary>
     [HttpGet("batches")]
-    public async Task<ActionResult<List<WarehouseBatchSummaryDto>>> GetBatches(
+    public async Task<ActionResult<PagedResultDto<WarehouseBatchSummaryDto>>> GetBatches(
         [FromQuery] WarehouseBatchStatus? status = null,
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50)
     {
         var query = _context.WarehouseBatches
             .Include(b => b.Items)
@@ -62,9 +67,12 @@ public class WarehouseController : ControllerBase
                                      b.ContractNote.ToLower().Contains(s));
         }
 
+        page = Math.Max(page, 1); pageSize = Math.Clamp(pageSize, 1, 200);
+        var totalCount = await query.CountAsync();
         var batches = await query
             .OrderByDescending(b => b.ExportDate)
             .ThenByDescending(b => b.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(b => new WarehouseBatchSummaryDto
             {
                 Id = b.Id,
@@ -79,10 +87,11 @@ public class WarehouseController : ControllerBase
                 ThanhHinhCount = b.Items.Count(i => i.ProcessType == ProcessType.Standard),
                 CreatedAt = b.CreatedAt,
                 SubmittedAt = b.SubmittedAt
+                ,Version = b.Version
             })
             .ToListAsync();
 
-        return Ok(batches);
+        return Ok(new PagedResultDto<WarehouseBatchSummaryDto> { Items = batches, TotalCount = totalCount, Page = page, PageSize = pageSize });
     }
 
     /// <summary>
@@ -117,6 +126,7 @@ public class WarehouseController : ControllerBase
             CreatedBy = batch.CreatedBy,
             CreatedAt = batch.CreatedAt,
             SubmittedAt = batch.SubmittedAt,
+            Version = batch.Version,
             Items = batch.Items
                 .OrderBy(i => i.DisplayOrder)
                 .Select(i => new WarehouseBatchItemDto
@@ -140,6 +150,7 @@ public class WarehouseController : ControllerBase
     /// Tự động kiểm tra Master Data: Nếu mã chưa có, đánh dấu IsPendingReview=true mà KHÔNG chặn thủ kho.
     /// </summary>
     [HttpPost("batches")]
+    [Authorize(Roles = "Admin,Kho")]
     public async Task<ActionResult<WarehouseBatchDto>> SaveBatch([FromBody] SaveWarehouseBatchRequestDto request)
     {
         if (request.Items == null || request.Items.Count == 0)
@@ -188,9 +199,12 @@ public class WarehouseController : ControllerBase
             .ToList();
 
         // Lấy các mã đã có trong ProductMaster kèm thông tin giá để đối chiếu và bảo toàn logic
+        if (!request.ContractFolderId.HasValue || !await _context.MasterDataFolders.AnyAsync(f => f.Id == request.ContractFolderId))
+            return BadRequest(new { message = "Phải chọn hợp đồng hợp lệ." });
+
         var masterProducts = await _context.ProductMasters
             .AsNoTracking()
-            .Where(p => lookupCodes.Contains(p.StyleCode))
+            .Where(p => p.FolderId == request.ContractFolderId && lookupCodes.Contains(p.StyleCode))
             .ToListAsync();
 
         var productMap = masterProducts
@@ -220,6 +234,8 @@ public class WarehouseController : ControllerBase
             {
                 return Conflict(new { message = "Chỉ lô hàng ở trạng thái Bản nháp mới được chỉnh sửa." });
             }
+            if (request.ExpectedVersion.HasValue && existing.Version != request.ExpectedVersion.Value)
+                return Conflict(new { message = "Lô hàng vừa được thay đổi. Vui lòng tải lại." });
 
             batch = existing;
             batch.BatchName = batchName;
@@ -227,6 +243,7 @@ public class WarehouseController : ControllerBase
             batch.ExportDate = request.ExportDate;
             batch.ContractNote = contractNote;
             batch.ContractFolderId = request.ContractFolderId;
+            batch.Version++;
 
             // Xóa items cũ để thêm lại
             _context.WarehouseBatchItems.RemoveRange(batch.Items);
@@ -309,12 +326,8 @@ public class WarehouseController : ControllerBase
 
         batch.TotalQuantity = totalQty;
 
-        if (request.SubmitImmediately)
-        {
-            batch.Status = WarehouseBatchStatus.SubmittedToXnk;
-            batch.SubmittedAt = DateTime.UtcNow;
-        }
-
+        _audit?.Add(HttpContext, request.Id.HasValue ? "WarehouseBatch.Update" : "WarehouseBatch.Create",
+            "WarehouseBatch", batch.Id, next: new { batch.BatchNumber, batch.Status, batch.TotalQuantity });
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("Lô xuất kho #{BatchId} ({BatchName}) đã được lưu thành công bởi {User}. Trạng thái: {Status}",
@@ -328,7 +341,7 @@ public class WarehouseController : ControllerBase
     /// </summary>
     [HttpPost("batches/{id:int}/submit")]
     [Authorize(Roles = "Admin,Kho")]
-    public async Task<ActionResult<WarehouseBatchDto>> SubmitBatch(int id)
+    public async Task<ActionResult<WarehouseBatchDto>> SubmitBatch(int id, [FromQuery] long? expectedVersion = null)
     {
         var batch = await _context.WarehouseBatches
             .Include(b => b.Items)
@@ -339,16 +352,24 @@ public class WarehouseController : ControllerBase
             return NotFound(new { message = $"Không tìm thấy lô #{id}." });
         }
 
+        if (expectedVersion.HasValue && batch.Version != expectedVersion.Value)
+            return Conflict(new { message = "Lô xuất kho đã được thay đổi bởi người khác. Vui lòng tải lại dữ liệu." });
+
         if (batch.Items.Count == 0 || batch.TotalQuantity == 0)
         {
             return BadRequest(new { message = "Lô hàng chưa có dữ liệu mặt hàng hợp lệ để bàn giao." });
         }
+        if (batch.Items.Any(i => i.IsPendingReview) && !User.IsInRole("Admin"))
+            return Conflict(new { message = "Lô hàng còn mã chờ duyệt Master Data." });
 
         if (batch.Status != WarehouseBatchStatus.Draft)
             return Conflict(new { message = "Chỉ lô hàng Bản nháp mới được bàn giao cho XNK." });
 
         batch.Status = WarehouseBatchStatus.SubmittedToXnk;
         batch.SubmittedAt = DateTime.UtcNow;
+        batch.Version++;
+        _audit?.Add(HttpContext, "WarehouseBatch.Submit", "WarehouseBatch", batch.Id,
+            previous: new { Status = WarehouseBatchStatus.Draft }, next: new { Status = batch.Status });
 
         await _context.SaveChangesAsync();
 
@@ -377,6 +398,8 @@ public class WarehouseController : ControllerBase
         }
 
         _context.WarehouseBatches.Remove(batch);
+        _audit?.Add(HttpContext, "WarehouseBatch.Delete", "WarehouseBatch", batch.Id,
+            previous: new { batch.BatchNumber, batch.Status, batch.TotalQuantity });
         await _context.SaveChangesAsync();
 
         return Ok(new { success = true, message = $"Đã xóa lô hàng #{id} thành công." });
@@ -446,15 +469,33 @@ public class WarehouseController : ControllerBase
         if (batch.Status != WarehouseBatchStatus.SubmittedToXnk)
             return Conflict(new { message = "Chỉ lô hàng đã bàn giao XNK mới được đánh dấu hoàn tất." });
 
-        var shipment = await _context.ShipmentOrders.AsNoTracking()
+        var shipment = await _context.ShipmentOrders.AsNoTracking().Include(s => s.Items)
             .FirstOrDefaultAsync(s => s.Id == shipmentOrderId);
         if (shipment == null)
             return BadRequest(new { message = "ShipmentOrderId không tồn tại." });
         if (shipment.ContractFolderId != batch.ContractFolderId)
             return Conflict(new { message = "Đơn hàng và lô kho không thuộc cùng hợp đồng." });
+        if (shipment.Status is not (ShipmentStatus.Draft or ShipmentStatus.Exported))
+            return Conflict(new { message = "Trạng thái đơn hàng không phù hợp để tiếp nhận lô kho." });
+        if (await _context.WarehouseBatches.AnyAsync(b => b.Id != id && b.ShipmentOrderId == shipmentOrderId))
+            return Conflict(new { message = "Đơn hàng đã được liên kết với lô kho khác." });
+
+        static string Key(string code, ProcessType process) =>
+            $"{CustomsDeclarationService.NormalizeStyleCode(code)}|{(int)process}";
+        var batchTotals = await _context.WarehouseBatchItems.AsNoTracking().Where(i => i.WarehouseBatchId == id)
+            .GroupBy(i => new { i.StyleCode, i.ProcessType })
+            .Select(g => new { g.Key.StyleCode, g.Key.ProcessType, Quantity = g.Sum(i => i.Quantity) }).ToListAsync();
+        var left = batchTotals.GroupBy(x => Key(x.StyleCode, x.ProcessType)).ToDictionary(g => g.Key, g => g.Sum(x => x.Quantity));
+        var right = shipment.Items.GroupBy(x => Key(x.StyleCode, x.ProcessType)).ToDictionary(g => g.Key, g => g.Sum(x => x.Quantity));
+        if (left.Count != right.Count || left.Any(x => !right.TryGetValue(x.Key, out var quantity) || quantity != x.Value))
+            return Conflict(new { message = "Mặt hàng, công đoạn hoặc số lượng giữa lô kho và đơn hàng không khớp." });
 
         batch.Status = WarehouseBatchStatus.ProcessedByXnk;
         batch.ShipmentOrderId = shipmentOrderId;
+        batch.Version++;
+        _audit?.Add(HttpContext, "WarehouseBatch.MarkProcessed", "WarehouseBatch", batch.Id,
+            previous: new { Status = WarehouseBatchStatus.SubmittedToXnk },
+            next: new { Status = batch.Status, batch.ShipmentOrderId });
 
         await _context.SaveChangesAsync();
         return Ok(new { success = true, message = $"Lô #{id} đã được đánh dấu hoàn tất xử lý." });

@@ -187,7 +187,6 @@ public class MasterDataFolderService : IMasterDataFolderService
         folder.DisplayOrder = dto.DisplayOrder;
         folder.InvoiceNoPattern = dto.InvoiceNoPattern.Trim();
         folder.FileNamePattern = dto.FileNamePattern.Trim();
-        folder.CurrentSequenceNumber = dto.CurrentSequenceNumber;
         folder.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -223,9 +222,21 @@ public class MasterDataFolderService : IMasterDataFolderService
 
         if (folder == null) return false;
 
-        if (await _context.ShipmentOrders.AnyAsync(o => o.ContractFolderId == id) ||
-            await _context.CustomsSettlementPeriods.AnyAsync(p => p.ContractFolderId == id))
-            throw new InvalidOperationException("Hợp đồng đã có đơn hàng hoặc kỳ quyết toán, không thể xóa.");
+        var allFolders = await _context.MasterDataFolders.AsNoTracking().Select(f => new { f.Id, f.ParentId }).ToListAsync();
+        var protectedIds = new HashSet<int> { id };
+        var queue = new Queue<int>(); queue.Enqueue(id);
+        while (queue.Count > 0)
+        {
+            var currentId = queue.Dequeue();
+            foreach (var childId in allFolders.Where(f => f.ParentId == currentId).Select(f => f.Id))
+                if (protectedIds.Add(childId)) queue.Enqueue(childId);
+        }
+        if (await _context.ShipmentOrders.AnyAsync(o => o.ContractFolderId.HasValue && protectedIds.Contains(o.ContractFolderId.Value)) ||
+            await _context.CustomsSettlementPeriods.AnyAsync(p => p.ContractFolderId.HasValue && protectedIds.Contains(p.ContractFolderId.Value)) ||
+            await _context.WarehouseBatches.AnyAsync(b => b.ContractFolderId.HasValue && protectedIds.Contains(b.ContractFolderId.Value)))
+            throw new InvalidOperationException("Cây thư mục đã có đơn hàng, lô kho hoặc kỳ quyết toán, không thể xóa.");
+        if (await _context.ProductMasters.AnyAsync(p => p.FolderId.HasValue && protectedIds.Contains(p.FolderId.Value)))
+            throw new InvalidOperationException("Cây thư mục còn Master Data. Hãy di chuyển dữ liệu trước khi xóa.");
         // Chuyển thư mục con lên cấp cha của folder bị xóa
         foreach (var child in folder.Children)
         {
@@ -293,5 +304,19 @@ public class MasterDataFolderService : IMasterDataFolderService
                 .FirstOrDefaultAsync(f => f.Id == current.ParentId.Value)
                 ?? throw new InvalidOperationException("Cây thư mục chứa liên kết cha không hợp lệ.");
         }
+    }
+
+    public async Task SetSequenceAsync(int id, int nextNumber)
+    {
+        if (nextNumber <= 0) throw new ArgumentOutOfRangeException(nameof(nextNumber));
+        await using var tx = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+        var folder = await _context.MasterDataFolders.FirstOrDefaultAsync(f => f.Id == id)
+            ?? throw new KeyNotFoundException($"Không tìm thấy thư mục #{id}.");
+        if (nextNumber < folder.CurrentSequenceNumber)
+            throw new InvalidOperationException("Không thể giảm số thứ tự hóa đơn.");
+        folder.CurrentSequenceNumber = nextNumber;
+        folder.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        await tx.CommitAsync();
     }
 }

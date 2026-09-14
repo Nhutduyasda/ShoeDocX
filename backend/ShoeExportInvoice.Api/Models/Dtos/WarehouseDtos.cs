@@ -25,6 +25,7 @@ public class WarehouseBatchDto
     public string? CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? SubmittedAt { get; set; }
+    public long Version { get; set; }
     public List<WarehouseBatchItemDto> Items { get; set; } = new();
 }
 
@@ -47,7 +48,7 @@ public class SaveWarehouseBatchRequestDto
     public DateTime ExportDate { get; set; } = DateTime.Today; // VD: 2026-08-27
     public string ContractNote { get; set; } = string.Empty; // VD: 5BUY HD THÀNH HÌNH
     public int? ContractFolderId { get; set; }
-    public bool SubmitImmediately { get; set; } = false; // Bấm nút "Bàn giao XNK"
+    public long? ExpectedVersion { get; set; }
     public List<SaveWarehouseBatchItemRequestDto> Items { get; set; } = new();
 }
 
@@ -85,4 +86,5 @@ public class WarehouseBatchSummaryDto
     public int ThanhHinhCount { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? SubmittedAt { get; set; }
+    public long Version { get; set; }
 }

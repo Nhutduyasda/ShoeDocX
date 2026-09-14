@@ -55,6 +55,7 @@ public class SettlementReportDto
     public decimal TotalOtherExport => Items.Sum(i => i.OtherExport);
     public decimal TotalClosingBalance => Items.Sum(i => i.ClosingBalance);
     public int ClearedOrderCount { get; set; }
+    public long Version { get; set; }
 }
 
 public class SaveSettlementPeriodRequestDto
@@ -72,6 +73,7 @@ public class SaveSettlementPeriodRequestDto
     public string? Address { get; set; }
     public string? Note { get; set; }
     public List<SettlementItemDto> Items { get; set; } = new();
+    public long? ExpectedVersion { get; set; }
 }
 
 public class SettlementPeriodSummaryDto
@@ -88,6 +90,7 @@ public class SettlementPeriodSummaryDto
     public int ItemCount { get; set; }
     public decimal TotalExportQuantity { get; set; }
     public decimal TotalClosingBalance { get; set; }
+    public long Version { get; set; }
 }
 
 public class SettlementDrillDownItemDto

@@ -227,7 +227,8 @@ public class CustomsArchiveTreeTests : IDisposable
             CustomsStatus = "Pending"
         });
         var okPending = Assert.IsType<OkObjectResult>(resPending.Result);
-        var listPending = Assert.IsType<List<CustomsDeclarationSummaryDto>>(okPending.Value);
+        var pagePending = Assert.IsType<PagedResultDto<CustomsDeclarationSummaryDto>>(okPending.Value);
+        var listPending = pagePending.Items.ToList();
         Assert.Equal(2, listPending.Count);
         var invoices = listPending.Select(x => x.InvoiceNo).ToList();
         Assert.Contains("KMHD-NEW2026-0239", invoices);
@@ -243,7 +244,8 @@ public class CustomsArchiveTreeTests : IDisposable
             CustomsStatus = "Cleared"
         });
         var okGreen = Assert.IsType<OkObjectResult>(resGreen.Result);
-        var listGreen = Assert.IsType<List<CustomsDeclarationSummaryDto>>(okGreen.Value);
+        var pageGreen = Assert.IsType<PagedResultDto<CustomsDeclarationSummaryDto>>(okGreen.Value);
+        var listGreen = pageGreen.Items.ToList();
         Assert.Single(listGreen);
         Assert.Equal("KMHD-NEW2026-0241", listGreen[0].InvoiceNo);
 
@@ -253,7 +255,8 @@ public class CustomsArchiveTreeTests : IDisposable
             Keyword = "DTB-INV"
         });
         var okKw = Assert.IsType<OkObjectResult>(resKw.Result);
-        var listKw = Assert.IsType<List<CustomsDeclarationSummaryDto>>(okKw.Value);
+        var pageKw = Assert.IsType<PagedResultDto<CustomsDeclarationSummaryDto>>(okKw.Value);
+        var listKw = pageKw.Items.ToList();
         Assert.Single(listKw);
         Assert.Equal("DTB-INV-001", listKw[0].InvoiceNo);
     }

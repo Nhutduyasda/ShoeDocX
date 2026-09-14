@@ -22,7 +22,7 @@ export const enterpriseTheme: ThemeConfig = {
     controlHeight: 36,
     controlHeightSM: 30,
     controlHeightLG: 40,
-    fontSize: 13,
+    fontSize: 14,
     fontSizeHeading1: 22,
     fontSizeHeading2: 18,
     fontSizeHeading3: 16,
@@ -145,6 +145,14 @@ export const enterpriseTheme: ThemeConfig = {
     },
     Drawer: {
       borderRadiusSM: 0,
+    },
+    Tree: {
+      nodeHoverBg: tokens.surfaceHover,
+      nodeSelectedBg: tokens.colorPrimaryLight,
+      nodeSelectedColor: tokens.colorPrimaryHover,
+      directoryNodeSelectedBg: tokens.colorPrimaryLight,
+      directoryNodeSelectedColor: tokens.colorPrimaryHover,
+      titleHeight: 36,
     },
   },
 };

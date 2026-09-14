@@ -175,19 +175,19 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="enterprise-page">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-[#E5E7EB]">
+      <div className="enterprise-page-header">
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold text-[#111827] tracking-tight m-0">
+          <h1 className="enterprise-page-title">
             Tổng quan nghiệp vụ xuất khẩu
           </h1>
-          <p className="text-sm text-[#4B5563] mt-1 m-0">
+          <p className="enterprise-page-description">
             Hệ thống quản lý Commercial Invoice, Packing List và dữ liệu xuất hàng nhà máy Kingmaker III
           </p>
         </div>
 
-        <div className="flex items-center flex-wrap gap-2 min-w-0">
+        <div className="enterprise-actions">
           <Button
             icon={<AuditOutlined className="text-xs" />}
             onClick={() => onNavigate('settlement')}
@@ -277,7 +277,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
       </div>
 
       {/* Recent Shipments Table Panel */}
-      <div className="bg-white border border-[#E5E7EB] rounded-lg p-5 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+      <div className="enterprise-panel p-5">
         <div className="flex items-center justify-between pb-3 mb-4 border-b border-[#F3F4F6]">
           <div>
             <h2 className="text-sm font-semibold text-[#111827] m-0">

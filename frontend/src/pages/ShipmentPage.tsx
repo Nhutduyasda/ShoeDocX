@@ -18,7 +18,6 @@ import {
   Radio,
   Empty,
   Dropdown,
-  Popconfirm,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -31,8 +30,6 @@ import {
   ThunderboltOutlined,
   CameraOutlined,
   FolderOpenOutlined,
-  NumberOutlined,
-  EditOutlined,
   AppstoreOutlined,
   SearchOutlined,
   CheckCircleFilled,
@@ -46,8 +43,8 @@ import {
   EllipsisOutlined,
   InboxOutlined,
   FileSearchOutlined,
-  PrinterOutlined,
   CloseOutlined,
+  DownOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { shipmentApi, invoiceNoToFileName, extractSequenceNumber, formatInvoiceNo, formatPartnerFileName } from '../api/shipmentApi';
@@ -224,13 +221,13 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
         const detail = suggestionBannerData.details?.find(
           (d) => d.rawCode.trim().toUpperCase() === upper ||
-                 d.normalizedCode === upper ||
-                 d.normalizedCode === base
+            d.normalizedCode === upper ||
+            d.normalizedCode === base
         );
 
         const prod = detail?.matchedProduct || products.find(
           (p) => p.folderId === targetPartner.id &&
-                 (p.styleCode.trim().toUpperCase() === upper || p.styleCode.trim().toUpperCase() === base)
+            (p.styleCode.trim().toUpperCase() === upper || p.styleCode.trim().toUpperCase() === base)
         );
 
         if (prod) {
@@ -383,12 +380,13 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     setSelectedOrderIds([]);
   };
 
-  const handleBatchPrint = async () => {
+  const handleBatchPrint = async (printType: 'INV' | 'PKL' | 'ALL' = batchPrintType) => {
     if (selectedOrderIds.length === 0) return;
     try {
+      setBatchPrintType(printType);
       setBatchPrinting(true);
       message.loading({ content: 'Đang chuẩn bị dữ liệu in hàng loạt...', key: 'batch-print' });
-      const res = await shipmentApi.getBatchPrintData(selectedOrderIds, batchPrintType);
+      const res = await shipmentApi.getBatchPrintData(selectedOrderIds, printType);
       if (!res.documents || res.documents.length === 0) {
         message.warning({ content: 'Không tìm thấy dữ liệu chứng từ phù hợp để in.', key: 'batch-print' });
         return;
@@ -515,12 +513,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       const tree = await masterDataFolderApi.getTree();
       const flatten = (nodes: MasterDataFolder[], parent?: MasterDataFolder): MasterDataFolder[] =>
         nodes.flatMap(f => {
-          const merged = { ...f, customerName: f.customerName || parent?.customerName,
+          const merged = {
+            ...f, customerName: f.customerName || parent?.customerName,
             contractNo: f.contractNo || parent?.contractNo, deliveryAddress: f.deliveryAddress || parent?.deliveryAddress,
             poSuffix: f.poSuffix || parent?.poSuffix,
             invoiceNoPattern: f.invoiceNoPattern || parent?.invoiceNoPattern || 'KMHD-NEW2026-{SEQ:4}',
             fileNamePattern: f.fileNamePattern || parent?.fileNamePattern || 'KM3-26-DH{SEQ}.xlsx',
-            currentSequenceNumber: f.currentSequenceNumber || parent?.currentSequenceNumber || 1 };
+            currentSequenceNumber: f.currentSequenceNumber || parent?.currentSequenceNumber || 1
+          };
           return [merged, ...flatten(f.children || [], merged)];
         });
       const roots = flatten(tree);
@@ -795,8 +795,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       }
 
       if (isZip && exportSummary?.hasTwoFiles) {
-        const secondNum = req.priority === ExportSequencePriority.GoFirst 
-          ? exportSummary.standardSequenceNumber 
+        const secondNum = req.priority === ExportSequencePriority.GoFirst
+          ? exportSummary.standardSequenceNumber
           : exportSummary.goSequenceNumber;
         const firstFileName = req.priority === ExportSequencePriority.GoFirst
           ? exportSummary.goFileName
@@ -959,7 +959,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       await loadShipmentsHistory();
 
       if (activeWarehouseBatchId && savedId) {
-        warehouseApi.markProcessed(activeWarehouseBatchId, savedId).catch(() => {});
+        warehouseApi.markProcessed(activeWarehouseBatchId, savedId).catch(() => { });
       }
 
       // Cập nhật số hóa đơn tiếp theo sau khi lưu
@@ -1505,35 +1505,35 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
   const previewFile1 = isStandardFirst
     ? {
-        label: 'Hàng Thành hình',
-        type: 'standard' as const,
-        fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, firstSeqNum),
-        invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, firstSeqNum),
-        qty: standardQty,
-      }
+      label: 'Hàng Thành hình',
+      type: 'standard' as const,
+      fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, firstSeqNum),
+      invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, firstSeqNum),
+      qty: standardQty,
+    }
     : {
-        label: 'Hàng Gò không may',
-        type: 'go' as const,
-        fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, firstSeqNum),
-        invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, firstSeqNum),
-        qty: goQty,
-      };
+      label: 'Hàng Gò không may',
+      type: 'go' as const,
+      fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, firstSeqNum),
+      invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, firstSeqNum),
+      qty: goQty,
+    };
 
   const previewFile2 = isStandardFirst
     ? {
-        label: 'Hàng Gò không may',
-        type: 'go' as const,
-        fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, secondSeqNum),
-        invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, secondSeqNum),
-        qty: goQty,
-      }
+      label: 'Hàng Gò không may',
+      type: 'go' as const,
+      fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, secondSeqNum),
+      invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, secondSeqNum),
+      qty: goQty,
+    }
     : {
-        label: 'Hàng Thành hình',
-        type: 'standard' as const,
-        fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, secondSeqNum),
-        invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, secondSeqNum),
-        qty: standardQty,
-      };
+      label: 'Hàng Thành hình',
+      type: 'standard' as const,
+      fileName: formatPartnerFileName(selectedPartner?.fileNamePattern, secondSeqNum),
+      invoiceNo: formatInvoiceNo(selectedPartner?.invoiceNoPattern, secondSeqNum),
+      qty: standardQty,
+    };
 
   const columns: ColumnsType<CreateShipmentItem> = [
     {
@@ -2130,7 +2130,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       title: 'Thao tác',
       key: 'action',
       align: 'center',
-      width: 320,
+      width: 150,
       fixed: 'right',
       render: (_, record) => {
         if (isKeToan) {
@@ -2150,89 +2150,50 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
         const isLocked = Boolean(record.isLocked || record.status === ShipmentStatus.Cleared);
 
-        return (
-          <Space size={4} wrap>
-            <Tooltip title="Đối soát tờ khai hải quan VNACCS cho hóa đơn này">
-              <Button
-                size="small"
-                icon={<AuditOutlined className="text-xs text-blue-600" />}
-                className="text-xs border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-50 font-medium"
-                onClick={() => handleOpenCustomsSync(record)}
-              >
-                Đối soát tờ khai
-              </Button>
-            </Tooltip>
-
-            {isLocked ? (
-              canUnlockCleared ? (
-                <Button size="small" danger onClick={() => handleUnlockClearedShipment(record)}>
-                  Mở khóa AMA
-                </Button>
-              ) : <Tooltip title="Đơn hàng đã thông quan hải quan, hồ sơ đã bị khóa (Read-only)">
-                <span>
-                  <Button
-                    size="small"
-                    disabled
-                    icon={<FolderOpenOutlined className="text-xs" />}
-                    className="text-xs border-slate-200 text-slate-400 cursor-not-allowed"
-                  >
-                    Chỉnh sửa
-                  </Button>
-                </span>
-              </Tooltip>
-            ) : (
-              <Button
-                size="small"
-                icon={<FolderOpenOutlined className="text-xs" />}
-                className="text-xs border-slate-300 text-slate-700 hover:text-blue-600"
-                onClick={() => handleLoadHistoricalOrder(record.id)}
-              >
-                Mở lại
-              </Button>
-            )}
-
-            <Button
-              size="small"
-              icon={<DownloadOutlined className="text-xs" />}
-              className="text-xs border-slate-300 text-slate-700 hover:text-blue-600"
-              onClick={() => handleDownloadHistorical(record.id, record.invoiceNo)}
-            >
-              Tải Excel
-            </Button>
-
-            {record.customsAttachmentFileName && (
-              <Tooltip title={`Tải file tờ khai VNACCS gốc: ${record.customsAttachmentFileName}`}>
-                <Button
-                  size="small"
-                  icon={<FileExcelOutlined className="text-xs text-emerald-600" />}
-                  className="text-xs border-emerald-200 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-50"
-                  onClick={() => handleDownloadCustomsAttachment(record.id)}
-                >
-                  Tờ khai gốc
-                </Button>
-              </Tooltip>
-            )}
-
-            <Tooltip title="Xem lịch sử mở khóa AMA/AMC (Audit Log)">
-              <Button
-                size="small"
-                icon={<HistoryOutlined className="text-xs text-amber-600" />}
-                className="text-xs border-amber-200 text-amber-700 bg-amber-50/50 hover:bg-amber-50"
-                onClick={() => {
-                  setAuditModalOrderId(record.id);
-                  setAuditModalInvoiceNo(record.invoiceNo);
-                  setAuditModalOpen(true);
-                }}
-              >
-                Nhật ký
-              </Button>
-            </Tooltip>
-
-            {!isLocked && !isKeToan && (
-              <Popconfirm
-                title="Xóa đơn hàng này?"
-                description={`Bạn có chắc muốn xóa đơn hàng ${record.invoiceNo}?`}
-                onConfirm={async () => {
+        const moreItems = [
+          {
+            key: 'open',
+            icon: <FolderOpenOutlined />,
+            label: isLocked ? 'Chỉnh sửa (đã khóa)' : 'Mở lại để chỉnh sửa',
+            disabled: isLocked && !canUnlockCleared,
+            onClick: () => isLocked ? handleUnlockClearedShipment(record) : handleLoadHistoricalOrder(record.id),
+          },
+          {
+            key: 'download',
+            icon: <DownloadOutlined />,
+            label: 'Tải file Excel',
+            onClick: () => handleDownloadHistorical(record.id, record.invoiceNo),
+          },
+          ...(record.customsAttachmentFileName ? [{
+            key: 'declaration',
+            icon: <FileExcelOutlined />,
+            label: 'Tải tờ khai gốc',
+            onClick: () => handleDownloadCustomsAttachment(record.id),
+          }] : []),
+          {
+            key: 'audit',
+            icon: <HistoryOutlined />,
+            label: 'Xem nhật ký',
+            onClick: () => {
+              setAuditModalOrderId(record.id);
+              setAuditModalInvoiceNo(record.invoiceNo);
+              setAuditModalOpen(true);
+            },
+          },
+          ...(!isLocked && !isKeToan ? [
+            { type: 'divider' as const },
+            {
+              key: 'delete',
+              danger: true,
+              icon: <DeleteOutlined />,
+              label: 'Xóa chứng từ',
+              onClick: () => Modal.confirm({
+                title: 'Xóa chứng từ?',
+                content: `Bạn có chắc muốn xóa chứng từ "${record.invoiceNo}" không? Hành động này không thể hoàn tác.`,
+                okText: 'Xóa',
+                okType: 'danger',
+                cancelText: 'Hủy',
+                onOk: async () => {
                   try {
                     await shipmentApi.deleteShipment(record.id);
                     message.success(`Đã xóa đơn hàng ${record.invoiceNo}`);
@@ -2240,21 +2201,27 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                   } catch {
                     message.error('Không thể xóa đơn hàng.');
                   }
-                }}
-                okText="Xóa"
-                cancelText="Hủy"
-                okButtonProps={{ danger: true }}
+                },
+              }),
+            },
+          ] : []),
+        ];
+
+        return (
+          <Space size={6}>
+            <Tooltip title="Đối soát tờ khai hải quan VNACCS cho hóa đơn này">
+              <Button
+                size="small"
+                icon={<AuditOutlined className="text-xs text-blue-600" />}
+                className="text-xs border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-50 font-medium"
+                onClick={() => handleOpenCustomsSync(record)}
               >
-                <Button
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined className="text-xs" />}
-                  className="text-xs"
-                >
-                  Xóa
-                </Button>
-              </Popconfirm>
-            )}
+                Đối soát
+              </Button>
+            </Tooltip>
+            <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
+              <Button size="small" icon={<EllipsisOutlined />} aria-label="Thao tác khác" />
+            </Dropdown>
           </Space>
         );
       },
@@ -2262,22 +2229,22 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="enterprise-page">
       {activeNavTab === 'history' || activeTab === 'history' || isKeToan ? (
         /* ================= MÀN HÌNH LỊCH SỬ CHỨNG TỪ ================= */
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-[#E5E7EB]">
+          <div className="enterprise-page-header">
             <div className="min-w-0 flex-1">
-              <h1 className="text-xl font-semibold text-[#111827] tracking-tight m-0">
+              <h1 className="enterprise-page-title">
                 Lịch sử chứng từ xuất hàng
               </h1>
-              <p className="text-xs text-[#6B7280] mt-1 m-0">
+              <p className="enterprise-page-description">
                 Danh sách hóa đơn Commercial Invoice & Packing List đã lập ({savedShipments.length} chứng từ)
               </p>
             </div>
 
-            <div className="flex items-center flex-wrap gap-2 min-w-0">
+            <div className="enterprise-actions">
               <Button
                 icon={<ReloadOutlined />}
                 onClick={loadShipmentsHistory}
@@ -2286,16 +2253,6 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               >
                 Làm mới
               </Button>
-              {!isKeToan && savedShipments.length > 0 && (
-                <Button
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={handleDeleteAllShipments}
-                  className="text-xs h-8 px-3 font-medium shadow-xs"
-                >
-                  Xóa tất cả ({savedShipments.length})
-                </Button>
-              )}
               {!isKeToan && (
                 <Button
                   type="primary"
@@ -2309,11 +2266,28 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                   Lập hóa đơn mới
                 </Button>
               )}
+              {!isKeToan && savedShipments.length > 0 && (
+                <Dropdown
+                  menu={{
+                    items: [{
+                      key: 'delete-all',
+                      danger: true,
+                      icon: <DeleteOutlined />,
+                      label: `Xóa tất cả (${savedShipments.length})`,
+                      onClick: handleDeleteAllShipments,
+                    }],
+                  }}
+                  trigger={['click']}
+                  placement="bottomRight"
+                >
+                  <Button icon={<EllipsisOutlined />} className="h-8" aria-label="Thao tác khác" />
+                </Dropdown>
+              )}
             </div>
           </div>
 
           {/* Main Layout: Customs Archive Tree on Left + Declarations List on Right */}
-          <div className="bg-white border border-[#E5E7EB] rounded-lg shadow-xs overflow-hidden flex flex-col lg:flex-row min-h-[600px]">
+          <div className="bg-white border border-slate-200 rounded-lg shadow-xs overflow-hidden flex flex-col lg:flex-row min-h-[600px] min-w-0">
             <CustomsArchiveTreePanel
               shipments={savedShipments}
               folders={partnerFolders}
@@ -2324,9 +2298,50 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               }}
             />
 
-            <div className="flex-1 p-4 space-y-3 overflow-x-auto min-w-0">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="w-full sm:w-80">
+            <div className="flex-1 p-3 sm:p-4 space-y-3 overflow-hidden min-w-0">
+              {selectedOrderIds.length > 0 ? (
+                <div className="flex min-h-12 min-w-0 flex-wrap items-center gap-2 border border-blue-200 bg-blue-50/60 px-3 py-2">
+                  <span className="mr-1 text-sm font-medium text-slate-700">
+                    <span className="text-blue-700">{selectedOrderIds.length}</span> hồ sơ đã chọn
+                    {currentFolderName ? <span className="hidden 2xl:inline text-slate-500"> · {currentFolderName}</span> : null}
+                  </span>
+
+                  {selectedOrderIds.length === 1 && (
+                    <Tooltip title="Đối soát tờ khai hải quan">
+                      <Button
+                        icon={<FileSearchOutlined />}
+                        onClick={() => {
+                          const selectedOrder = savedShipments.find((s) => s.id === selectedOrderIds[0]);
+                          if (selectedOrder) handleOpenCustomsSync(selectedOrder);
+                        }}
+                      >
+                        Đối soát
+                      </Button>
+                    </Tooltip>
+                  )}
+
+                  <Dropdown.Button
+                    type="primary"
+                    icon={<DownOutlined />}
+                    loading={batchPrinting}
+                    onClick={() => handleBatchPrint('ALL')}
+                    menu={{
+                      items: [
+                        { key: 'print-inv', label: 'In INV', onClick: () => handleBatchPrint('INV') },
+                        { key: 'print-pkl', label: 'In PKL', onClick: () => handleBatchPrint('PKL') },
+                      ],
+                    }}
+                  >
+                    In INV + PKL
+                  </Dropdown.Button>
+
+                  <Button type="text" icon={<CloseOutlined />} onClick={handleClearSelection}>
+                    Bỏ chọn
+                  </Button>
+                </div>
+              ) : (
+              <div className="grid grid-cols-1 xl:grid-cols-[minmax(240px,360px)_minmax(0,1fr)] items-center gap-3 min-w-0">
+                <div className="w-full min-w-0">
                   <Input
                     placeholder="Tìm theo số Invoice, tên khách hàng hoặc hợp đồng..."
                     prefix={<SearchOutlined className="text-[#9CA3AF] text-xs mr-1" />}
@@ -2338,7 +2353,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                   />
                 </div>
                 {customsTreeKey !== 'all' && (
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex min-w-0 items-center gap-2 xl:justify-end">
                     <Tag
                       color="blue"
                       closable
@@ -2346,27 +2361,16 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                         setCustomsTreeKey('all');
                         setCustomsTreeFilter({});
                       }}
-                      className="text-xs py-1 px-2.5 font-medium flex items-center gap-1 border-blue-200 text-blue-800 bg-blue-50 m-0"
+                      className="text-xs py-1 px-2.5 font-medium flex min-w-0 max-w-full items-center gap-1 border-blue-200 text-blue-800 bg-blue-50 m-0"
                     >
-                      <span>
+                      <span className="min-w-0 truncate" title={customsTreeFilter.breadcrumb || customsTreeKey}>
                         Đang lọc: <strong>{customsTreeFilter.breadcrumb || customsTreeKey}</strong>
                       </span>
                     </Tag>
-                    <Button
-                      size="small"
-                      danger
-                      type="text"
-                      onClick={() => {
-                        setCustomsTreeKey('all');
-                        setCustomsTreeFilter({});
-                      }}
-                      className="text-xs h-6 px-1.5 font-medium"
-                    >
-                      Xóa bộ lọc
-                    </Button>
                   </div>
                 )}
               </div>
+              )}
 
               <div className="w-full overflow-x-auto min-w-0">
                 <Table
@@ -2389,87 +2393,28 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                     ),
                   }}
                   size="middle"
-                  scroll={{ x: 'max-content' }}
+                  scroll={{ x: 1280 }}
                 />
               </div>
             </div>
           </div>
 
-          {/* Thanh Tác Vụ Nổi (Floating Action Bar ở đáy màn hình khi có tích chọn) */}
-          {selectedOrderIds.length > 0 && (
-            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3.5 rounded-2xl shadow-2xl z-50 flex items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-200">
-              {/* Thông tin số lượng đang chọn */}
-              <span className="text-sm font-medium pr-2 border-r border-slate-700">
-                Đang chọn: <strong>{selectedOrderIds.length}</strong> đơn{currentFolderName ? ` thuộc [${currentFolderName}]` : ''}
-              </span>
-
-              {/* NÚT ĐỐI SOÁT TỜ KHAI: CHỈ HIỆN KHI CHỌN ĐÚNG 1 ĐƠN */}
-              {selectedOrderIds.length === 1 && (
-                <Button
-                  type="default"
-                  icon={<FileSearchOutlined className="text-white" />}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white border-none font-medium flex items-center gap-1.5 shadow-sm"
-                  onClick={() => {
-                    const selectedOrder = savedShipments.find((s) => s.id === selectedOrderIds[0]);
-                    if (selectedOrder) {
-                      handleOpenCustomsSync(selectedOrder);
-                    }
-                  }}
-                >
-                  Đối Soát Tờ Khai Hải Quan
-                </Button>
-              )}
-
-              {/* Các nút in ấn hàng loạt */}
-              <Radio.Group
-                value={batchPrintType}
-                onChange={(e) => setBatchPrintType(e.target.value)}
-                className="bg-slate-800 p-1 rounded-lg"
-                size="small"
-              >
-                <Radio.Button value="INV">Chỉ in INV</Radio.Button>
-                <Radio.Button value="PKL">Chỉ in PKL</Radio.Button>
-                <Radio.Button value="ALL">In cả bộ INV + PKL</Radio.Button>
-              </Radio.Group>
-
-              {/* Nút Bỏ chọn */}
-              <Button
-                type="text"
-                icon={<CloseOutlined />}
-                className="text-slate-400 hover:text-white text-xs"
-                onClick={handleClearSelection}
-              >
-                Bỏ chọn
-              </Button>
-
-              {/* Nút In hàng loạt */}
-              <Button
-                type="primary"
-                icon={<PrinterOutlined />}
-                loading={batchPrinting}
-                className="bg-indigo-600 hover:bg-indigo-500 font-medium text-xs"
-                onClick={handleBatchPrint}
-              >
-                In hàng loạt ({selectedOrderIds.length} đơn)
-              </Button>
-            </div>
-          )}
         </div>
       ) : (
         /* ================= MÀN HÌNH LẬP HÓA ĐƠN & PACKING LIST ================= */
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-[#E5E7EB]">
+          <div className="enterprise-page-header">
             <div className="min-w-0 flex-1">
-              <h1 className="text-xl font-semibold text-[#111827] tracking-tight m-0">
+              <h1 className="enterprise-page-title">
                 Lập Invoice & Packing List (INV & PKL)
               </h1>
-              <p className="text-xs text-[#6B7280] mt-1 m-0">
+              <p className="enterprise-page-description">
                 Nhập số liệu phiếu kho, đối soát tổng số đôi và xuất file Excel đa sheet chuẩn mẫu nhà máy
               </p>
             </div>
 
-            <div className="flex items-center flex-wrap gap-2 min-w-0">
+            <div className="enterprise-actions">
               <Button
                 icon={<HistoryOutlined />}
                 onClick={() => {
@@ -2501,11 +2446,10 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 type={editingOrderId || readOnly ? 'primary' : 'default'}
                 icon={<PlusOutlined />}
                 onClick={handleResetToNewOrder}
-                className={`hidden xl:inline-flex text-xs h-8 px-3 font-medium shadow-xs ${
-                  editingOrderId || readOnly
-                    ? 'bg-[#2563EB] hover:bg-[#1D4ED8] text-white'
-                    : 'border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB]'
-                }`}
+                className={`hidden xl:inline-flex text-xs h-8 px-3 font-medium shadow-xs ${editingOrderId || readOnly
+                  ? 'bg-[#2563EB] hover:bg-[#1D4ED8] text-white'
+                  : 'border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB]'
+                  }`}
               >
                 Tạo đơn mới
               </Button>
@@ -2587,30 +2531,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 1. Thông tin Chứng từ (Shipment Header)
               </div>
               <div className="flex items-center gap-2">
-                {sequenceInfo && (
-                  <span className="flex items-center gap-1.5 text-xs text-[#6B7280]">
-                    <NumberOutlined className="text-[#2563EB]" />
-                    <span>Tiếp theo:</span>
-                    <span className="font-mono text-xs px-2 py-0.5 rounded bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE] font-medium">
-                      {sequenceInfo.previewFileName}
-                    </span>
-                  </span>
-                )}
-                <Tooltip title="Ghi đè số thứ tự sequence tiếp theo">
-                  <Button
-                    size="small"
-                    icon={<EditOutlined className="text-xs" />}
-                    className="text-[#4B5563] hover:text-[#111827] border-[#D1D5DB] bg-white text-xs h-7 px-2 shadow-xs"
-                    onClick={() => {
-                      const curInvoice = form.getFieldValue('invoiceNo') || '';
-                      const curSeq = extractSequenceNumber(curInvoice) ?? sequenceInfo?.nextNumber ?? 1;
-                      setSequenceEditValue(curSeq);
-                      setSequenceEditVisible(true);
-                    }}
-                  >
-                    Ghi đè số
-                  </Button>
-                </Tooltip>
+
+
               </div>
             </div>
 
@@ -2625,11 +2547,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                     <span className="text-xs font-semibold text-[#111827] uppercase tracking-wide truncate">
                       Hồ sơ Đối tác / Khách hàng (Partner Workspace)
                     </span>
-                    {selectedPartner && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE] shrink-0">
-                        {selectedPartner.defaultPairsPerCarton} đôi / thùng
-                      </span>
-                    )}
+
                   </div>
                   <div className="text-[11px] text-[#6B7280] mt-0.5 truncate sm:whitespace-normal">
                     Tự động điền thông tin hợp đồng, địa chỉ giao hàng và áp dụng quy cách đóng thùng chuẩn của đối tác
@@ -2709,21 +2627,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                     />
                   </Form.Item>
                   <Form.Item noStyle shouldUpdate={(prev, cur) => prev.invoiceNo !== cur.invoiceNo}>
-                    {({ getFieldValue }) => {
-                      const inv: string = getFieldValue('invoiceNo') ?? '';
-                      const seq = extractSequenceNumber(inv);
-                      const fileName = inv
-                        ? (seq ? formatPartnerFileName(selectedPartner?.fileNamePattern, seq) : invoiceNoToFileName(inv))
-                        : '';
-                      return fileName ? (
-                        <div className="-mt-3 mb-3 flex items-center space-x-1.5 text-xs text-blue-700">
-                          <span className="text-slate-400">→ File:</span>
-                          <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200">
-                            {fileName}
-                          </span>
-                        </div>
-                      ) : null;
-                    }}
+
                   </Form.Item>
                 </Col>
 
@@ -3308,7 +3212,6 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 <div className="inline-block align-middle ml-1">
                   <div className="text-xs font-medium text-slate-900">
                     Xuất Hàng Thành hình trước, Hàng Gò sau{' '}
-                    <Tag color="blue" className="ml-1 text-[10px]">Khuyên dùng</Tag>
                   </div>
                   <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
                     Thành hình: #{firstSeqNum} &rarr; Gò không may: #{secondSeqNum}

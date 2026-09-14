@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Drawer, Breadcrumb, Tooltip, Dropdown, Button, Tag } from 'antd';
+import { Drawer, Breadcrumb, Tooltip, Dropdown, Button } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   FileTextOutlined,
@@ -10,7 +10,6 @@ import {
   MenuOutlined,
   SafetyCertificateOutlined,
   UserOutlined,
-  CheckCircleFilled,
   AuditOutlined,
   QuestionCircleOutlined,
   RocketOutlined,
@@ -21,7 +20,7 @@ import {
 import { CheatsheetModal } from '../components/CheatsheetModal';
 import { startOnboardingTour } from '../services/tourService';
 import { useAuth } from '../contexts/AuthContext';
-import { isKhoUser, isKeToanUser, isXnkUser, isAdminUser, getDefaultTabForUser, type NavTabKey } from '../types/auth';
+import { isKhoUser, isKeToanUser, isXnkUser, getDefaultTabForUser, type NavTabKey } from '../types/auth';
 
 export type { NavTabKey };
 
@@ -319,9 +318,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         <div className="flex flex-col min-h-0 flex-1">
           {/* Sidebar Brand Header */}
           <div
-            className={`h-14 flex items-center border-b border-slate-200 shrink-0 transition-all duration-300 ${
-              isMini ? 'justify-center px-2' : 'justify-between px-4'
-            }`}
+            className={`h-14 flex items-center border-b border-slate-200 shrink-0 transition-all duration-300 ${isMini ? 'justify-center px-2' : 'justify-between px-4'
+              }`}
           >
             <div
               className="flex items-center space-x-3 cursor-pointer min-w-0"
@@ -381,25 +379,21 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                           onTabChange(item.key);
                           setMobileDrawerOpen(false);
                         }}
-                        className={`w-full flex items-center rounded-lg text-xs transition-colors cursor-pointer border-none text-left ${
-                          isMini
-                            ? 'justify-center h-10 px-0'
-                            : 'justify-between px-3 h-10'
-                        } ${
-                          isActive
+                        className={`w-full flex items-center rounded-lg text-xs transition-colors cursor-pointer border-none text-left ${isMini
+                          ? 'justify-center h-10 px-0'
+                          : 'justify-between px-3 h-10'
+                          } ${isActive
                             ? 'bg-blue-50 text-blue-700 font-semibold'
                             : 'bg-transparent text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-normal'
-                        }`}
+                          }`}
                       >
                         <div
-                          className={`flex items-center min-w-0 ${
-                            isMini ? 'justify-center w-full' : 'space-x-2.5'
-                          }`}
+                          className={`flex items-center min-w-0 ${isMini ? 'justify-center w-full' : 'space-x-2.5'
+                            }`}
                         >
                           <span
-                            className={`shrink-0 flex items-center text-sm ${
-                              isActive ? 'text-blue-600' : 'text-slate-400'
-                            }`}
+                            className={`shrink-0 flex items-center text-sm ${isActive ? 'text-blue-600' : 'text-slate-400'
+                              }`}
                           >
                             {item.icon}
                           </span>
@@ -444,9 +438,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
         {/* Sidebar Footer Info */}
         <div
-          className={`border-t border-slate-200 bg-slate-50/60 shrink-0 ${
-            isMini ? 'p-2 flex flex-col items-center' : 'p-3.5'
-          }`}
+          className={`border-t border-slate-200 bg-slate-50/60 shrink-0 ${isMini ? 'p-2 flex flex-col items-center' : 'p-3.5'
+            }`}
         >
           {isMini ? (
             <Tooltip
@@ -480,9 +473,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     <div className="flex h-screen w-full min-w-0 overflow-hidden bg-slate-50 text-slate-800 font-sans antialiased">
       {/* Desktop Sidebar */}
       <aside
-        className={`hidden lg:flex flex-col shrink-0 border-r border-slate-200 bg-white h-screen z-30 transition-all duration-300 ease-in-out ${
-          collapsed ? 'w-[72px]' : 'w-64'
-        }`}
+        className={`hidden lg:flex flex-col shrink-0 border-r border-slate-200 bg-slate-50 h-screen z-30 transition-[width] duration-150 ease-out ${collapsed ? 'w-[68px]' : 'w-60'
+          }`}
       >
         {renderSidebarContent(false)}
       </aside>
@@ -528,13 +520,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           </div>
 
           <div className="flex items-center space-x-3 shrink-0">
-            {/* System Connection Badge */}
-            <Tooltip title="Kết nối Backend API (Cổng 5270) ổn định">
-              <div className="hidden sm:flex items-center space-x-1.5 px-2 py-0.5 rounded border border-emerald-200 bg-emerald-50/80 text-[11px] font-medium text-emerald-800">
-                <CheckCircleFilled className="text-emerald-500 text-[11px]" />
-                <span>API Sẵn sàng</span>
-              </div>
-            </Tooltip>
 
             {/* Quick Onboarding / Help Menu */}
             <Dropdown
@@ -585,24 +570,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 <div className="hidden md:flex flex-col text-left leading-tight">
                   <div className="flex items-center space-x-1.5">
                     <span className="text-xs font-semibold text-slate-800">{user?.fullName || 'Người dùng'}</span>
-                    <Tag
-                      color={
-                        isKhoUser(user)
-                          ? 'green'
-                          : isXnkUser(user)
-                          ? 'blue'
-                          : isKeToanUser(user)
-                          ? 'gold'
-                          : isAdminUser(user)
-                          ? 'purple'
-                          : 'default'
-                      }
-                      className="m-0 text-[10px] leading-4 px-1.5 py-0 border-0 font-medium"
-                    >
-                      {user?.departmentName || 'Phòng ban'}
-                    </Tag>
                   </div>
-                  <span className="text-[10px] text-slate-400 font-mono">@{user?.username}</span>
+
                 </div>
               </button>
             </Dropdown>
@@ -611,7 +580,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
         {/* Page Main Content Container: independent vertical scroll */}
         <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-          <div className="p-4 sm:p-6 max-w-[1600px] w-full mx-auto space-y-6 flex-1 min-w-0">
+          <div className="p-4 sm:p-6 w-full space-y-6 flex-1 min-w-0">
             {children}
           </div>
 

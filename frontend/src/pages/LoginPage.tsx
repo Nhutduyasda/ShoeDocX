@@ -26,11 +26,11 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#F6F7F9] flex flex-col justify-center items-center p-4">
+    <div className="min-h-screen bg-[#F6F8FA] flex flex-col justify-center items-center p-4">
       <div className="w-full max-w-sm">
         {/* Header Branding */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-10 h-10 rounded-md bg-[#172033] text-white font-bold text-sm mb-3 shadow-xs">
+          <div className="inline-flex items-center justify-center w-10 h-10 rounded-md bg-[#2563EB] text-white font-semibold text-sm mb-3 shadow-xs">
             SD
           </div>
           <h1 className="text-xl font-semibold text-[#111827] tracking-tight m-0">

@@ -424,19 +424,19 @@ export const ProductMasterPage: React.FC = () => {
     : columns.filter((col) => col.key !== 'actions');
 
   return (
-    <div className="space-y-4">
+    <div className="enterprise-page">
       {/* 1. Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-slate-200 min-w-0">
+      <div className="enterprise-page-header">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold text-[#111827] tracking-tight m-0">
+          <h1 className="enterprise-page-title">
             Danh mục Hàng hóa (Master Data)
           </h1>
-          <p className="text-xs text-[#6B7280] mt-1 m-0">
+          <p className="enterprise-page-description">
             Cấu trúc phân cấp theo cây thư mục đối tác, hợp đồng, đơn giá CMT/DAP và quy cách đóng gói (12 & 24 đôi/thùng)
           </p>
         </div>
 
-        <div className="flex items-center flex-wrap gap-2 min-w-0">
+        <div className="enterprise-actions">
           {!canManageMasterData && (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#F3F4F6] text-[#4B5563] border border-[#E5E7EB]">
               Chế độ chỉ xem
@@ -560,9 +560,9 @@ export const ProductMasterPage: React.FC = () => {
       </div>
 
       {/* 2. Main 2-Column Split Workspace with Solid Dividing Border */}
-      <div className="flex flex-col lg:flex-row items-stretch w-full min-w-0 bg-white border border-[#E5E7EB] rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.05)] overflow-hidden">
+      <div className="flex flex-col lg:flex-row items-stretch w-full min-w-0 bg-white border border-slate-200 rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.05)] overflow-hidden">
         {/* Left Column: Folder Tree Panel (Width 288px / w-72) with Right Border and Padding */}
-        <div className="w-full lg:w-72 flex-shrink-0 border-b lg:border-b-0 lg:border-r border-[#E5E7EB] min-h-[600px] flex flex-col bg-white pr-0 lg:pr-4">
+        <div className="w-full lg:w-72 flex-shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 h-[340px] lg:h-auto lg:min-h-[600px] flex flex-col bg-slate-50">
           <FolderTreePanel
             treeData={treeData}
             selectedFolderId={selectedFolder ? selectedFolder.id : null}
@@ -580,9 +580,9 @@ export const ProductMasterPage: React.FC = () => {
         </div>
 
         {/* Right Column: Products Table and Toolbar (flex-1) */}
-        <div className="flex-1 min-w-0 p-3 sm:p-4 space-y-4 bg-slate-50/40 pl-0 lg:pl-4">
+        <div className="flex-1 min-w-0 p-3 sm:p-4 space-y-4 bg-slate-50/40">
           {/* Breadcrumb & Selected Folder Header */}
-          <div className="bg-white border border-[#E5E7EB] rounded-lg p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          <div className="bg-white border-b border-slate-200 px-1 pb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
             <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
               <span className="text-[#9CA3AF] text-xs shrink-0">Vị trí:</span>
               <Breadcrumb
@@ -677,7 +677,7 @@ export const ProductMasterPage: React.FC = () => {
           </div>
 
           {/* Table Container */}
-          <div className="bg-white border border-[#E5E7EB] rounded-lg p-3 space-y-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
             {/* Table Toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="w-full sm:w-80">

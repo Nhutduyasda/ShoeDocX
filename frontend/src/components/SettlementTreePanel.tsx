@@ -194,7 +194,7 @@ export const SettlementTreePanel: React.FC<SettlementTreePanelProps> = ({
           defaultExpandedKeys={['all']}
           onSelect={handleSelect}
           blockNode
-          className="text-xs settlement-archive-tree"
+          className="text-xs settlement-archive-tree enterprise-folder-tree"
         />
       </div>
 

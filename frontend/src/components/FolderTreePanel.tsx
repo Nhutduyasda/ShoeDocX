@@ -7,7 +7,10 @@ import {
   Tag,
   Tooltip,
   message,
+  Empty,
+  Modal,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import type { DataNode, TreeProps } from 'antd/es/tree';
 import {
   FolderOutlined,
@@ -81,6 +84,30 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
     }
   };
 
+  const confirmDelete = (folder: MasterDataFolder, cascade: boolean) => {
+    Modal.confirm({
+      title: cascade ? 'Xóa thư mục và toàn bộ sản phẩm?' : 'Xóa thư mục?',
+      content: cascade
+        ? `Bạn có chắc muốn xóa "${folder.name}" và toàn bộ sản phẩm bên trong không? Hành động này không thể hoàn tác.`
+        : `Bạn có chắc muốn xóa "${folder.name}" không? Sản phẩm bên trong sẽ được giữ lại.`,
+      okText: 'Xóa',
+      okType: 'danger',
+      cancelText: 'Hủy',
+      onOk: () => handleDelete(folder, cascade),
+    });
+  };
+
+  const getFolderMenu = (folder: MasterDataFolder): MenuProps => ({
+    items: [
+      { key: 'open', label: 'Mở', icon: <FolderOpenOutlined />, onClick: () => onSelectFolder(folder) },
+      { key: 'add-sub', label: 'Tạo thư mục con', icon: <PlusOutlined />, onClick: () => handleOpenCreateChild(folder) },
+      { key: 'edit', label: 'Đổi tên / Cấu hình', icon: <SettingOutlined />, onClick: () => handleOpenEdit(folder) },
+      { type: 'divider' },
+      { key: 'delete-detach', danger: true, label: 'Xóa thư mục', icon: <DeleteOutlined />, onClick: () => confirmDelete(folder, false) },
+      { key: 'delete-cascade', danger: true, label: 'Xóa thư mục và sản phẩm', icon: <DeleteOutlined />, onClick: () => confirmDelete(folder, true) },
+    ],
+  });
+
   // Kéo thả di chuyển thư mục
   const onDrop: TreeProps['onDrop'] = async (info) => {
     const dropKey = Number(info.node.key);
@@ -121,20 +148,15 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
 
   // Render từng Node trong cây
   const convertToTreeNodes = (folders: MasterDataFolder[]): DataNode[] => {
+    const keyword = searchKeyword.trim().toLocaleLowerCase('vi');
+    const containsMatch = (folder: MasterDataFolder): boolean =>
+      !keyword ||
+      folder.name.toLocaleLowerCase('vi').includes(keyword) ||
+      Boolean(folder.customerName?.toLocaleLowerCase('vi').includes(keyword)) ||
+      Boolean(folder.children?.some(containsMatch));
+
     return folders
-      .filter((f) => {
-        if (!searchKeyword.trim()) return true;
-        const kw = searchKeyword.toLowerCase();
-        const matchSelf =
-          f.name.toLowerCase().includes(kw) ||
-          (f.customerName && f.customerName.toLowerCase().includes(kw));
-        const matchChild = f.children?.some(
-          (c) =>
-            c.name.toLowerCase().includes(kw) ||
-            (c.customerName && c.customerName.toLowerCase().includes(kw))
-        );
-        return matchSelf || matchChild;
-      })
+      .filter(containsMatch)
       .map((folder) => {
         const isSelected = selectedFolderId === folder.id;
         const count = folder.totalProductCount;
@@ -143,11 +165,8 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
         return {
           key: folder.id,
           title: (
-            <div
-              className={`flex items-center justify-between group py-1 px-1.5 rounded transition-colors gap-1.5 w-full min-w-0 ${
-                isSelected ? 'bg-blue-50 text-blue-700 font-semibold' : 'hover:bg-slate-100 text-slate-700'
-              }`}
-            >
+            <Dropdown menu={getFolderMenu(folder)} trigger={canManage ? ['contextMenu'] : []}>
+            <div className={`flex items-center justify-between group gap-1.5 w-full min-w-0 ${isSelected ? 'font-semibold' : 'font-normal'}`}>
               <div className="flex items-center space-x-1.5 min-w-0 flex-1 overflow-hidden">
                 <Tooltip
                   title={folder.customerName ? `${folder.name} (${folder.customerName})` : folder.name}
@@ -177,39 +196,7 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
                 {/* Dropdown menu thao tác trên thư mục */}
                 {canManage && (
                   <Dropdown
-                    menu={{
-                      items: [
-                        {
-                          key: 'add-sub',
-                          label: 'Thêm thư mục con',
-                          icon: <PlusOutlined />,
-                          onClick: () => handleOpenCreateChild(folder),
-                        },
-                        {
-                          key: 'edit',
-                          label: 'Cấu hình quy cách / Đổi tên',
-                          icon: <SettingOutlined />,
-                          onClick: () => handleOpenEdit(folder),
-                        },
-                        {
-                          type: 'divider',
-                        },
-                        {
-                          key: 'delete-detach',
-                          danger: true,
-                          label: 'Xóa thư mục (Giữ lại sản phẩm)',
-                          icon: <DeleteOutlined />,
-                          onClick: () => handleDelete(folder, false),
-                        },
-                        {
-                          key: 'delete-cascade',
-                          danger: true,
-                          label: 'Xóa toàn bộ (Xóa cả sản phẩm)',
-                          icon: <DeleteOutlined />,
-                          onClick: () => handleDelete(folder, true),
-                        },
-                      ],
-                    }}
+                    menu={getFolderMenu(folder)}
                     trigger={['click']}
                   >
                     <Button
@@ -224,6 +211,7 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
                 )}
               </div>
             </div>
+            </Dropdown>
           ),
           children: folder.children ? convertToTreeNodes(folder.children) : [],
         };
@@ -233,11 +221,11 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
   return (
     <div className="flex flex-col h-full bg-white w-full select-none">
       {/* Header Panel */}
-      <div className="p-3 border-b border-slate-100 flex items-center justify-between">
+      <div className="p-3 border-b border-slate-200 flex items-center justify-between bg-slate-50">
         <div className="flex items-center space-x-2">
           <FolderOutlined className="text-blue-600 text-sm" />
           <span className="font-semibold text-xs text-slate-800 tracking-wide uppercase">
-            Thư mục Master Data
+            Thư mục
           </span>
         </div>
         {canManage && (
@@ -249,7 +237,7 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
               onClick={handleOpenCreateRoot}
               className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs h-7 px-2 shadow-xs"
             >
-              Tạo mới
+              Tạo thư mục
             </Button>
           </Tooltip>
         )}
@@ -333,13 +321,17 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
         `}</style>
         {treeData.length === 0 ? (
           <div className="text-center py-6 text-xs text-slate-400">
-            Chưa có thư mục nào. Nhấn "Tạo mới" để bắt đầu.
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={<span className="text-xs">Chưa có thư mục. Hãy tạo thư mục để bắt đầu.</span>}
+            />
           </div>
         ) : (
           <Tree
-            className="folder-tree-custom"
+            className="folder-tree-custom enterprise-folder-tree"
             draggable={canManage}
             blockNode
+            showIcon
             defaultExpandAll
             onDrop={canManage ? onDrop : undefined}
             selectedKeys={selectedFolderId !== null ? [selectedFolderId] : []}

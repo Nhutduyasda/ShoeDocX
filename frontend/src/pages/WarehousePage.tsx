@@ -1028,12 +1028,12 @@ export const WarehousePage: React.FC = () => {
   }, [handleSaveDraft]);
 
   return (
-    <div className="space-y-6 max-w-[1550px] mx-auto pb-12" onPaste={handleGridPaste}>
+    <div className="enterprise-page pb-8" onPaste={handleGridPaste}>
       {/* 1. Page Header (Đồng bộ chuẩn phong cách giao diện ShoeDocX) */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-slate-200">
+      <div className="enterprise-page-header">
         <div className="min-w-0 flex-1">
           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
+            <h1 className="enterprise-page-title">
               Lưới xuất kho thành phẩm (成品鞋出货交接单)
             </h1>
             {status === 'Draft' && (
@@ -1052,13 +1052,13 @@ export const WarehousePage: React.FC = () => {
               </Tag>
             )}
           </div>
-          <p className="text-sm text-slate-500 mt-1 m-0">
+          <p className="enterprise-page-description">
             Thủ kho: <strong className="text-slate-700 font-semibold">{user?.fullName || 'Thủ kho'}</strong> • Nhập liệu nhanh bằng phím Enter • Tự động tô màu Gò không may • Bàn giao 1-click cho XNK
           </p>
         </div>
 
         {/* Thanh nút bấm chức năng */}
-        <div className="flex items-center flex-wrap gap-2 min-w-0">
+        <div className="enterprise-actions">
           <Button
             icon={<HistoryOutlined className="text-xs" />}
             onClick={() => {
@@ -1186,7 +1186,7 @@ export const WarehousePage: React.FC = () => {
 
 
       {/* 2. Card Thông tin đợt xuất (Clean Enterprise White Card) */}
-      <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4 shadow-sm">
+      <div className="enterprise-panel p-5 space-y-4">
         <div className="text-xs font-semibold text-slate-800 uppercase tracking-wider pb-2 border-b border-slate-100 flex items-center justify-between">
           <span>1. Thông tin đợt xuất hàng (轮次与合同信息)</span>
           <span className="text-[11px] text-slate-400 font-normal">

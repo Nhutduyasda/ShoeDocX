@@ -16,21 +16,21 @@ export const tokens = {
   colorPrimaryBorder: '#BFDBFE',
 
   // Neutrals & Surfaces
-  pageBg: '#F6F7F9',
+  pageBg: '#F6F8FA',
   surface: '#FFFFFF',
-  surfaceSecondary: '#F9FAFB',
-  surfaceHover: '#F1F5F9',
+  surfaceSecondary: '#F8FAFC',
+  surfaceHover: '#F8FAFC',
   surfaceActive: '#E2E8F0',
 
   // Borders
-  border: '#E5E7EB',
-  borderStrong: '#D1D5DB',
+  border: '#E2E8F0',
+  borderStrong: '#CBD5E1',
   borderLight: '#F3F4F6',
 
   // Text Hierarchy
-  textPrimary: '#111827',
-  textSecondary: '#4B5563',
-  textMuted: '#6B7280',
+  textPrimary: '#1F2937',
+  textSecondary: '#64748B',
+  textMuted: '#94A3B8',
   textDisabled: '#9CA3AF',
   textInverse: '#FFFFFF',
 
@@ -55,11 +55,11 @@ export const tokens = {
   infoBorder: '#BFDBFE',
 
   // Sidebar
-  sidebarBg: '#172033',
-  sidebarBorder: 'rgba(255, 255, 255, 0.08)',
-  sidebarText: '#94A3B8',
-  sidebarTextActive: '#FFFFFF',
-  sidebarItemActiveBg: 'rgba(255, 255, 255, 0.08)',
+  sidebarBg: '#F8FAFC',
+  sidebarBorder: '#E2E8F0',
+  sidebarText: '#64748B',
+  sidebarTextActive: '#1D4ED8',
+  sidebarItemActiveBg: '#EFF6FF',
 
   // Radii
   radiusXs: 4, // badges, tags
@@ -72,7 +72,7 @@ export const tokens = {
   shadowDropdown: '0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05)',
 
   // Layout Dimensions
-  sidebarWidth: 250,
+  sidebarWidth: 240,
   sidebarCollapsedWidth: 68,
   headerHeight: 56,
   contentMaxWidth: '100%',

@@ -825,12 +825,12 @@ export const CustomsSettlementPage: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="enterprise-page">
       {/* Top Main Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-slate-200">
+      <div className="enterprise-page-header">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
+            <h1 className="enterprise-page-title">
               Quyết toán Hải quan & Thống kê Phân tích Kim ngạch
             </h1>
             <Tag className="bg-blue-50 text-blue-700 border-blue-200 text-xs m-0">
@@ -847,13 +847,13 @@ export const CustomsSettlementPage: React.FC = () => {
               </span>
             )}
           </div>
-          <p className="text-xs text-[#6B7280] mt-1 m-0">
+          <p className="enterprise-page-description">
             Tự động tổng hợp số liệu xuất khẩu gia công (E52) từ các đơn hàng Đã thông quan, xuất Excel đối chiếu nội bộ và phân tích doanh thu CMT/DAP
           </p>
         </div>
 
         {/* Global Toolbar Action Buttons */}
-        <div className="flex items-center flex-wrap gap-2 min-w-0">
+        <div className="enterprise-actions">
           <Button
             icon={<HistoryOutlined />}
             onClick={() => {
@@ -934,7 +934,7 @@ export const CustomsSettlementPage: React.FC = () => {
                 {/* Nội dung chính phân hệ quyết toán */}
                 <div className="flex-1 min-w-0 space-y-5 w-full">
                   {/* Filter Toolbar */}
-                <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                <div className="enterprise-toolbar">
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
                     {/* Year selector */}
                     <div className="md:col-span-2">

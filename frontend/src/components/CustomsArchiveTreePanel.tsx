@@ -1,15 +1,13 @@
 import React, { useMemo } from 'react';
-import { Tree, Badge } from 'antd';
+import { Tree } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import {
   FolderOpenOutlined,
+  FolderOutlined,
   ClockCircleOutlined,
   CheckCircleFilled,
   WarningFilled,
   CloseCircleFilled,
-  BankOutlined,
-  CalendarOutlined,
-  FileTextOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { SavedShipmentSummary, MasterDataFolder } from '../types';
@@ -32,6 +30,26 @@ interface CustomsArchiveTreePanelProps {
   selectedKey: string;
   onSelectNode: (key: string, filter: CustomsTreeFilter) => void;
 }
+
+const TreeRow: React.FC<{
+  label: string;
+  count: number;
+  emphasis?: boolean;
+}> = ({ label, count, emphasis = false }) => {
+  return (
+    <div className="flex h-9 min-w-0 w-full items-center gap-2 pr-2">
+      <span
+        className={`min-w-0 flex-1 truncate text-[13px] ${emphasis ? 'font-semibold text-slate-800' : 'font-normal text-slate-700'}`}
+        title={label}
+      >
+        {label}
+      </span>
+      <span className={`ml-2 min-w-5 shrink-0 text-right font-mono text-xs tabular-nums ${count === 0 ? 'text-slate-300' : 'text-slate-400'}`}>
+        {count}
+      </span>
+    </div>
+  );
+};
 
 export const CustomsArchiveTreePanel: React.FC<CustomsArchiveTreePanelProps> = ({
   shipments,
@@ -228,46 +246,26 @@ export const CustomsArchiveTreePanel: React.FC<CustomsArchiveTreePanelProps> = (
             {
               key: greenKey,
               icon: <CheckCircleFilled className="text-emerald-500 text-[11px]" />,
-              title: (
-                <div className="flex items-center justify-between py-0.5 pr-1 text-xs text-emerald-800">
-                  <span>Luồng 1 (Xanh) - Đã thông quan</span>
-                  <span className="font-mono text-emerald-700 font-semibold ml-2">{greenCount}</span>
-                </div>
-              ),
+              title: <TreeRow label="Luồng 1 (Xanh) · Đã thông quan" count={greenCount} />,
             },
             {
               key: yellowKey,
               icon: <WarningFilled className="text-amber-500 text-[11px]" />,
-              title: (
-                <div className="flex items-center justify-between py-0.5 pr-1 text-xs text-amber-800">
-                  <span>Luồng 2 (Vàng) - Kiểm tra hồ sơ</span>
-                  <span className="font-mono text-amber-700 font-semibold ml-2">{yellowCount}</span>
-                </div>
-              ),
+              title: <TreeRow label="Luồng 2 (Vàng) · Kiểm tra hồ sơ" count={yellowCount} />,
             },
             ...(redCount > 0
               ? [
                   {
                     key: redKey,
                     icon: <CloseCircleFilled className="text-rose-500 text-[11px]" />,
-                    title: (
-                      <div className="flex items-center justify-between py-0.5 pr-1 text-xs text-rose-800">
-                        <span>Luồng 3 (Đỏ) - Kiểm hóa</span>
-                        <span className="font-mono text-rose-700 font-semibold ml-2">{redCount}</span>
-                      </div>
-                    ),
+                    title: <TreeRow label="Luồng 3 (Đỏ) · Kiểm hóa" count={redCount} />,
                   },
                 ]
               : []),
             {
               key: pendingKey,
               icon: <ClockCircleOutlined className="text-slate-400 text-[11px]" />,
-              title: (
-                <div className="flex items-center justify-between py-0.5 pr-1 text-xs text-slate-600">
-                  <span>Chờ đối soát</span>
-                  <span className="font-mono text-slate-500 ml-2">{pendingCount}</span>
-                </div>
-              ),
+              title: <TreeRow label="Chờ đối soát" count={pendingCount} />,
             },
           ];
 
@@ -285,17 +283,8 @@ export const CustomsArchiveTreePanel: React.FC<CustomsArchiveTreePanelProps> = (
           // Cấp 3: Số Hợp đồng
           contractNodes.push({
             key: contractKey,
-            icon: <FileTextOutlined className="text-amber-500 text-xs" />,
-            title: (
-              <div className="flex items-center justify-between py-0.5 pr-1 text-xs text-slate-700">
-                <span className="truncate max-w-[145px]" title={contractTitle}>
-                  {contractTitle}
-                </span>
-                <span className="text-[10px] font-mono px-1 rounded bg-slate-100 text-slate-600 ml-1">
-                  {contractTotal}
-                </span>
-              </div>
-            ),
+            icon: <FolderOutlined />,
+            title: <TreeRow label={contractTitle} count={contractTotal} />,
             children: channelNodes,
           });
         });
@@ -313,15 +302,8 @@ export const CustomsArchiveTreePanel: React.FC<CustomsArchiveTreePanelProps> = (
         // Cấp 2: Năm xuất hàng
         yearNodes.push({
           key: yearKey,
-          icon: <CalendarOutlined className="text-indigo-500 text-xs" />,
-          title: (
-            <div className="flex items-center justify-between py-0.5 pr-1 text-xs text-slate-700 font-medium">
-              <span>Năm {year}</span>
-              <span className="text-[10px] font-mono px-1 rounded bg-slate-100 text-slate-600 ml-1">
-                {yearTotalCount}
-              </span>
-            </div>
-          ),
+          icon: <FolderOutlined />,
+          title: <TreeRow label={`Năm ${year}`} count={yearTotalCount} />,
           children: contractNodes,
         });
       });
@@ -337,17 +319,8 @@ export const CustomsArchiveTreePanel: React.FC<CustomsArchiveTreePanelProps> = (
       // Cấp 1: Đối tác / Khách hàng
       partnerNodes.push({
         key: pKey,
-        icon: <BankOutlined className="text-blue-600 text-xs" />,
-        title: (
-          <div className="flex items-center justify-between py-0.5 pr-1 text-xs font-semibold text-slate-800">
-            <span className="truncate max-w-[140px]" title={bucket.partnerTitle}>
-              {bucket.partnerTitle}
-            </span>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-blue-50 text-blue-700 ml-1">
-              {partnerTotalCount}
-            </span>
-          </div>
-        ),
+        icon: <FolderOutlined />,
+        title: <TreeRow label={bucket.partnerTitle} count={partnerTotalCount} emphasis />,
         children: yearNodes,
       });
     });
@@ -356,12 +329,7 @@ export const CustomsArchiveTreePanel: React.FC<CustomsArchiveTreePanelProps> = (
     const rootNode: DataNode = {
       key: 'all',
       icon: <FolderOpenOutlined className="text-amber-500 text-sm" />,
-      title: (
-        <div className="flex items-center justify-between py-1 pr-1 font-bold text-slate-800 text-xs">
-          <span>Tất cả hồ sơ tờ khai</span>
-          <Badge count={shipments.length} overflowCount={9999} className="site-badge-count-4 ml-1" />
-        </div>
-      ),
+      title: <TreeRow label="Tất cả hồ sơ tờ khai" count={shipments.length} emphasis />,
       children: partnerNodes,
     };
 
@@ -381,8 +349,8 @@ export const CustomsArchiveTreePanel: React.FC<CustomsArchiveTreePanelProps> = (
   };
 
   return (
-    <aside className="w-80 shrink-0 border-r border-slate-200 bg-slate-50/70 p-3 flex flex-col space-y-3 select-none">
-      <div className="flex items-center justify-between">
+    <aside className="w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 flex flex-col select-none min-w-0">
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-3">
         <div className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
           <FolderOpenOutlined className="text-blue-600" />
           <span>Lưu trữ Hồ sơ Hải quan</span>
@@ -392,11 +360,11 @@ export const CustomsArchiveTreePanel: React.FC<CustomsArchiveTreePanelProps> = (
         </span>
       </div>
 
-      <div className="text-[11px] text-slate-500 leading-tight">
+      <div className="px-3 py-2 text-[11px] text-slate-500 leading-5 border-b border-slate-200 bg-white">
         Phân cấp: <strong>Đối tác → Năm → Hợp đồng → Luồng xử lý VNACCS</strong>.
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-white p-2 rounded-lg border border-slate-200/80 shadow-xs min-h-[480px]">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-white p-2 min-h-[360px] lg:min-h-[520px]">
         <Tree
           showIcon
           treeData={treeData}
@@ -404,31 +372,10 @@ export const CustomsArchiveTreePanel: React.FC<CustomsArchiveTreePanelProps> = (
           defaultExpandedKeys={defaultExpandedKeys}
           onSelect={handleSelect}
           blockNode
-          className="text-xs customs-archive-tree"
+          className="text-xs customs-archive-tree enterprise-folder-tree"
         />
       </div>
 
-      <div className="p-2.5 rounded-lg bg-blue-50/80 border border-blue-200/60 text-[11px] text-blue-900 space-y-1">
-        <div className="font-semibold flex items-center gap-1">
-          <span>💡 Phân luồng tờ khai:</span>
-        </div>
-        <div className="flex items-center gap-1 text-[11px]">
-          <CheckCircleFilled className="text-emerald-500 text-[10px]" />
-          <span><strong>Luồng 1 (Xanh)</strong>: Miễn kiểm tra chứng từ & hàng hóa.</span>
-        </div>
-        <div className="flex items-center gap-1 text-[11px]">
-          <WarningFilled className="text-amber-500 text-[10px]" />
-          <span><strong>Luồng 2 (Vàng)</strong>: Kiểm tra hồ sơ chứng từ điện tử.</span>
-        </div>
-        <div className="flex items-center gap-1 text-[11px]">
-          <CloseCircleFilled className="text-rose-500 text-[10px]" />
-          <span><strong>Luồng 3 (Đỏ)</strong>: Kiểm tra thực tế hàng hóa xuất khẩu.</span>
-        </div>
-        <div className="flex items-center gap-1 text-[11px]">
-          <ClockCircleOutlined className="text-slate-400 text-[10px]" />
-          <span><strong>Chờ đối soát</strong>: Chưa có tờ khai hải quan VNACCS.</span>
-        </div>
-      </div>
     </aside>
   );
 };

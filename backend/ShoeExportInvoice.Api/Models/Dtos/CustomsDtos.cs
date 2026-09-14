@@ -126,3 +126,74 @@ public class ConfirmCustomsSyncRequestDto
     public bool IsFullyMatched { get; set; }
     public Microsoft.AspNetCore.Http.IFormFile? CustomsFile { get; set; }
 }
+
+/// <summary>
+/// Node trong Cây Thư Mục Lưu Trữ Hồ Sơ Hải Quan
+/// Cấu trúc phân cấp: Root -> Đối tác -> Năm -> Hợp đồng -> Luồng xử lý / Chờ đối soát
+/// </summary>
+public class CustomsArchiveTreeNodeDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public int? PartnerFolderId { get; set; }
+    public string? PartnerName { get; set; }
+    public int? Year { get; set; }
+    public string? ContractNo { get; set; }
+    public string? FilterType { get; set; } // "Green", "Yellow", "Red", "Pending", "Contract", "Year", "Partner", "All"
+    public int? Channel { get; set; }
+    public string? CustomsStatus { get; set; }
+    public List<CustomsArchiveTreeNodeDto> Children { get; set; } = new();
+}
+
+/// <summary>
+/// Bộ lọc danh sách hồ sơ tờ khai hải quan (GET /api/customs/declarations)
+/// </summary>
+public class CustomsDeclarationFilterDto
+{
+    public int? PartnerFolderId { get; set; }
+    public int? Year { get; set; }
+    public string? ContractNo { get; set; }
+    public string? CustomsStatus { get; set; } // "Pending", "Cleared"
+    public int? Channel { get; set; } // 1, 2, 3
+    public string? Keyword { get; set; }
+}
+
+/// <summary>
+/// DTO tóm tắt thông tin hồ sơ tờ khai cho danh sách và bảng hiển thị
+/// </summary>
+public class CustomsDeclarationSummaryDto
+{
+    public int Id { get; set; }
+    public string InvoiceNo { get; set; } = string.Empty;
+    public DateTime InvoiceDate { get; set; }
+    public string? PoSuffix { get; set; }
+    public int? ContractFolderId { get; set; }
+    public string? ContractNo { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
+    public string? DeliveryTerms { get; set; }
+    public string? PaymentTerms { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int Status { get; set; }
+    public string StatusName { get; set; } = string.Empty;
+    public string? DeclarationNo { get; set; }
+    public DateTime? ClearanceDate { get; set; }
+    public string? CustomsDeclarationType { get; set; }
+    public int? CustomsChannel { get; set; }
+    public string? CustomsOffice { get; set; }
+    public int? CustomsPackageQty { get; set; }
+    public decimal? CustomsGrossWeight { get; set; }
+    public decimal? CustomsTotalDap { get; set; }
+    public decimal? CustomsTotalCmt { get; set; }
+    public string? CustomsAttachmentFileName { get; set; }
+    public string? CustomsAttachmentFilePath { get; set; }
+    public bool HasCustomsAttachment { get; set; }
+    public bool IsLocked { get; set; }
+    public int ItemCount { get; set; }
+    public int TotalQuantity { get; set; }
+    public decimal TotalAmountCMT { get; set; }
+    public decimal TotalAmountDAP { get; set; }
+    public int TotalCartons { get; set; }
+}
+
+

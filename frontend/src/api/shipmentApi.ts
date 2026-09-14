@@ -1,9 +1,11 @@
 import { apiClient } from './client';
 import type {
   CreateShipmentRequest,
+  DocumentPreviewResponse,
   PklPreviewResponse,
   ShipmentOrder,
   SavedShipmentSummary,
+  ShipmentUnlockAudit,
   ExportSummary,
   SequenceInfo,
 } from '../types';
@@ -18,6 +20,12 @@ export interface ExportResult {
 }
 
 export const shipmentApi = {
+  // Xem trước đầy đủ chứng từ xuất khẩu (Commercial Invoice & Packing List)
+  previewDocument: async (request: CreateShipmentRequest): Promise<DocumentPreviewResponse> => {
+    const response = await apiClient.post<DocumentPreviewResponse>('/shipments/preview-document', request);
+    return response.data;
+  },
+
   // Xem trước phân rã kiện đóng gói PKL (thùng chẵn/lẻ, dải số kiện, trọng lượng)
   previewPkl: async (request: CreateShipmentRequest): Promise<PklPreviewResponse> => {
     const response = await apiClient.post<PklPreviewResponse>('/shipments/preview-pkl', request);
@@ -69,6 +77,11 @@ export const shipmentApi = {
     await apiClient.post(`/shipments/${id}/unlock-cleared`, { reason });
   },
 
+  getUnlockAudits: async (id: number): Promise<ShipmentUnlockAudit[]> => {
+    const response = await apiClient.get<ShipmentUnlockAudit[]>(`/shipments/${id}/unlock-audits`);
+    return response.data;
+  },
+
   // Lấy danh sách lịch sử các đơn hàng đã tạo
   getShipments: async (): Promise<SavedShipmentSummary[]> => {
     const response = await apiClient.get<SavedShipmentSummary[]>('/shipments');
@@ -100,6 +113,19 @@ export const shipmentApi = {
   /** Ghi đè số thứ tự bắt đầu. Lần xuất tiếp theo sẽ dùng nextNumber này. */
   setSequence: async (nextNumber: number): Promise<SequenceInfo> => {
     const response = await apiClient.put<SequenceInfo>('/shipments/sequence', { nextNumber });
+    return response.data;
+  },
+
+  deleteShipment: async (id: number): Promise<void> => {
+    await apiClient.delete(`/shipments/${id}`);
+  },
+
+  deleteAllShipments: async (): Promise<void> => {
+    await apiClient.delete('/shipments/all?includeCleared=true');
+  },
+
+  getBatchPrintData: async (shipmentIds: number[], documentType: string = 'ALL'): Promise<{ documentType: string; documents: DocumentPreviewResponse[] }> => {
+    const response = await apiClient.post('/shipments/batch-print-data', { shipmentIds, documentType });
     return response.data;
   },
 };

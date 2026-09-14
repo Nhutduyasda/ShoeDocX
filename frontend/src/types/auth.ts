@@ -35,8 +35,8 @@ export const isAdminUser = (user?: User | null): boolean => {
 };
 
 export const canUnlockClearedShipment = (user?: User | null): boolean => {
-  if (isAdminUser(user)) return true;
   if (!user) return false;
+  if (isAdminUser(user) || isXnkUser(user)) return true;
   return String(user.department).toLowerCase() === 'xnkmanager'
     || (user.department as unknown) === 4
     || user.departmentName?.toLowerCase().includes('trưởng phòng xnk')

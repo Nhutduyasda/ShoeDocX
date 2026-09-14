@@ -318,6 +318,50 @@ export interface PklPreviewResponse {
   breakdownItems: PklBreakdownItem[];
 }
 
+export interface InvoicePreviewItem {
+  lineNo: number;
+  styleCode: string;
+  fullItemCode: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPriceCMT: number;
+  unitPriceDAP: number;
+  amountCMT: number;
+  amountDAP: number;
+  cartonCount: number;
+  pairsPerCarton: number;
+  processType: ProcessType;
+}
+
+export interface InvoicePreview {
+  sellerName: string;
+  sellerAddress: string;
+  sellerAddressLine1: string;
+  sellerAddressLine2: string;
+  buyerName: string;
+  buyerAddress: string;
+  buyerAddressLine1: string;
+  buyerAddressLine2: string;
+  invoiceNo: string;
+  invoiceDate: string;
+  contractNo: string;
+  deliveryTerms: string;
+  paymentTerms: string;
+  destinationCountry: string;
+  poSuffix: string;
+  items: InvoicePreviewItem[];
+  totalQuantity: number;
+  totalAmountCMT: number;
+  totalAmountDAP: number;
+  totalAmountDAPInWords: string;
+}
+
+export interface DocumentPreviewResponse {
+  invoice: InvoicePreview;
+  packingList: PklPreviewResponse;
+}
+
 export interface SavedShipmentSummary {
   id: number;
   invoiceNo: string;
@@ -348,6 +392,16 @@ export interface SavedShipmentSummary {
   isLocked?: boolean;
   status: ShipmentStatus;
   statusName?: string;
+}
+
+export interface ShipmentUnlockAudit {
+  id: number;
+  shipmentOrderId: number;
+  reason: string;
+  previousStatus: ShipmentStatus;
+  unlockedByUserId?: string | null;
+  unlockedByUserName?: string | null;
+  unlockedAt: string;
 }
 
 export interface OcrItem {

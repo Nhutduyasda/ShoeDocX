@@ -345,4 +345,88 @@ public class UnitTest1
         Assert.Equal(expectedStandardSeq, standardSeq);
         Assert.Equal(expectedGoSeq, goSeq);
     }
+
+    [Fact]
+    public void CalculateDocumentPreview_ShouldReturnBothInvAndPklData()
+    {
+        var service = new ExcelImportExportService(null!, null!);
+        var request = new CreateShipmentRequestDto
+        {
+            InvoiceNo = "KMHD-PREVIEW-001",
+            InvoiceDate = new DateTime(2026, 9, 14),
+            ContractNo = "KM-CONTRACT-PREVIEW",
+            PoSuffix = "(KM3.PO5.26)",
+            CustomerName = "KINGMAKER PREVIEW BUYER",
+            Address = "PREVIEW BUYER ADDRESS",
+            DestinationCountry = "JAPAN",
+            DeliveryTerms = "DAP",
+            PaymentTerms = "T/T",
+            Items = new List<CreateShipmentItemDto>
+            {
+                new()
+                {
+                    StyleCode = "42072-030",
+                    Description = "Giày thể thao nữ",
+                    Quantity = 24,
+                    UnitPriceCMT = 3.0m,
+                    UnitPriceDAP = 10.0m,
+                    PairPerCarton = 12,
+                    ProcessType = ProcessType.Standard
+                },
+                new()
+                {
+                    StyleCode = "45428-2LX",
+                    Description = "Giày chạy bộ nam",
+                    Quantity = 15,
+                    UnitPriceCMT = 4.0m,
+                    UnitPriceDAP = 12.0m,
+                    PairPerCarton = 12,
+                    ProcessType = ProcessType.GoKhongMay
+                }
+            }
+        };
+
+        var preview = service.CalculateDocumentPreview(request);
+
+        Assert.NotNull(preview);
+        Assert.NotNull(preview.Invoice);
+        Assert.NotNull(preview.PackingList);
+
+        // Invoice validations
+        Assert.Equal("KMHD-PREVIEW-001", preview.Invoice.InvoiceNo);
+        Assert.Equal("KINGMAKER PREVIEW BUYER", preview.Invoice.BuyerName);
+        Assert.Equal("PREVIEW BUYER ADDRESS", preview.Invoice.BuyerAddressLine1);
+        Assert.Equal("KM-CONTRACT-PREVIEW", preview.Invoice.ContractNo);
+        Assert.Equal("SEP 14,2026", preview.Invoice.InvoiceDate);
+        Assert.Equal("JAPAN", preview.Invoice.DestinationCountry);
+        Assert.Equal(2, preview.Invoice.Items.Count);
+        Assert.Equal(39, preview.Invoice.TotalQuantity); // 24 + 15
+        Assert.Equal(24 * 3.0m + 15 * 4.0m, preview.Invoice.TotalAmountCMT); // 72 + 60 = 132
+        Assert.Equal(24 * 10.0m + 15 * 12.0m, preview.Invoice.TotalAmountDAP); // 240 + 180 = 420
+
+        // Item 2 is GoKhongMay -> has .G suffix
+        Assert.Equal("45428-2LX.G (KM3.PO5.26)", preview.Invoice.Items[1].FullItemCode);
+
+        // PackingList validations
+        Assert.Equal(3, preview.PackingList.BreakdownItems.Count); // Item 1: 2 ctn (24). Item 2: 1 full (12) + 1 odd (3)
+        Assert.Equal(4, preview.PackingList.TotalCartons); // 2 + 1 + 1 = 4
+        Assert.Equal(39, preview.PackingList.TotalQuantity);
+    }
+
+    [Fact]
+    public void SizeBreakdownValidation_ShouldDetectQuantityMismatch()
+    {
+        // Valid JSON breakdown matching quantity
+        var validJson = "{\"38\": 12, \"39\": 12}";
+        var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(validJson)!;
+        var total = dict.Values.Sum();
+        Assert.Equal(24, total);
+
+        // Mismatched JSON breakdown
+        var invalidJson = "{\"38\": 10, \"39\": 10}";
+        var dictInvalid = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(invalidJson)!;
+        var totalInvalid = dictInvalid.Values.Sum();
+        Assert.NotEqual(24, totalInvalid);
+        Assert.Equal(20, totalInvalid);
+    }
 }

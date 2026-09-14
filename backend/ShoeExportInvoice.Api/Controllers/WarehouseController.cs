@@ -147,6 +147,33 @@ public class WarehouseController : ControllerBase
             return BadRequest(new { message = "Lô hàng phải có ít nhất 1 dòng mã giày." });
         }
 
+        // Chốt chặn an toàn: Kiểm tra khớp số lượng Size Breakdown nếu có
+        var sizeErrors = new List<string>();
+        int itemIdx = 0;
+        foreach (var item in request.Items)
+        {
+            itemIdx++;
+            if (string.IsNullOrWhiteSpace(item.SizeBreakdownJson)) continue;
+            try
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(item.SizeBreakdownJson);
+                if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) throw new System.Text.Json.JsonException();
+                var total = document.RootElement.EnumerateObject().Sum(p => p.Value.ValueKind == System.Text.Json.JsonValueKind.Number && p.Value.TryGetInt32(out var q) && q >= 0 ? q : throw new System.Text.Json.JsonException());
+                if (total != item.Quantity)
+                {
+                    sizeErrors.Add($"Dòng {itemIdx} - mã {item.StyleCode}: tổng Size Breakdown là {total} đôi, nhưng số lượng là {item.Quantity} đôi.");
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                sizeErrors.Add($"Dòng {itemIdx} - mã {item.StyleCode}: SizeBreakdownJson không đúng định dạng JSON.");
+            }
+        }
+        if (sizeErrors.Count > 0)
+        {
+            return BadRequest(new { message = string.Join(" ", sizeErrors) });
+        }
+
         // Lấy danh sách mã giày cần kiểm tra (bao gồm cả mã bỏ đuôi .G)
         var rawCodes = request.Items
             .Select(i => (i.StyleCode ?? string.Empty).Trim())

@@ -388,6 +388,15 @@ a:focus-visible {
 /* Allow page headers and controls to wrap while tables keep their own horizontal scroll. */
 .ant-table-wrapper, .ant-tabs, .ant-tabs-content-holder, main { min-width: 0; max-width: 100%; }
 .ant-modal { max-width: calc(100vw - 24px); }
+
+.batch-a4-page, .print-page-document { width: 210mm; min-height: 297mm; box-sizing: border-box; break-after: page; page-break-after: always; }
+.batch-a4-page:last-child, .print-page-document:last-child { break-after: auto; page-break-after: auto; }
+@media print {
+  @page { size: A4 portrait; margin: 0; }
+  .batch-a4-page, .print-page-document { page-break-after: always !important; break-after: page !important; width: 100%; box-sizing: border-box; padding: 12mm 10mm; margin: 0; box-shadow: none; }
+  .batch-a4-page:last-child, .print-page-document:last-child { page-break-after: auto !important; break-after: auto !important; }
+  .batch-a4-page tr { break-inside: avoid; page-break-inside: avoid; }
+}
 @media (max-width: 767px) {
   main .justify-between { flex-wrap: wrap; gap: 0.5rem; }
   main .ant-space { flex-wrap: wrap; }

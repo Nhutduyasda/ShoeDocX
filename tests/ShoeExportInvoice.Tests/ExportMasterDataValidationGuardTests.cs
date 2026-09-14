@@ -40,6 +40,7 @@ public class FakeExcelService : IExcelImportExportService
     public Task<byte[]> ExportProductMastersToExcelAsync() => Task.FromResult(Array.Empty<byte>());
     public Task<byte[]> ExportShipmentToExcelAsync(ShipmentExportModel model) => Task.FromResult(Array.Empty<byte>());
     public PklPreviewResponseDto CalculatePklBreakdown(CreateShipmentRequestDto request) => new();
+    public DocumentPreviewResponseDto CalculateDocumentPreview(CreateShipmentRequestDto request) => new();
     public Task<byte[]> ExportShipmentMultiSheetExcelAsync(CreateShipmentRequestDto request)
     {
         ExportCallCount++;

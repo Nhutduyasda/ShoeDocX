@@ -2,7 +2,32 @@ import { apiClient } from './client';
 import type {
   CustomsReconciliationResult,
   ConfirmCustomsSyncRequest,
+  SavedShipmentSummary,
 } from '../types';
+
+export interface CustomsArchiveTreeNode {
+  key: string;
+  title: string;
+  count: number;
+  partnerFolderId?: number | null;
+  partnerName?: string | null;
+  year?: number | null;
+  contractNo?: string | null;
+  filterType?: string | null;
+  channel?: number | null;
+  customsStatus?: string | null;
+  children?: CustomsArchiveTreeNode[];
+}
+
+export interface CustomsDeclarationFilter {
+  partnerFolderId?: number;
+  year?: number;
+  contractNo?: string;
+  customsStatus?: string;
+  channel?: number;
+  keyword?: string;
+}
+
 
 export interface ConfirmSyncResponse {
   message: string;
@@ -123,4 +148,23 @@ export const customsApi = {
       fileName,
     };
   },
+
+  /**
+   * Lấy cấu trúc cây phân cấp lưu trữ hồ sơ tờ khai hải quan 4 cấp
+   */
+  getArchiveTree: async (): Promise<CustomsArchiveTreeNode[]> => {
+    const response = await apiClient.get<CustomsArchiveTreeNode[]>('/customs/archive-tree');
+    return response.data;
+  },
+
+  /**
+   * Lọc danh sách hồ sơ tờ khai hải quan theo bộ lọc đa chiều
+   */
+  getDeclarations: async (filter?: CustomsDeclarationFilter): Promise<SavedShipmentSummary[]> => {
+    const response = await apiClient.get<SavedShipmentSummary[]>('/customs/declarations', {
+      params: filter,
+    });
+    return response.data;
+  },
 };
+

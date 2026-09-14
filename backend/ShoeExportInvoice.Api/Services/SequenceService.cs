@@ -11,6 +11,9 @@ public class SequenceService : ISequenceService
     private readonly AppDbContext _context;
     private readonly ILogger<SequenceService> _logger;
 
+    // Process-level async lock for concurrency safety across threads
+    private static readonly SemaphoreSlim _sequenceLock = new(1, 1);
+
     // Key dùng để lưu trong bảng SystemSettings
     private const string LastSequenceKey = "LastSequenceNumber";
 
@@ -31,39 +34,49 @@ public class SequenceService : ISequenceService
         if (count <= 0) throw new ArgumentOutOfRangeException(nameof(count), "Số lượng phải lớn hơn 0.");
         if (count > 100) throw new ArgumentOutOfRangeException(nameof(count), "Không thể cấp quá 100 số cùng lúc.");
 
-        await using var transaction = _context.Database.CurrentTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
-        var setting = await _context.SystemSettings
-            .FirstOrDefaultAsync(s => s.Key == LastSequenceKey);
-
-        int lastUsed = DefaultStartNumber;
-        if (setting != null && int.TryParse(setting.Value, out var saved))
+        await _sequenceLock.WaitAsync();
+        try
         {
-            lastUsed = saved;
-        }
+            await using var transaction = _context.Database.CurrentTransaction == null
+                ? await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)
+                : null;
+            var setting = await _context.SystemSettings
+                .FirstOrDefaultAsync(s => s.Key == LastSequenceKey);
 
-        // Cấp N số tiếp theo
-        var numbers = Enumerable.Range(lastUsed + 1, count).ToArray();
-        int newLast = lastUsed + count;
-
-        if (setting == null)
-        {
-            _context.SystemSettings.Add(new SystemSetting
+            int lastUsed = DefaultStartNumber;
+            if (setting != null && int.TryParse(setting.Value, out var saved))
             {
-                Key = LastSequenceKey,
-                Value = newLast.ToString(),
-                UpdatedAt = DateTime.UtcNow
-            });
-        }
-        else
-        {
-            setting.Value = newLast.ToString();
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
+                lastUsed = saved;
+            }
 
-        await _context.SaveChangesAsync();
-        if (transaction != null) await transaction.CommitAsync();
-        _logger.LogInformation("Đã cấp {Count} số thứ tự: {Numbers}", count, string.Join(", ", numbers));
-        return numbers;
+            // Cấp N số tiếp theo
+            var numbers = Enumerable.Range(lastUsed + 1, count).ToArray();
+            int newLast = lastUsed + count;
+
+            if (setting == null)
+            {
+                _context.SystemSettings.Add(new SystemSetting
+                {
+                    Key = LastSequenceKey,
+                    Value = newLast.ToString(),
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                setting.Value = newLast.ToString();
+                setting.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync();
+            if (transaction != null) await transaction.CommitAsync();
+            _logger.LogInformation("Đã cấp {Count} số thứ tự: {Numbers}", count, string.Join(", ", numbers));
+            return numbers;
+        }
+        finally
+        {
+            _sequenceLock.Release();
+        }
     }
 
     public async Task<int[]> ReservePartnerSequenceNumbersAsync(int folderId, int count = 1, int? requestedStart = null)
@@ -71,36 +84,44 @@ public class SequenceService : ISequenceService
         if (folderId <= 0) throw new ArgumentOutOfRangeException(nameof(folderId));
         if (count is <= 0 or > 100) throw new ArgumentOutOfRangeException(nameof(count));
 
-        await using var ownedTransaction = _context.Database.CurrentTransaction == null
-            ? await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)
-            : null;
+        await _sequenceLock.WaitAsync();
+        try
+        {
+            await using var ownedTransaction = _context.Database.CurrentTransaction == null
+                ? await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)
+                : null;
 
-        var connection = _context.Database.GetDbConnection();
-        if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.Transaction = _context.Database.CurrentTransaction?.GetDbTransaction();
-        command.CommandText = """
-            UPDATE MasterDataFolders
-            SET CurrentSequenceNumber =
-                (CASE WHEN CurrentSequenceNumber > $requestedStart THEN CurrentSequenceNumber ELSE $requestedStart END) + $count,
-                UpdatedAt = $updatedAt
-            WHERE Id = $folderId
-            RETURNING CurrentSequenceNumber - $count;
-            """;
-        var requested = requestedStart.GetValueOrDefault(1);
-        command.Parameters.Add(CreateParameter(command, "$requestedStart", Math.Max(1, requested)));
-        command.Parameters.Add(CreateParameter(command, "$count", count));
-        command.Parameters.Add(CreateParameter(command, "$updatedAt", DateTime.UtcNow));
-        command.Parameters.Add(CreateParameter(command, "$folderId", folderId));
+            var connection = _context.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.Transaction = _context.Database.CurrentTransaction?.GetDbTransaction();
+            command.CommandText = """
+                UPDATE MasterDataFolders
+                SET CurrentSequenceNumber =
+                    (CASE WHEN CurrentSequenceNumber > $requestedStart THEN CurrentSequenceNumber ELSE $requestedStart END) + $count,
+                    UpdatedAt = $updatedAt
+                WHERE Id = $folderId
+                RETURNING CurrentSequenceNumber - $count;
+                """;
+            var requested = requestedStart.GetValueOrDefault(1);
+            command.Parameters.Add(CreateParameter(command, "$requestedStart", Math.Max(1, requested)));
+            command.Parameters.Add(CreateParameter(command, "$count", count));
+            command.Parameters.Add(CreateParameter(command, "$updatedAt", DateTime.UtcNow));
+            command.Parameters.Add(CreateParameter(command, "$folderId", folderId));
 
-        var scalar = await command.ExecuteScalarAsync();
-        if (scalar == null || scalar == DBNull.Value)
-            throw new KeyNotFoundException($"Không tìm thấy thư mục đối tác #{folderId}.");
+            var scalar = await command.ExecuteScalarAsync();
+            if (scalar == null || scalar == DBNull.Value)
+                throw new KeyNotFoundException($"Không tìm thấy thư mục đối tác #{folderId}.");
 
-        var first = Convert.ToInt32(scalar);
-        if (ownedTransaction != null) await ownedTransaction.CommitAsync();
-        _context.ChangeTracker.Clear();
-        return Enumerable.Range(first, count).ToArray();
+            var first = Convert.ToInt32(scalar);
+            if (ownedTransaction != null) await ownedTransaction.CommitAsync();
+            _context.ChangeTracker.Clear();
+            return Enumerable.Range(first, count).ToArray();
+        }
+        finally
+        {
+            _sequenceLock.Release();
+        }
     }
 
     private static System.Data.Common.DbParameter CreateParameter(System.Data.Common.DbCommand command, string name, object value)
@@ -116,32 +137,42 @@ public class SequenceService : ISequenceService
     {
         if (nextNumber <= 0) throw new ArgumentOutOfRangeException(nameof(nextNumber), "Số thứ tự phải lớn hơn 0.");
 
-        // Lưu (nextNumber - 1) vì lần tiếp theo sẽ cấp nextNumber
-        int lastUsed = nextNumber - 1;
-
-        await using var transaction = _context.Database.CurrentTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
-        var setting = await _context.SystemSettings
-            .FirstOrDefaultAsync(s => s.Key == LastSequenceKey);
-
-        if (setting == null)
+        await _sequenceLock.WaitAsync();
+        try
         {
-            _context.SystemSettings.Add(new SystemSetting
+            // Lưu (nextNumber - 1) vì lần tiếp theo sẽ cấp nextNumber
+            int lastUsed = nextNumber - 1;
+
+            await using var transaction = _context.Database.CurrentTransaction == null
+                ? await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)
+                : null;
+            var setting = await _context.SystemSettings
+                .FirstOrDefaultAsync(s => s.Key == LastSequenceKey);
+
+            if (setting == null)
             {
-                Key = LastSequenceKey,
-                Value = lastUsed.ToString(),
-                UpdatedAt = DateTime.UtcNow
-            });
-        }
-        else
-        {
-            if (int.TryParse(setting.Value, out var current) && current > lastUsed) lastUsed = current;
-            setting.Value = lastUsed.ToString();
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
+                _context.SystemSettings.Add(new SystemSetting
+                {
+                    Key = LastSequenceKey,
+                    Value = lastUsed.ToString(),
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                if (int.TryParse(setting.Value, out var current) && current > lastUsed) lastUsed = current;
+                setting.Value = lastUsed.ToString();
+                setting.UpdatedAt = DateTime.UtcNow;
+            }
 
-        await _context.SaveChangesAsync();
-        if (transaction != null) await transaction.CommitAsync();
-        _logger.LogInformation("Đã ghi đè số thứ tự: lần tiếp theo sẽ bắt đầu từ {NextNumber}", nextNumber);
+            await _context.SaveChangesAsync();
+            if (transaction != null) await transaction.CommitAsync();
+            _logger.LogInformation("Đã ghi đè số thứ tự: lần tiếp theo sẽ bắt đầu từ {NextNumber}", nextNumber);
+        }
+        finally
+        {
+            _sequenceLock.Release();
+        }
     }
 
     /// <inheritdoc/>
@@ -176,8 +207,6 @@ public class SequenceService : ISequenceService
     {
         if (string.IsNullOrWhiteSpace(invoiceNo)) return null;
 
-        // Trích xuất phần số ở cuối chuỗi Invoice No
-        // Ví dụ: "KMHD-NEW2026-0233" -> "233" -> 233
         var match = Regex.Match(invoiceNo.Trim(), @"\d+$");
         if (match.Success && int.TryParse(match.Value, out var num) && num > 0)
         {

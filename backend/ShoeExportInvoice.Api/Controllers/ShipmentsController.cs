@@ -64,6 +64,36 @@ public class ShipmentsController : ControllerBase
     }
 
     /// <summary>
+    /// Xem trước đầy đủ chứng từ xuất khẩu (Commercial Invoice & Packing List)
+    /// </summary>
+    [HttpPost("preview-document")]
+    [Authorize(Roles = "Admin,Xnk")]
+    public async Task<ActionResult<DocumentPreviewResponseDto>> PreviewDocument([FromBody] CreateShipmentRequestDto request)
+    {
+        if (request.Items == null || request.Items.Count == 0)
+        {
+            return BadRequest(new { message = "Đơn hàng phải có ít nhất 1 mặt hàng." });
+        }
+
+        try
+        {
+            ShipmentSizeBreakdownValidator.Validate(request.Items);
+            await ApplyAuthoritativeMasterDataAsync(request);
+            var preview = _excelService.CalculateDocumentPreview(request);
+            return Ok(preview);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi tính toán dữ liệu xem trước chứng từ.");
+            return StatusCode(500, new { message = "Lỗi khi tính toán dữ liệu xem trước chứng từ" });
+        }
+    }
+
+    /// <summary>
     /// Xuất file Excel đa sheet (INV, PKL, Sheet2) chuẩn hóa đơn xuất khẩu từ file mẫu.
     /// - Nếu đơn có CẢ HAI loại hàng (Standard + GoKhongMay): tự động tách 2 file và đóng gói ZIP.
     /// - Nếu đơn chỉ có 1 loại: trả về 1 file XLSX theo mẫu tên file của đối tác.
@@ -579,6 +609,94 @@ public class ShipmentsController : ControllerBase
         return Ok(shipments);
     }
 
+    [HttpGet("by-folder")]
+    [Authorize(Roles = "Admin,Xnk,KeToan")]
+    public async Task<IActionResult> GetShipmentsByFolder(
+        [FromQuery] int folderId,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] ShipmentStatus? status)
+    {
+        if (!await _context.MasterDataFolders.AnyAsync(f => f.Id == folderId))
+            return NotFound(new { message = "Không tìm thấy thư mục đối tác." });
+
+        var folderIds = await GetFolderAndDescendantIdsAsync(folderId);
+        var query = _context.ShipmentOrders.AsNoTracking()
+            .Include(s => s.Items)
+            .Where(s => s.ContractFolderId.HasValue && folderIds.Contains(s.ContractFolderId.Value));
+
+        if (fromDate.HasValue) query = query.Where(s => s.InvoiceDate.Date >= fromDate.Value.Date);
+        if (toDate.HasValue) query = query.Where(s => s.InvoiceDate.Date <= toDate.Value.Date);
+        if (status.HasValue) query = query.Where(s => s.Status == status.Value);
+
+        var rows = await query.OrderByDescending(s => s.InvoiceDate).ThenByDescending(s => s.Id).ToListAsync();
+        return Ok(rows.Select(ToShipmentSummary));
+    }
+
+    [HttpGet("folder-counts")]
+    [Authorize(Roles = "Admin,Xnk,KeToan")]
+    public async Task<ActionResult<IEnumerable<ShipmentFolderCountDto>>> GetFolderCounts()
+    {
+        var folders = await _context.MasterDataFolders.AsNoTracking()
+            .Select(f => new { f.Id, f.ParentId }).ToListAsync();
+        var directCounts = await _context.ShipmentOrders.AsNoTracking()
+            .Where(s => s.ContractFolderId.HasValue)
+            .GroupBy(s => s.ContractFolderId!.Value)
+            .Select(g => new { FolderId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.FolderId, x => x.Count);
+
+        var children = folders.Where(f => f.ParentId.HasValue).GroupBy(f => f.ParentId!.Value)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Id).ToList());
+        int CountTree(int id, HashSet<int> visited)
+        {
+            if (!visited.Add(id)) return 0;
+            var total = directCounts.GetValueOrDefault(id);
+            if (children.TryGetValue(id, out var childIds))
+                total += childIds.Sum(childId => CountTree(childId, visited));
+            return total;
+        }
+
+        return Ok(folders.Select(f => new ShipmentFolderCountDto
+        {
+            FolderId = f.Id,
+            Count = CountTree(f.Id, new HashSet<int>())
+        }));
+    }
+
+    [HttpPost("batch-print-data")]
+    [Authorize(Roles = "Admin,Xnk,KeToan")]
+    public async Task<ActionResult<BatchPrintResponseDto>> GetBatchPrintData([FromBody] BatchPrintRequestDto request)
+    {
+        if (request.ShipmentIds.Count == 0)
+            return BadRequest(new { message = "Vui lòng chọn ít nhất một hóa đơn để in." });
+        if (request.ShipmentIds.Count > 100)
+            return BadRequest(new { message = "Mỗi lần chỉ in tối đa 100 hóa đơn." });
+
+        var documentType = request.DocumentType.Trim().ToUpperInvariant();
+        if (documentType is not ("INV" or "PKL" or "ALL"))
+            return BadRequest(new { message = "Loại chứng từ phải là INV, PKL hoặc ALL." });
+
+        var ids = request.ShipmentIds.Distinct().ToList();
+        var shipments = await _context.ShipmentOrders.AsNoTracking()
+            .Include(s => s.Items)
+            .Where(s => ids.Contains(s.Id))
+            .OrderBy(s => s.InvoiceNo)
+            .ToListAsync();
+
+        if (shipments.Count != ids.Count)
+            return NotFound(new { message = "Một hoặc nhiều hóa đơn đã chọn không còn tồn tại." });
+
+        var result = new BatchPrintResponseDto { DocumentType = documentType };
+        foreach (var shipment in shipments)
+        {
+            var previewRequest = ToPreviewRequest(shipment);
+            ShipmentSizeBreakdownValidator.Validate(previewRequest.Items);
+            result.Documents.Add(_excelService.CalculateDocumentPreview(previewRequest));
+        }
+
+        return Ok(result);
+    }
+
     /// <summary>
     /// Lấy chi tiết một đơn hàng theo Id
     /// </summary>
@@ -627,6 +745,65 @@ public class ShipmentsController : ControllerBase
 
         await transaction.CommitAsync();
         return Ok(new { message = $"Đã xóa đơn hàng {shipment.InvoiceNo} thành công." });
+    }
+
+    /// <summary>
+    /// Xóa toàn bộ lịch sử đơn hàng xuất khẩu (Shipment Orders)
+    /// </summary>
+    [HttpDelete("all")]
+    [Authorize(Roles = "Admin,Xnk")]
+    public async Task<IActionResult> DeleteAllShipments([FromQuery] bool includeCleared = true)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
+        var query = _context.ShipmentOrders.AsQueryable();
+        if (!includeCleared)
+        {
+            query = query.Where(s => !s.IsLocked && s.Status != ShipmentStatus.Cleared);
+        }
+
+        var shipments = await query.Include(s => s.Items).ToListAsync();
+        int count = shipments.Count;
+        if (count == 0)
+        {
+            return Ok(new { message = "Không có đơn hàng xuất khẩu nào để xóa.", deletedCount = 0 });
+        }
+
+        var shipmentIds = shipments.Select(s => s.Id).ToList();
+
+        // Gỡ liên kết trong WarehouseBatches nếu có
+        var linkedBatches = await _context.WarehouseBatches
+            .Where(b => b.ShipmentOrderId.HasValue && shipmentIds.Contains(b.ShipmentOrderId.Value))
+            .ToListAsync();
+        foreach (var batch in linkedBatches)
+        {
+            batch.ShipmentOrderId = null;
+        }
+
+        // Xóa các bản ghi audit liên quan
+        var audits = await _context.ShipmentUnlockAudits
+            .Where(a => shipmentIds.Contains(a.ShipmentOrderId))
+            .ToListAsync();
+        if (audits.Count > 0)
+        {
+            _context.ShipmentUnlockAudits.RemoveRange(audits);
+        }
+
+        // Xóa chi tiết mặt hàng
+        var items = shipments.SelectMany(s => s.Items).ToList();
+        if (items.Count > 0)
+        {
+            _context.ShipmentOrderItems.RemoveRange(items);
+        }
+
+        // Xóa đơn hàng
+        _context.ShipmentOrders.RemoveRange(shipments);
+
+        await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        _logger?.LogInformation("Đã xóa toàn bộ {Count} đơn hàng xuất khẩu khỏi hệ thống.", count);
+        return Ok(new { message = $"Đã xóa thành công {count} đơn hàng xuất khẩu.", deletedCount = count });
     }
 
     /// <summary>
@@ -722,7 +899,7 @@ public class ShipmentsController : ControllerBase
     }
 
     [HttpPost("{id:int}/unlock-cleared")]
-    [Authorize(Roles = "Admin,XnkManager")]
+    [Authorize(Roles = "Admin,Xnk,XnkManager")]
     public async Task<IActionResult> UnlockClearedShipment(int id, [FromBody] UnlockClearedShipmentRequest request)
     {
         var reason = request.Reason?.Trim();
@@ -753,7 +930,7 @@ public class ShipmentsController : ControllerBase
     }
 
     [HttpGet("{id:int}/unlock-audits")]
-    [Authorize(Roles = "Admin,XnkManager,KeToan")]
+    [Authorize(Roles = "Admin,Xnk,XnkManager,KeToan")]
     public async Task<IActionResult> GetUnlockAudits(int id) => Ok(await _context.ShipmentUnlockAudits
         .AsNoTracking().Where(a => a.ShipmentOrderId == id).OrderByDescending(a => a.UnlockedAt).ToListAsync());
 
@@ -847,6 +1024,60 @@ public class ShipmentsController : ControllerBase
             ? normalized[..^2].Trim()
             : normalized;
     }
+
+    private async Task<List<int>> GetFolderAndDescendantIdsAsync(int rootId)
+    {
+        var folders = await _context.MasterDataFolders.AsNoTracking()
+            .Select(f => new { f.Id, f.ParentId }).ToListAsync();
+        var result = new HashSet<int> { rootId };
+        var pending = new Queue<int>();
+        pending.Enqueue(rootId);
+        while (pending.Count > 0)
+        {
+            var current = pending.Dequeue();
+            foreach (var child in folders.Where(f => f.ParentId == current))
+                if (result.Add(child.Id)) pending.Enqueue(child.Id);
+        }
+        return result.ToList();
+    }
+
+    private static object ToShipmentSummary(ShipmentOrder s) => new
+    {
+        s.Id, s.InvoiceNo, s.InvoiceDate, s.PoSuffix, s.ContractFolderId, s.ContractNo,
+        s.CustomerName, s.DeliveryTerms, s.PaymentTerms, s.CreatedAt,
+        Status = (int)s.Status, StatusName = s.Status.ToString(),
+        s.DeclarationNo, s.ClearanceDate, s.CustomsDeclarationType, s.CustomsChannel,
+        s.CustomsOffice, s.CustomsPackageQty, s.CustomsGrossWeight, s.CustomsTotalDap,
+        s.CustomsTotalCmt, s.CustomsAttachmentFileName,
+        HasCustomsAttachment = !string.IsNullOrWhiteSpace(s.CustomsAttachmentFileName),
+        IsLocked = s.IsLocked || s.Status == ShipmentStatus.Cleared,
+        ItemCount = s.Items.Count,
+        TotalQuantity = s.Items.Sum(i => i.Quantity),
+        TotalAmountCMT = s.Items.Sum(i => i.UnitPriceCMT * i.Quantity),
+        TotalAmountDAP = s.Items.Sum(i => i.UnitPriceDAP * i.Quantity),
+        TotalCartons = s.Items.Sum(i => (int)Math.Ceiling((double)i.Quantity / Math.Max(i.PairPerCarton, 1)))
+    };
+
+    private static CreateShipmentRequestDto ToPreviewRequest(ShipmentOrder shipment) => new()
+    {
+        UseSavedSnapshot = true,
+        ContractFolderId = shipment.ContractFolderId,
+        InvoiceNo = shipment.InvoiceNo,
+        InvoiceDate = shipment.InvoiceDate,
+        PoSuffix = shipment.PoSuffix ?? string.Empty,
+        ContractNo = shipment.ContractNo ?? string.Empty,
+        CustomerName = shipment.CustomerName,
+        Address = shipment.Address ?? string.Empty,
+        DeliveryTerms = shipment.DeliveryTerms ?? "DAP",
+        PaymentTerms = shipment.PaymentTerms ?? "T/T",
+        Items = shipment.Items.Select(i => new CreateShipmentItemDto
+        {
+            StyleCode = i.StyleCode, FullItemCode = i.FullItemCode, Description = i.Description,
+            Quantity = i.Quantity, ProcessType = i.ProcessType, SizeBreakdownJson = i.SizeBreakdownJson,
+            UnitPriceCMT = i.UnitPriceCMT, UnitPriceDAP = i.UnitPriceDAP,
+            Unit = i.Unit, PairPerCarton = i.PairPerCarton
+        }).ToList()
+    };
 }
 
 /// <summary>Request body cho PUT /api/shipments/sequence</summary>

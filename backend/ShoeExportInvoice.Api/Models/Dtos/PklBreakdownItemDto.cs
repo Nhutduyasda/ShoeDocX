@@ -7,6 +7,7 @@ public class PklBreakdownItemDto
     public string StyleCode { get; set; } = string.Empty;
     public string FullItemCode { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string Unit { get; set; } = string.Empty;
     public ProcessType ProcessType { get; set; } = ProcessType.Standard;
     public string ProcessTypeName { get; set; } = "Thành phẩm";
     public string CartonRange { get; set; } = string.Empty;

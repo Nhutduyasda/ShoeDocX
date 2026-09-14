@@ -60,6 +60,7 @@ public class SaveWarehouseBatchItemRequestDto
     [EnumDataType(typeof(ProcessType))]
     public ProcessType ProcessType { get; set; } = ProcessType.Standard;
     public bool IsPendingReview { get; set; } = false;
+    public string? SizeBreakdownJson { get; set; }
     public string? Note { get; set; }
 }
 

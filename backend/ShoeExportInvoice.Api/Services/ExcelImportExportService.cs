@@ -6,6 +6,8 @@ using ShoeExportInvoice.Api.Models.Entities;
 using ShoeExportInvoice.Api.Common;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Spreadsheet;
 
 namespace ShoeExportInvoice.Api.Services;
 
@@ -70,12 +72,44 @@ public class ExcelImportExportService : IExcelImportExportService
     /// Xuất hóa đơn Commercial Invoice và Packing List trực tiếp từ file mẫu Shipment_Template.xlsx
     /// Tuyệt đối KHÔNG tạo new XLWorkbook(), giữ nguyên 100% format, header, footer, style và formulas.
     /// </summary>
+    private static MemoryStream OpenStampFreeTemplate(string templatePath)
+    {
+        var stream = new MemoryStream(File.ReadAllBytes(templatePath));
+        using (var document = SpreadsheetDocument.Open(stream, true))
+        {
+            foreach (var worksheetPart in document.WorkbookPart!.WorksheetParts)
+            {
+                worksheetPart.Worksheet.RemoveAllChildren<Drawing>();
+                worksheetPart.Worksheet.RemoveAllChildren<LegacyDrawing>();
+                worksheetPart.Worksheet.RemoveAllChildren<LegacyDrawingHeaderFooter>();
+                if (worksheetPart.DrawingsPart != null)
+                    worksheetPart.DeletePart(worksheetPart.DrawingsPart);
+                foreach (var vmlPart in worksheetPart.VmlDrawingParts.ToList())
+                    worksheetPart.DeletePart(vmlPart);
+                worksheetPart.Worksheet.Save();
+            }
+        }
+        stream.Position = 0;
+        return stream;
+    }
+
     public async Task<byte[]> ExportShipmentToExcelAsync(ShipmentExportModel model)
     {
         var templatePath = GetTemplatePath();
         _logger.LogInformation("Mở trực tiếp file mẫu xuất hóa đơn: {TemplatePath}", templatePath);
 
-        using var workbook = new XLWorkbook(templatePath);
+        using var cleanTemplate = OpenStampFreeTemplate(templatePath);
+        using var workbook = new XLWorkbook(cleanTemplate);
+
+        // Quét và xóa toàn bộ Pictures/Drawings dấu mộc cũ trên tất cả các sheet
+        foreach (var worksheet in workbook.Worksheets)
+        {
+            var pictures = worksheet.Pictures.ToList();
+            foreach (var pic in pictures)
+            {
+                pic.Delete();
+            }
+        }
 
         var invSheet = workbook.Worksheet("INV") 
             ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("INV"))
@@ -385,6 +419,7 @@ public class ExcelImportExportService : IExcelImportExportService
                     StyleCode = item.StyleCode,
                     FullItemCode = fullItemCode,
                     Description = desc,
+                    Unit = item.Unit,
                     ProcessType = item.ProcessType,
                     ProcessTypeName = procTypeName,
                     CartonRange = $"{from}-{to}",
@@ -415,6 +450,7 @@ public class ExcelImportExportService : IExcelImportExportService
                     StyleCode = item.StyleCode,
                     FullItemCode = fullItemCode,
                     Description = desc,
+                    Unit = item.Unit,
                     ProcessType = item.ProcessType,
                     ProcessTypeName = procTypeName,
                     CartonRange = $"{from}-{to}",
@@ -437,6 +473,147 @@ public class ExcelImportExportService : IExcelImportExportService
         result.TotalGrossWeight = result.BreakdownItems.Sum(x => x.GrossWeight);
 
         return result;
+    }
+
+    /// <summary>
+    /// Tính toán chi tiết dữ liệu xem trước Hóa đơn (Commercial Invoice) và Bảng kê đóng gói (Packing List)
+    /// </summary>
+    public DocumentPreviewResponseDto CalculateDocumentPreview(CreateShipmentRequestDto request)
+    {
+        var pklPreview = CalculatePklBreakdown(request);
+        var sellerAddress = SplitAddress(_options.DefaultAddress);
+        var buyerAddress = SplitAddress(request.Address);
+
+        var styleCodes = request.Items
+            .Select(x => (x.StyleCode ?? string.Empty).Trim().ToUpperInvariant())
+            .Where(x => !string.IsNullOrEmpty(x))
+            .Distinct()
+            .ToList();
+
+        Dictionary<string, ProductMaster>? products = null;
+        if (_context != null && !request.UseSavedSnapshot && styleCodes.Count > 0)
+        {
+            var cleanCodes = styleCodes
+                .Select(c => c.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? c[..^2].Trim() : c)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            products = _context.ProductMasters
+                .Where(p => p.FolderId == request.ContractFolderId)
+                .Where(p => cleanCodes.Contains(p.StyleCode.ToUpper()) || styleCodes.Contains(p.StyleCode.ToUpper()))
+                .ToDictionary(p => p.StyleCode.ToUpper(), p => p);
+        }
+
+        var invoice = new InvoicePreviewDto
+        {
+            SellerName = _options.DefaultCompanyName,
+            SellerAddress = _options.DefaultAddress,
+            SellerAddressLine1 = sellerAddress.Line1,
+            SellerAddressLine2 = sellerAddress.Line2,
+            BuyerName = request.CustomerName?.Trim() ?? string.Empty,
+            BuyerAddress = request.Address?.Trim() ?? string.Empty,
+            BuyerAddressLine1 = buyerAddress.Line1,
+            BuyerAddressLine2 = buyerAddress.Line2,
+            InvoiceNo = request.InvoiceNo,
+            InvoiceDate = request.InvoiceDate.ToString("MMM dd,yyyy", CultureInfo.InvariantCulture).ToUpper(),
+            ContractNo = request.ContractNo?.Trim() ?? string.Empty,
+            DeliveryTerms = !string.IsNullOrWhiteSpace(request.DeliveryTerms) ? request.DeliveryTerms : "DAP",
+            PaymentTerms = !string.IsNullOrWhiteSpace(request.PaymentTerms) ? request.PaymentTerms : "T/T",
+            PoSuffix = request.PoSuffix,
+            DestinationCountry = string.IsNullOrWhiteSpace(request.DestinationCountry) ? "VIETNAM" : request.DestinationCountry.Trim()
+        };
+
+        int lineNo = 1;
+        foreach (var item in request.Items)
+        {
+            if (item.Quantity <= 0) continue;
+
+            ProductMaster? pm = null;
+            if (products != null)
+            {
+                var upper = (item.StyleCode ?? string.Empty).Trim().ToUpperInvariant();
+                var clean = upper.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? upper[..^2].Trim() : upper;
+                if (!products.TryGetValue(upper, out pm))
+                {
+                    products.TryGetValue(clean, out pm);
+                }
+            }
+
+            var desc = !string.IsNullOrWhiteSpace(item.Description) ? item.Description : pm?.Description;
+            var cleanDesc = CleanDescriptionForInvAndPkl(desc);
+
+            bool isGo = item.ProcessType == ProcessType.GoKhongMay;
+            decimal cmt = item.UnitPriceCMT ?? 0m;
+            if (cmt == 0 && pm != null)
+            {
+                cmt = (isGo && pm.UnitPriceCMT_Go.HasValue && pm.UnitPriceCMT_Go.Value > 0)
+                    ? pm.UnitPriceCMT_Go.Value
+                    : pm.UnitPriceCMT;
+            }
+
+            decimal dap = item.UnitPriceDAP ?? 0m;
+            if (dap == 0 && pm != null)
+            {
+                dap = (isGo && pm.UnitPriceDAP_Go.HasValue && pm.UnitPriceDAP_Go.Value > 0)
+                    ? pm.UnitPriceDAP_Go.Value
+                    : pm.UnitPriceDAP;
+            }
+
+            string unit = !string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : (pm?.Unit ?? "đôi");
+            int pairCtn = (item.PairPerCarton.HasValue && item.PairPerCarton.Value > 0)
+                ? item.PairPerCarton.Value
+                : (pm != null && pm.PairPerCarton > 0 ? pm.PairPerCarton : 12);
+
+            string fullItemCode = !string.IsNullOrWhiteSpace(item.FullItemCode)
+                ? item.FullItemCode
+                : (isGo ? $"{item.StyleCode}.G {request.PoSuffix}".Trim() : $"{item.StyleCode} {request.PoSuffix}".Trim());
+
+            decimal amountCmt = item.Quantity * cmt;
+            decimal amountDap = item.Quantity * dap;
+            int cartonCount = (int)Math.Ceiling((double)item.Quantity / pairCtn);
+
+            invoice.Items.Add(new InvoicePreviewItemDto
+            {
+                LineNo = lineNo++,
+                StyleCode = item.StyleCode ?? string.Empty,
+                FullItemCode = fullItemCode,
+                Description = cleanDesc,
+                Quantity = item.Quantity,
+                Unit = unit,
+                UnitPriceCMT = cmt,
+                UnitPriceDAP = dap,
+                AmountCMT = amountCmt,
+                AmountDAP = amountDap,
+                CartonCount = cartonCount,
+                PairsPerCarton = pairCtn,
+                ProcessType = item.ProcessType
+            });
+        }
+
+        invoice.TotalQuantity = invoice.Items.Sum(x => x.Quantity);
+        invoice.TotalAmountCMT = invoice.Items.Sum(x => x.AmountCMT);
+        invoice.TotalAmountDAP = invoice.Items.Sum(x => x.AmountDAP);
+        invoice.TotalAmountDAPInWords = VietnameseNumberToWordsHelper.ToVietnameseWords(invoice.TotalAmountDAP);
+
+        return new DocumentPreviewResponseDto
+        {
+            Invoice = invoice,
+            PackingList = pklPreview
+        };
+    }
+
+    private static (string Line1, string Line2) SplitAddress(string? value)
+    {
+        var address = (value ?? string.Empty).Trim();
+        if (address.Length == 0) return (string.Empty, string.Empty);
+        var explicitLines = address.Replace("\r", string.Empty).Split('\n', 2);
+        if (explicitLines.Length == 2) return (explicitLines[0].Trim(), explicitLines[1].Trim());
+        if (address.Length <= 70) return (address, string.Empty);
+        var splitAt = address.LastIndexOf(',', Math.Min(70, address.Length - 1));
+        if (splitAt < 30) splitAt = address.IndexOf(',', Math.Min(40, address.Length - 1));
+        return splitAt > 0
+            ? (address[..splitAt].Trim(), address[(splitAt + 1)..].Trim())
+            : (address, string.Empty);
     }
 
     /// <summary>
@@ -526,7 +703,18 @@ public class ExcelImportExportService : IExcelImportExportService
             item.PairPerCarton = pairPerCarton;
         }
 
-        using var workbook = new XLWorkbook(templatePath);
+        using var templateStream = OpenStampFreeTemplate(templatePath);
+        using var workbook = new XLWorkbook(templateStream);
+
+        // Quét và xóa toàn bộ Pictures/Drawings dấu mộc cũ trên tất cả các sheet
+        foreach (var worksheet in workbook.Worksheets)
+        {
+            var pictures = worksheet.Pictures.ToList();
+            foreach (var pic in pictures)
+            {
+                pic.Delete();
+            }
+        }
 
         var invSheet = workbook.Worksheet("INV") 
             ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("INV"))

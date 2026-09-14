@@ -10,6 +10,7 @@ public interface IExcelImportExportService
     Task<byte[]> ExportProductMastersToExcelAsync();
     Task<byte[]> ExportShipmentToExcelAsync(ShipmentExportModel model);
     PklPreviewResponseDto CalculatePklBreakdown(CreateShipmentRequestDto request);
+    DocumentPreviewResponseDto CalculateDocumentPreview(CreateShipmentRequestDto request);
 
     /// <summary>
     /// Xuất file Excel đa sheet (INV, PKL, Sheet2) từ file mẫu.

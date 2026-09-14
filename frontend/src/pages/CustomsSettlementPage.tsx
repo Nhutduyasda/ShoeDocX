@@ -16,6 +16,7 @@ import {
   Progress,
   Popconfirm,
   Upload,
+  Radio,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -45,7 +46,8 @@ import {
 import dayjs, { Dayjs } from 'dayjs';
 import { masterDataFolderApi } from '../api/masterDataFolderApi';
 import type { MasterDataFolder } from '../types';
-import { ProcessType } from '../types';
+import { ProcessType, normalizeProcessType } from '../types';
+import { SettlementTreePanel } from '../components/SettlementTreePanel';
 import { settlementApi } from '../api/settlementApi';
 import type {
   SettlementItem,
@@ -67,6 +69,8 @@ export const CustomsSettlementPage: React.FC = () => {
   // ==========================================
   // TAB 1: SETTLEMENT MANAGER STATES
   // ==========================================
+  const [selectedTreeKey, setSelectedTreeKey] = useState<string>('all');
+  const [processTypeFilter, setProcessTypeFilter] = useState<'all' | 'Standard' | 'GoKhongMay'>('all');
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>([
     dayjs(`${currentYear}-01-01`),
@@ -172,6 +176,41 @@ export const CustomsSettlementPage: React.FC = () => {
   useEffect(() => {
     void loadAnalytics(analyticsYear);
   }, [loadAnalytics, analyticsYear]);
+
+  // Handle tree node selection from SettlementTreePanel
+  const handleSelectTreeNode = (
+    folderId: number | null,
+    year: number | null,
+    status: 'Draft' | 'Finalized' | null,
+    periodId?: number | null
+  ) => {
+    if (periodId) {
+      setSelectedTreeKey(`period_${periodId}`);
+      void handleLoadSavedPeriod(periodId);
+      return;
+    }
+
+    let key = 'all';
+    if (folderId !== null && folderId !== undefined) {
+      setContractFolderId(folderId);
+      const matched = contractFolders.find((f) => f.id === folderId);
+      if (matched) {
+        setContractNo(matched.name);
+      }
+      key = `folder_${folderId}`;
+    } else {
+      setContractFolderId(null);
+    }
+
+    if (year) {
+      handleYearChange(year);
+      key += `_year_${year}`;
+    }
+    if (status) {
+      key += `_${status.toLowerCase()}`;
+    }
+    setSelectedTreeKey(key);
+  };
 
   // Calculate / aggregate settlement data
   const handleCalculate = async () => {
@@ -502,9 +541,32 @@ export const CustomsSettlementPage: React.FC = () => {
   const totalClosing = useMemo(() => items.reduce((sum, i) => sum + (Number(i.closingBalance) || 0), 0), [items]);
   const negativeItems = useMemo(() => items.filter((i) => i.closingBalance < 0), [items]);
 
-  // Filtered items by search query and negative balance filter
+  // Phân loại Thành hình (Standard) vs Gò không may (.G)
+  const standardItems = useMemo(
+    () => items.filter((i) => normalizeProcessType(i.processType) === ProcessType.Standard),
+    [items]
+  );
+  const goItems = useMemo(
+    () => items.filter((i) => normalizeProcessType(i.processType) === ProcessType.GoKhongMay),
+    [items]
+  );
+  const standardExport = useMemo(
+    () => standardItems.reduce((sum, i) => sum + (Number(i.inPeriodExport) || 0), 0),
+    [standardItems]
+  );
+  const goExport = useMemo(
+    () => goItems.reduce((sum, i) => sum + (Number(i.inPeriodExport) || 0), 0),
+    [goItems]
+  );
+
+  // Filtered items by search query, processType filter, and negative balance filter
   const filteredItems = useMemo(() => {
     let result = items;
+    if (processTypeFilter === 'Standard') {
+      result = result.filter((i) => normalizeProcessType(i.processType) === ProcessType.Standard);
+    } else if (processTypeFilter === 'GoKhongMay') {
+      result = result.filter((i) => normalizeProcessType(i.processType) === ProcessType.GoKhongMay);
+    }
     if (onlyNegativeFilter) {
       result = result.filter((i) => i.closingBalance < 0);
     }
@@ -516,7 +578,7 @@ export const CustomsSettlementPage: React.FC = () => {
         (item.productName && item.productName.toLowerCase().includes(q)) ||
         (item.hsCode && item.hsCode.toLowerCase().includes(q))
     );
-  }, [items, tableSearch, onlyNegativeFilter]);
+  }, [items, processTypeFilter, onlyNegativeFilter, tableSearch]);
 
   const isFinalized = report?.status === 'Finalized';
 
@@ -858,8 +920,20 @@ export const CustomsSettlementPage: React.FC = () => {
               </span>
             ),
             children: (
-              <div className="space-y-5 pt-2">
-                {/* Filter Toolbar */}
+              <div className="flex flex-col lg:flex-row gap-4 pt-2 items-start">
+                {/* Cây thư mục Quyết toán: Khách hàng/Hợp đồng -> Năm tài chính -> Bản nháp/Chính thức */}
+                <div className="w-full lg:w-72 shrink-0">
+                  <SettlementTreePanel
+                    folders={contractFolders}
+                    savedPeriods={savedPeriods}
+                    selectedKey={selectedTreeKey}
+                    onSelectNode={handleSelectTreeNode}
+                  />
+                </div>
+
+                {/* Nội dung chính phân hệ quyết toán */}
+                <div className="flex-1 min-w-0 space-y-5 w-full">
+                  {/* Filter Toolbar */}
                 <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
                     {/* Year selector */}
@@ -1060,6 +1134,71 @@ export const CustomsSettlementPage: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Phân loại Loại hình sản phẩm (Thành hình vs Gò không may) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div
+                    onClick={() => setProcessTypeFilter(processTypeFilter === 'Standard' ? 'all' : 'Standard')}
+                    className={`p-3.5 rounded-lg border cursor-pointer transition-all ${
+                      processTypeFilter === 'Standard'
+                        ? 'border-blue-500 bg-blue-50/50 shadow-sm ring-1 ring-blue-400'
+                        : 'border-slate-200 bg-white hover:border-blue-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xl">👟</span>
+                        <div>
+                          <div className="text-xs font-bold text-slate-800">
+                            Hàng Thành hình (Standard)
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            Định mức NPL hoàn chỉnh (chặt, may, gò, đế)
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-base font-extrabold text-blue-600 font-mono">
+                          {standardExport.toLocaleString()} đôi
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono">
+                          {standardItems.length} mã sản phẩm
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    onClick={() => setProcessTypeFilter(processTypeFilter === 'GoKhongMay' ? 'all' : 'GoKhongMay')}
+                    className={`p-3.5 rounded-lg border cursor-pointer transition-all ${
+                      processTypeFilter === 'GoKhongMay'
+                        ? 'border-purple-500 bg-purple-50/50 shadow-sm ring-1 ring-purple-400'
+                        : 'border-slate-200 bg-white hover:border-purple-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xl">🟣</span>
+                        <div>
+                          <div className="text-xs font-bold text-purple-900">
+                            Hàng Gò không may (.G)
+                          </div>
+                          <div className="text-[11px] text-purple-600">
+                            Bán thành phẩm gò, bảo vệ định mức riêng biệt
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-base font-extrabold text-purple-600 font-mono">
+                          {goExport.toLocaleString()} đôi
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono">
+                          {goItems.length} mã sản phẩm
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Audit Risk Banner when negative closing balance detected */}
                 {negativeItems.length > 0 && (
                   <div className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
@@ -1144,6 +1283,32 @@ export const CustomsSettlementPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Process Type Segmentation Sub-bar */}
+                  <div className="px-4 py-2.5 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500 font-medium">Lọc danh sách:</span>
+                      <Radio.Group
+                        value={processTypeFilter}
+                        onChange={(e) => setProcessTypeFilter(e.target.value)}
+                        size="small"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="all">
+                          Tất cả ({items.length})
+                        </Radio.Button>
+                        <Radio.Button value="Standard">
+                          👟 Thành hình ({standardItems.length})
+                        </Radio.Button>
+                        <Radio.Button value="GoKhongMay">
+                          🟣 Gò không may .G ({goItems.length})
+                        </Radio.Button>
+                      </Radio.Group>
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      💡 Mẫu 16 Quyết toán: Phân định rõ định mức tiêu hao giữa hàng Thành hình và hàng Gò
+                    </div>
+                  </div>
+
                   {/* Table */}
                   <div className="w-full overflow-x-auto min-w-0">
                     <Table
@@ -1206,7 +1371,8 @@ export const CustomsSettlementPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-            ),
+            </div>
+          ),
           },
           {
             key: 'analytics',

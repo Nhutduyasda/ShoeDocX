@@ -18,6 +18,7 @@ import {
   Radio,
   Empty,
   Dropdown,
+  Popconfirm,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -44,6 +45,9 @@ import {
   ShopOutlined,
   EllipsisOutlined,
   InboxOutlined,
+  FileSearchOutlined,
+  PrinterOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { shipmentApi, invoiceNoToFileName, extractSequenceNumber, formatInvoiceNo, formatPartnerFileName } from '../api/shipmentApi';
@@ -65,6 +69,7 @@ import type {
   SequenceInfo,
   MasterDataFolder,
   ValidateItemsResult,
+  DocumentPreviewResponse,
 } from '../types';
 import { ProcessType, ShipmentStatus, ExportSequencePriority, normalizeProcessType } from '../types';
 import { PklPreviewModal } from '../components/PklPreviewModal';
@@ -73,6 +78,10 @@ import { OcrUploadModal } from '../components/OcrUploadModal';
 import { BatchOcrModal } from '../components/BatchOcrModal';
 import { CustomsSyncModal } from '../components/CustomsSyncModal';
 import { QuickAddMasterDataModal } from '../components/QuickAddMasterDataModal';
+import { DocumentPreviewModal } from '../components/DocumentPreviewModal';
+import { SizeBreakdownModal } from '../components/SizeBreakdownModal';
+import { UnlockAuditsModal } from '../components/UnlockAuditsModal';
+import { CustomsArchiveTreePanel, type CustomsTreeFilter } from '../components/CustomsArchiveTreePanel';
 
 export interface ShipmentPageRef {
   loadHistoricalOrder: (id: number) => void;
@@ -338,6 +347,82 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [quickAddStyleCode, setQuickAddStyleCode] = useState<string>('');
   const [quickAddDescription, setQuickAddDescription] = useState<string>('');
   const [quickAddIsGo, setQuickAddIsGo] = useState<boolean>(false);
+
+  // Modal xem trước chứng từ
+  const [documentPreviewVisible, setDocumentPreviewVisible] = useState<boolean>(false);
+  const [documentPreviewData, setDocumentPreviewData] = useState<DocumentPreviewResponse | null>(null);
+
+  // Size Breakdown Modal
+  const [sizeModalOpen, setSizeModalOpen] = useState<boolean>(false);
+  const [sizeModalIndex, setSizeModalIndex] = useState<number>(0);
+  const [sizeModalItem, setSizeModalItem] = useState<CreateShipmentItem | null>(null);
+
+  // Unlock Audits Modal
+  const [auditModalOpen, setAuditModalOpen] = useState<boolean>(false);
+  const [auditModalOrderId, setAuditModalOrderId] = useState<number | null>(null);
+  const [auditModalInvoiceNo, setAuditModalInvoiceNo] = useState<string>('');
+
+  // Customs Archive Tree State
+  const [customsTreeKey, setCustomsTreeKey] = useState<string>('all');
+  const [customsTreeFilter, setCustomsTreeFilter] = useState<CustomsTreeFilter>({});
+
+  // History table multi-selection & batch print state
+  const [selectedOrderIds, setSelectedOrderIds] = useState<number[]>([]);
+  const [batchPrintType, setBatchPrintType] = useState<'INV' | 'PKL' | 'ALL'>('ALL');
+  const [batchPrinting, setBatchPrinting] = useState<boolean>(false);
+
+  const currentFolderName = useMemo(() => {
+    if (selectedOrderIds.length === 0) return '';
+    const firstOrder = savedShipments.find((s) => s.id === selectedOrderIds[0]);
+    if (!firstOrder?.contractFolderId) return '';
+    const folder = partnerFolders.find((p) => p.id === firstOrder.contractFolderId);
+    return folder ? folder.name : '';
+  }, [selectedOrderIds, savedShipments, partnerFolders]);
+
+  const handleClearSelection = () => {
+    setSelectedOrderIds([]);
+  };
+
+  const handleBatchPrint = async () => {
+    if (selectedOrderIds.length === 0) return;
+    try {
+      setBatchPrinting(true);
+      message.loading({ content: 'Đang chuẩn bị dữ liệu in hàng loạt...', key: 'batch-print' });
+      const res = await shipmentApi.getBatchPrintData(selectedOrderIds, batchPrintType);
+      if (!res.documents || res.documents.length === 0) {
+        message.warning({ content: 'Không tìm thấy dữ liệu chứng từ phù hợp để in.', key: 'batch-print' });
+        return;
+      }
+      message.success({ content: `Đã chuẩn bị ${res.documents.length} bộ chứng từ. Đang mở cửa sổ xem trước & in...`, key: 'batch-print' });
+      setDocumentPreviewData(res.documents[0]);
+      setDocumentPreviewVisible(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Không thể tải dữ liệu in hàng loạt.';
+      message.error({ content: msg, key: 'batch-print' });
+    } finally {
+      setBatchPrinting(false);
+    }
+  };
+
+  const handleOpenSizeModal = (index: number, item: CreateShipmentItem) => {
+    setSizeModalIndex(index);
+    setSizeModalItem(item);
+    setSizeModalOpen(true);
+  };
+
+  const handleSaveSizeBreakdown = (updatedJson: string) => {
+    setItems((prev) => {
+      const next = [...prev];
+      if (next[sizeModalIndex]) {
+        next[sizeModalIndex] = {
+          ...next[sizeModalIndex],
+          sizeBreakdownJson: updatedJson,
+        };
+      }
+      return next;
+    });
+    message.success(`Đã cập nhật Size Breakdown dòng #${sizeModalIndex + 1}`);
+  };
 
   useImperativeHandle(ref, () => ({
     loadHistoricalOrder: (id: number) => {
@@ -619,6 +704,24 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       message.error('Không thể tải thông tin xem trước Packing List.');
     } finally {
       setLoadingPreview(false);
+    }
+  };
+
+  const [loadingDocumentPreview, setLoadingDocumentPreview] = useState<boolean>(false);
+
+  const handlePreviewDocument = async () => {
+    const req = await buildRequestData();
+    if (!req) return;
+
+    try {
+      setLoadingDocumentPreview(true);
+      const data = await shipmentApi.previewDocument(req);
+      setDocumentPreviewData(data);
+      setDocumentPreviewVisible(true);
+    } catch {
+      message.error('Không thể tải thông tin xem trước Hóa đơn & PKL.');
+    } finally {
+      setLoadingDocumentPreview(false);
     }
   };
 
@@ -942,6 +1045,35 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         await shipmentApi.unlockClearedShipment(order.id, reason.trim());
         message.success('Đã mở khóa đơn hàng và ghi lịch sử audit.');
         await loadShipmentsHistory();
+      },
+    });
+  };
+
+  const handleDeleteAllShipments = () => {
+    Modal.confirm({
+      title: 'CẢNH BÁO: Xóa tất cả đơn hàng xuất khẩu?',
+      icon: <ExclamationCircleOutlined className="text-rose-600" />,
+      content: (
+        <div className="text-xs text-slate-600 space-y-2 mt-2">
+          <p>
+            Thao tác này sẽ xóa vĩnh viễn toàn bộ <strong>{savedShipments.length}</strong> đơn hàng/hóa đơn xuất khẩu trong hệ thống.
+          </p>
+          <p className="text-rose-600 font-semibold">
+            Lưu ý: Dữ liệu Master Data, thư mục và người dùng vẫn được bảo toàn. Bạn có chắc chắn muốn tiếp tục?
+          </p>
+        </div>
+      ),
+      okText: 'Xác nhận xóa tất cả',
+      okButtonProps: { danger: true },
+      cancelText: 'Hủy bỏ',
+      onOk: async () => {
+        try {
+          await shipmentApi.deleteAllShipments();
+          message.success('Đã xóa toàn bộ đơn hàng thành công.');
+          await loadShipmentsHistory();
+        } catch {
+          message.error('Không thể xóa toàn bộ đơn hàng.');
+        }
       },
     });
   };
@@ -1515,6 +1647,60 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       ),
     },
     {
+      title: 'Size Breakdown',
+      key: 'sizeBreakdown',
+      width: 155,
+      align: 'center',
+      render: (_, record, index) => {
+        let total = 0;
+        let hasJson = false;
+        let isMatched = false;
+        if (record.sizeBreakdownJson?.trim()) {
+          try {
+            const parsed = JSON.parse(record.sizeBreakdownJson) as Record<string, unknown>;
+            const quantities = Object.values(parsed);
+            if (!Array.isArray(parsed) && !quantities.some((v) => !Number.isInteger(v) || Number(v) < 0)) {
+              total = quantities.reduce<number>((s, v) => s + Number(v), 0);
+              hasJson = true;
+              isMatched = total === record.quantity;
+            }
+          } catch {
+            // invalid
+          }
+        }
+
+        return (
+          <div className="flex flex-col items-center gap-1">
+            {hasJson ? (
+              <Tooltip title="Bấm để xem và chỉnh sửa phân bổ Size Breakdown">
+                <Tag
+                  color={isMatched ? 'success' : 'error'}
+                  className="cursor-pointer font-mono text-[11px] font-semibold m-0 px-2 py-0.5 rounded shadow-xs"
+                  onClick={() => handleOpenSizeModal(index, record)}
+                >
+                  {isMatched ? (
+                    <span>✅ Khớp: {total} đôi</span>
+                  ) : (
+                    <span className="font-bold">⚠️ Lệch: {total} ≠ {record.quantity}</span>
+                  )}
+                </Tag>
+              </Tooltip>
+            ) : (
+              <Button
+                size="small"
+                type="dashed"
+                className="text-[11px] h-6 px-2 text-slate-500 hover:text-blue-600 rounded"
+                disabled={readOnly}
+                onClick={() => handleOpenSizeModal(index, record)}
+              >
+                + Thêm Size
+              </Button>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       title: (
         <div className="flex items-center space-x-1">
           <span>Quy trình công đoạn</span>
@@ -1666,15 +1852,81 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     },
   ];
 
-  const filteredHistory = savedShipments.filter((s) => {
-    if (!historySearchText.trim()) return true;
-    const q = historySearchText.toLowerCase();
-    return (
-      s.invoiceNo.toLowerCase().includes(q) ||
-      s.customerName.toLowerCase().includes(q) ||
-      s.contractNo.toLowerCase().includes(q)
-    );
-  });
+  const filteredHistory = useMemo(() => {
+    return savedShipments.filter((s) => {
+      if (historySearchText.trim()) {
+        const q = historySearchText.toLowerCase();
+        const match =
+          s.invoiceNo.toLowerCase().includes(q) ||
+          s.customerName.toLowerCase().includes(q) ||
+          s.contractNo.toLowerCase().includes(q) ||
+          (s.declarationNo && s.declarationNo.toLowerCase().includes(q));
+        if (!match) return false;
+      }
+
+      if (customsTreeFilter.partnerFolderId) {
+        const pId = customsTreeFilter.partnerFolderId;
+        const targetPartner = partnerFolders.find((p) => p.id === pId);
+        const targetName = (targetPartner?.customerName || targetPartner?.name || customsTreeFilter.partnerName || '').toLowerCase();
+
+        // Kiểm tra xem đơn hàng có thuộc folder này hoặc folder con, hoặc khớp tên khách hàng
+        const getDescendantIds = (rootId: number): Set<number> => {
+          const set = new Set<number>([rootId]);
+          let added = true;
+          while (added) {
+            added = false;
+            for (const f of partnerFolders) {
+              if (f.parentId && set.has(f.parentId) && !set.has(f.id)) {
+                set.add(f.id);
+                added = true;
+              }
+            }
+          }
+          return set;
+        };
+
+        const descendantIds = getDescendantIds(pId);
+        const matchFolder = s.contractFolderId ? descendantIds.has(s.contractFolderId) : false;
+        const matchName = targetName && s.customerName ? s.customerName.toLowerCase().includes(targetName) : false;
+        if (!matchFolder && !matchName) return false;
+      } else if (customsTreeFilter.partnerName) {
+        const pName = customsTreeFilter.partnerName.toLowerCase();
+        if (!s.customerName || !s.customerName.toLowerCase().includes(pName)) {
+          return false;
+        }
+      }
+
+      if (customsTreeFilter.year) {
+        const dateStr = s.clearanceDate || s.invoiceDate;
+        const year = dayjs(dateStr).isValid() ? dayjs(dateStr).year() : dayjs().year();
+        if (year !== customsTreeFilter.year) return false;
+      }
+
+      if (customsTreeFilter.contractNo) {
+        const cFilter = customsTreeFilter.contractNo.trim().toLowerCase();
+        const sContract = (s.contractNo || '').trim().toLowerCase();
+        if (cFilter === 'không có hđ') {
+          if (sContract && sContract !== 'không có hđ') return false;
+        } else {
+          if (sContract !== cFilter) return false;
+        }
+      }
+
+      if (customsTreeFilter.customsStatus === 'Cleared') {
+        if (s.status !== ShipmentStatus.Cleared) return false;
+        if (customsTreeFilter.channel !== undefined && s.customsChannel !== customsTreeFilter.channel) {
+          return false;
+        }
+      } else if (customsTreeFilter.pending || customsTreeFilter.customsStatus === 'Pending') {
+        const isPending = !s.declarationNo || s.customsChannel == null || s.status === ShipmentStatus.Exported;
+        if (!isPending) return false;
+      } else if (customsTreeFilter.channel !== undefined) {
+        if (s.customsChannel !== customsTreeFilter.channel) return false;
+      }
+
+      return true;
+    });
+  }, [savedShipments, historySearchText, customsTreeFilter, partnerFolders]);
 
   const historyColumns: ColumnsType<SavedShipmentSummary> = [
     {
@@ -1718,7 +1970,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       ),
     },
     {
-      title: 'Khách hàng',
+      title: 'Khách hàng / Đối tác',
       dataIndex: 'customerName',
       key: 'customerName',
       width: 220,
@@ -1823,17 +2075,35 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     {
       title: 'Tờ khai Hải quan',
       key: 'customsDeclaration',
-      width: 190,
+      width: 205,
       render: (_, record) => {
         if (!record.declarationNo) {
           return <span className="text-slate-400 italic text-xs">Chưa có tờ khai</span>;
         }
 
+        const channelTag =
+          record.customsChannel === 1 ? (
+            <Tag color="success" className="m-0 text-[10px] px-1 py-0 font-medium">
+              Luồng 1 (Xanh)
+            </Tag>
+          ) : record.customsChannel === 2 ? (
+            <Tag color="warning" className="m-0 text-[10px] px-1 py-0 font-medium">
+              Luồng 2 (Vàng)
+            </Tag>
+          ) : record.customsChannel === 3 ? (
+            <Tag color="error" className="m-0 text-[10px] px-1 py-0 font-medium">
+              Luồng 3 (Đỏ)
+            </Tag>
+          ) : null;
+
         return (
           <div className="flex items-start justify-between gap-1.5">
             <div>
-              <div className="font-mono font-semibold text-slate-900 text-xs">
-                {record.declarationNo}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-mono font-semibold text-slate-900 text-xs">
+                  {record.declarationNo}
+                </span>
+                {channelTag}
               </div>
               {record.clearanceDate && (
                 <div className="text-[11px] text-slate-500 font-mono mt-0.5">
@@ -1882,14 +2152,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
         return (
           <Space size={4} wrap>
-            <Tooltip title="Xem chi tiết đối soát chéo và lịch sử xử lý hải quan">
+            <Tooltip title="Đối soát tờ khai hải quan VNACCS cho hóa đơn này">
               <Button
                 size="small"
                 icon={<AuditOutlined className="text-xs text-blue-600" />}
                 className="text-xs border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-50 font-medium"
                 onClick={() => handleOpenCustomsSync(record)}
               >
-                Xem chi tiết đối soát HQ
+                Đối soát tờ khai
               </Button>
             </Tooltip>
 
@@ -1929,6 +2199,62 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             >
               Tải Excel
             </Button>
+
+            {record.customsAttachmentFileName && (
+              <Tooltip title={`Tải file tờ khai VNACCS gốc: ${record.customsAttachmentFileName}`}>
+                <Button
+                  size="small"
+                  icon={<FileExcelOutlined className="text-xs text-emerald-600" />}
+                  className="text-xs border-emerald-200 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-50"
+                  onClick={() => handleDownloadCustomsAttachment(record.id)}
+                >
+                  Tờ khai gốc
+                </Button>
+              </Tooltip>
+            )}
+
+            <Tooltip title="Xem lịch sử mở khóa AMA/AMC (Audit Log)">
+              <Button
+                size="small"
+                icon={<HistoryOutlined className="text-xs text-amber-600" />}
+                className="text-xs border-amber-200 text-amber-700 bg-amber-50/50 hover:bg-amber-50"
+                onClick={() => {
+                  setAuditModalOrderId(record.id);
+                  setAuditModalInvoiceNo(record.invoiceNo);
+                  setAuditModalOpen(true);
+                }}
+              >
+                Nhật ký
+              </Button>
+            </Tooltip>
+
+            {!isLocked && !isKeToan && (
+              <Popconfirm
+                title="Xóa đơn hàng này?"
+                description={`Bạn có chắc muốn xóa đơn hàng ${record.invoiceNo}?`}
+                onConfirm={async () => {
+                  try {
+                    await shipmentApi.deleteShipment(record.id);
+                    message.success(`Đã xóa đơn hàng ${record.invoiceNo}`);
+                    await loadShipmentsHistory();
+                  } catch {
+                    message.error('Không thể xóa đơn hàng.');
+                  }
+                }}
+                okText="Xóa"
+                cancelText="Hủy"
+                okButtonProps={{ danger: true }}
+              >
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined className="text-xs" />}
+                  className="text-xs"
+                >
+                  Xóa
+                </Button>
+              </Popconfirm>
+            )}
           </Space>
         );
       },
@@ -1952,15 +2278,6 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             </div>
 
             <div className="flex items-center flex-wrap gap-2 min-w-0">
-              {!isKeToan && (
-                <Button
-                  icon={<AuditOutlined />}
-                  onClick={() => handleOpenCustomsSync()}
-                  className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB] font-medium shadow-xs"
-                >
-                  Đối Soát Tờ Khai Hải Quan
-                </Button>
-              )}
               <Button
                 icon={<ReloadOutlined />}
                 onClick={loadShipmentsHistory}
@@ -1969,6 +2286,16 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               >
                 Làm mới
               </Button>
+              {!isKeToan && savedShipments.length > 0 && (
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={handleDeleteAllShipments}
+                  className="text-xs h-8 px-3 font-medium shadow-xs"
+                >
+                  Xóa tất cả ({savedShipments.length})
+                </Button>
+              )}
               {!isKeToan && (
                 <Button
                   type="primary"
@@ -1985,43 +2312,148 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             </div>
           </div>
 
-          {/* Table Container with Search Toolbar */}
-          <div className="bg-white border border-[#E5E7EB] rounded-lg p-4 space-y-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="w-full sm:w-80">
-                <Input
-                  placeholder="Tìm theo số Invoice, tên khách hàng hoặc hợp đồng..."
-                  prefix={<SearchOutlined className="text-[#9CA3AF] text-xs mr-1" />}
-                  value={historySearchText}
-                  onChange={(e) => setHistorySearchText(e.target.value)}
-                  allowClear
+          {/* Main Layout: Customs Archive Tree on Left + Declarations List on Right */}
+          <div className="bg-white border border-[#E5E7EB] rounded-lg shadow-xs overflow-hidden flex flex-col lg:flex-row min-h-[600px]">
+            <CustomsArchiveTreePanel
+              shipments={savedShipments}
+              folders={partnerFolders}
+              selectedKey={customsTreeKey}
+              onSelectNode={(key, filter) => {
+                setCustomsTreeKey(key);
+                setCustomsTreeFilter(filter);
+              }}
+            />
+
+            <div className="flex-1 p-4 space-y-3 overflow-x-auto min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="w-full sm:w-80">
+                  <Input
+                    placeholder="Tìm theo số Invoice, tên khách hàng hoặc hợp đồng..."
+                    prefix={<SearchOutlined className="text-[#9CA3AF] text-xs mr-1" />}
+                    value={historySearchText}
+                    onChange={(e) => setHistorySearchText(e.target.value)}
+                    allowClear
+                    size="middle"
+                    className="text-xs"
+                  />
+                </div>
+                {customsTreeKey !== 'all' && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Tag
+                      color="blue"
+                      closable
+                      onClose={() => {
+                        setCustomsTreeKey('all');
+                        setCustomsTreeFilter({});
+                      }}
+                      className="text-xs py-1 px-2.5 font-medium flex items-center gap-1 border-blue-200 text-blue-800 bg-blue-50 m-0"
+                    >
+                      <span>
+                        Đang lọc: <strong>{customsTreeFilter.breadcrumb || customsTreeKey}</strong>
+                      </span>
+                    </Tag>
+                    <Button
+                      size="small"
+                      danger
+                      type="text"
+                      onClick={() => {
+                        setCustomsTreeKey('all');
+                        setCustomsTreeFilter({});
+                      }}
+                      className="text-xs h-6 px-1.5 font-medium"
+                    >
+                      Xóa bộ lọc
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="w-full overflow-x-auto min-w-0">
+                <Table
+                  dataSource={filteredHistory}
+                  columns={historyColumns}
+                  rowKey="id"
+                  rowSelection={{
+                    selectedRowKeys: selectedOrderIds,
+                    onChange: (keys) => setSelectedOrderIds(keys as number[]),
+                  }}
+                  loading={loadingHistory}
+                  pagination={{
+                    pageSize: 15,
+                    showSizeChanger: true,
+                    pageSizeOptions: ['15', '30', '50', '100'],
+                    showTotal: (total, range) => (
+                      <span className="text-xs text-[#6B7280]">
+                        {range[0]}-{range[1]} / {total} chứng từ
+                      </span>
+                    ),
+                  }}
                   size="middle"
-                  className="text-xs"
+                  scroll={{ x: 'max-content' }}
                 />
               </div>
             </div>
-
-            <div className="w-full overflow-x-auto min-w-0">
-              <Table
-                dataSource={filteredHistory}
-                columns={historyColumns}
-                rowKey="id"
-                loading={loadingHistory}
-                pagination={{
-                  pageSize: 15,
-                  showSizeChanger: true,
-                  pageSizeOptions: ['15', '30', '50', '100'],
-                  showTotal: (total, range) => (
-                    <span className="text-xs text-[#6B7280]">
-                      {range[0]}-{range[1]} / {total} chứng từ
-                    </span>
-                  ),
-                }}
-                size="middle"
-                scroll={{ x: 'max-content' }}
-              />
-            </div>
           </div>
+
+          {/* Thanh Tác Vụ Nổi (Floating Action Bar ở đáy màn hình khi có tích chọn) */}
+          {selectedOrderIds.length > 0 && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3.5 rounded-2xl shadow-2xl z-50 flex items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-200">
+              {/* Thông tin số lượng đang chọn */}
+              <span className="text-sm font-medium pr-2 border-r border-slate-700">
+                Đang chọn: <strong>{selectedOrderIds.length}</strong> đơn{currentFolderName ? ` thuộc [${currentFolderName}]` : ''}
+              </span>
+
+              {/* NÚT ĐỐI SOÁT TỜ KHAI: CHỈ HIỆN KHI CHỌN ĐÚNG 1 ĐƠN */}
+              {selectedOrderIds.length === 1 && (
+                <Button
+                  type="default"
+                  icon={<FileSearchOutlined className="text-white" />}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white border-none font-medium flex items-center gap-1.5 shadow-sm"
+                  onClick={() => {
+                    const selectedOrder = savedShipments.find((s) => s.id === selectedOrderIds[0]);
+                    if (selectedOrder) {
+                      handleOpenCustomsSync(selectedOrder);
+                    }
+                  }}
+                >
+                  Đối Soát Tờ Khai Hải Quan
+                </Button>
+              )}
+
+              {/* Các nút in ấn hàng loạt */}
+              <Radio.Group
+                value={batchPrintType}
+                onChange={(e) => setBatchPrintType(e.target.value)}
+                className="bg-slate-800 p-1 rounded-lg"
+                size="small"
+              >
+                <Radio.Button value="INV">Chỉ in INV</Radio.Button>
+                <Radio.Button value="PKL">Chỉ in PKL</Radio.Button>
+                <Radio.Button value="ALL">In cả bộ INV + PKL</Radio.Button>
+              </Radio.Group>
+
+              {/* Nút Bỏ chọn */}
+              <Button
+                type="text"
+                icon={<CloseOutlined />}
+                className="text-slate-400 hover:text-white text-xs"
+                onClick={handleClearSelection}
+              >
+                Bỏ chọn
+              </Button>
+
+              {/* Nút In hàng loạt */}
+              <Button
+                type="primary"
+                icon={<PrinterOutlined />}
+                loading={batchPrinting}
+                className="bg-indigo-600 hover:bg-indigo-500 font-medium text-xs"
+                onClick={handleBatchPrint}
+              >
+                In hàng loạt ({selectedOrderIds.length} đơn)
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         /* ================= MÀN HÌNH LẬP HÓA ĐƠN & PACKING LIST ================= */
@@ -2048,6 +2480,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 className="hidden xl:inline-flex text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB] font-medium shadow-xs"
               >
                 Lịch sử ({savedShipments.length})
+              </Button>
+              <Button
+                icon={<EyeOutlined className="text-emerald-600" />}
+                loading={loadingDocumentPreview}
+                onClick={handlePreviewDocument}
+                className="text-xs h-8 px-3 border-emerald-300 text-emerald-700 hover:text-emerald-800 bg-emerald-50/50 hover:bg-emerald-50 font-medium shadow-xs"
+              >
+                Xem trước Hóa đơn
               </Button>
               <Button
                 icon={<EyeOutlined />}
@@ -2986,6 +3426,36 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           )}
         </div>
       </Modal>
+
+      {/* Modal Phân bổ Size (Size Breakdown Guard) */}
+      <SizeBreakdownModal
+        open={sizeModalOpen}
+        onClose={() => setSizeModalOpen(false)}
+        itemIndex={sizeModalIndex}
+        itemStyleCode={sizeModalItem?.styleCode || ''}
+        itemDescription={sizeModalItem?.description || ''}
+        targetQuantity={sizeModalItem?.quantity || 0}
+        initialJson={sizeModalItem?.sizeBreakdownJson}
+        onSave={handleSaveSizeBreakdown}
+      />
+
+      {/* Modal Lịch sử mở khóa thông quan AMA/AMC (Unlock Audits) */}
+      <UnlockAuditsModal
+        open={auditModalOpen}
+        onClose={() => setAuditModalOpen(false)}
+        orderId={auditModalOrderId}
+        invoiceNo={auditModalInvoiceNo}
+      />
+
+      {/* Modal Xem trước Hóa đơn & PKL (Live Preview & Web Direct Print) */}
+      <DocumentPreviewModal
+        visible={documentPreviewVisible}
+        onClose={() => setDocumentPreviewVisible(false)}
+        data={documentPreviewData}
+        onExportExcel={handleExportExcel}
+        exporting={exporting}
+        disableExport={readOnly || exporting}
+      />
     </div>
   );
 });

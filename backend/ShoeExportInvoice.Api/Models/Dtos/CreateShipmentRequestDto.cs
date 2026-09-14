@@ -35,6 +35,9 @@ public class CreateShipmentRequestDto
     [MaxLength(100)]
     public string PaymentTerms { get; set; } = "T/T";
 
+    [MaxLength(100)]
+    public string DestinationCountry { get; set; } = "VIETNAM";
+
     /// <summary>Số thứ tự hóa đơn bắt đầu cấp phát (nếu người dùng chỉ định cụ thể, ví dụ: 233)</summary>
     public int? StartInvoiceNumber { get; set; }
 

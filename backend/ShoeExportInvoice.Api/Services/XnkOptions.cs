@@ -15,7 +15,7 @@ public sealed class XnkOptions
     // Cấu hình thông tin pháp lý & đối tác mặc định (Zero-hardcode)
     public string DefaultCompanyName { get; set; } = "CÔNG TY TNHH HẢI AN NEW MATERIAL HẬU GIANG";
     public string DefaultTaxCode { get; set; } = "4300326888";
-    public string DefaultAddress { get; set; } = "KCN VSIP Quảng Ngãi, Xã Tịnh Phong, Huyện Sơn Tịnh, Tỉnh Quảng Ngãi";
+    public string DefaultAddress { get; set; } = "SỐ 168, ẤP TẦM VU 1, XÃ THẠNH HÒA, TP CẦN THƠ, VIỆT NAM.";
     public string DefaultCustomsOffice { get; set; } = "Chi cục Hải quan Quản lý Hàng gia công";
     public string DefaultCustomerName { get; set; } = "CÔNG TY TNHH KINGMAKER III (VIỆT NAM) FOOTWEAR";
     public string DefaultContractNo { get; set; } = "KM-HANEW/01-2025";

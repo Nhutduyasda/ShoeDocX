@@ -4,7 +4,6 @@ import {
   Button,
   Input,
   Dropdown,
-  Tag,
   Tooltip,
   message,
   Empty,
@@ -160,57 +159,49 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
       .map((folder) => {
         const isSelected = selectedFolderId === folder.id;
         const count = folder.totalProductCount;
-        const is24Pairs = folder.defaultPairsPerCarton === 24;
 
         return {
           key: folder.id,
           title: (
             <Dropdown menu={getFolderMenu(folder)} trigger={canManage ? ['contextMenu'] : []}>
-            <div className={`flex items-center justify-between group gap-1.5 w-full min-w-0 ${isSelected ? 'font-semibold' : 'font-normal'}`}>
-              <div className="flex items-center space-x-1.5 min-w-0 flex-1 overflow-hidden">
-                <Tooltip
-                  title={folder.customerName ? `${folder.name} (${folder.customerName})` : folder.name}
-                  mouseEnterDelay={0.3}
-                  placement="topLeft"
-                >
-                  <span className="truncate text-xs font-medium block">
-                    {folder.name}
-                  </span>
-                </Tooltip>
-                {is24Pairs && (
-                  <Tag color="green" className="text-[10px] px-1 py-0 border-0 leading-tight shrink-0 m-0">
-                    24
-                  </Tag>
-                )}
-              </div>
-
-              <div className="flex items-center space-x-1 shrink-0 ml-1">
-                <span
-                  className={`text-[11px] px-1.5 py-0.2 rounded-full font-mono shrink-0 ${
-                    count > 0 ? 'bg-slate-200 text-slate-700 font-medium' : 'bg-slate-100 text-slate-400'
-                  }`}
-                >
-                  {count}
-                </span>
-
-                {/* Dropdown menu thao tác trên thư mục */}
-                {canManage && (
-                  <Dropdown
-                    menu={getFolderMenu(folder)}
-                    trigger={['click']}
+              <div className={`flex items-center justify-between group gap-1.5 w-full min-w-0 ${isSelected ? 'font-semibold' : 'font-normal'}`}>
+                <div className="flex items-center space-x-1.5 min-w-0 flex-1 overflow-hidden">
+                  <Tooltip
+                    title={folder.customerName ? `${folder.name} (${folder.customerName})` : folder.name}
+                    mouseEnterDelay={0.3}
+                    placement="topLeft"
                   >
-                    <Button
-                      type="text"
-                      size="small"
-                      className="p-0.5 h-6 w-6 text-slate-400 hover:text-blue-600 hover:bg-slate-200/80 rounded transition-colors shrink-0 flex items-center justify-center"
-                      icon={<MoreOutlined className="text-xs" />}
-                      onClick={(e) => e.stopPropagation()}
-                      title="Thao tác thư mục"
-                    />
-                  </Dropdown>
-                )}
+                    <span className="truncate text-xs font-medium block">
+                      {folder.name}
+                    </span>
+                  </Tooltip>
+                </div>
+
+                <div className="flex items-center space-x-1 shrink-0 ml-1">
+                  <span
+                    className={`min-w-5 shrink-0 text-right font-mono text-xs tabular-nums ${count === 0 ? 'text-slate-300' : 'text-slate-400'}`}
+                  >
+                    {count}
+                  </span>
+
+                  {/* Dropdown menu thao tác trên thư mục */}
+                  {canManage && (
+                    <Dropdown
+                      menu={getFolderMenu(folder)}
+                      trigger={['click']}
+                    >
+                      <Button
+                        type="text"
+                        size="small"
+                        className="p-0.5 h-6 w-6 text-slate-400 hover:text-blue-600 hover:bg-slate-200/80 rounded transition-colors shrink-0 flex items-center justify-center"
+                        icon={<MoreOutlined className="text-xs" />}
+                        onClick={(e) => e.stopPropagation()}
+                        title="Thao tác thư mục"
+                      />
+                    </Dropdown>
+                  )}
+                </div>
               </div>
-            </div>
             </Dropdown>
           ),
           children: folder.children ? convertToTreeNodes(folder.children) : [],
@@ -259,20 +250,17 @@ export const FolderTreePanel: React.FC<FolderTreePanelProps> = ({
       <div className="px-2 pt-1 pb-1">
         <div
           onClick={() => onSelectFolder(null)}
-          className={`flex items-center justify-between px-2.5 py-1.5 rounded cursor-pointer transition-colors text-xs ${
-            selectedFolderId === null
-              ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
-              : 'hover:bg-[#F3F4F6] text-[#374151]'
-          }`}
+          className={`flex items-center justify-between px-2.5 py-1.5 rounded cursor-pointer transition-colors text-xs ${selectedFolderId === null
+            ? 'bg-[#EFF6FF] text-[#1D4ED8] font-semibold border border-[#BFDBFE]'
+            : 'hover:bg-[#F3F4F6] text-[#374151]'
+            }`}
         >
           <div className="flex items-center space-x-2">
             <AppstoreOutlined />
             <span>Tất cả sản phẩm</span>
           </div>
           <span
-            className={`text-[11px] px-2 py-0.2 rounded-full font-mono ${
-              selectedFolderId === null ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-[#E5E7EB] text-[#4B5563]'
-            }`}
+            className={`min-w-5 shrink-0 text-right font-mono text-xs tabular-nums ${selectedFolderId === null ? 'text-[#1D4ED8] font-semibold' : totalAllProducts === 0 ? 'text-slate-300' : 'text-slate-400'}`}
           >
             {totalAllProducts}
           </span>

@@ -40,7 +40,7 @@ export const getAllowedTabsForUser = (user?: User | null): NavTabKey[] => {
     return ['overview', 'warehouse', 'shipment', 'ocr', 'history', 'settlement', 'products'];
   }
   if (isKhoUser(user)) {
-    return ['warehouse', 'ocr', 'products'];
+    return ['warehouse', 'products'];
   }
   if (isXnkUser(user)) {
     return ['shipment', 'history', 'ocr', 'products'];

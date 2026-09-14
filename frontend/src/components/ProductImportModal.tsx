@@ -261,7 +261,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
         <Button
           key="close"
           onClick={handleClose}
-          className="border-slate-300 text-slate-700 text-xs h-9 px-3.5"
+          className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB] font-medium shadow-xs"
         >
           {result ? 'Đóng' : 'Hủy'}
         </Button>,
@@ -271,7 +271,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
             type="primary"
             loading={uploading}
             onClick={handleConfirmUpload}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4 font-medium"
+            className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs h-8 px-3.5 font-medium shadow-xs"
           >
             Xác nhận Nạp {previewData.totalRows} mã vào hệ thống
           </Button>

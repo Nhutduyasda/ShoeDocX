@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Input,
   DatePicker,
@@ -39,6 +39,8 @@ import type {
 import type { MasterDataFolder } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
+export type ProcessLockMode = 'ONLY_GO' | 'ONLY_STANDARD' | 'BOTH' | 'NO_PRICE' | 'NEW_CODE';
+
 interface GridRow {
   key: string;
   styleCode: string;
@@ -46,15 +48,18 @@ interface GridRow {
   processType: number; // 1: Standard (Thành hình), 2: GoKhongMay (Gò không may)
   isPendingReview?: boolean;
   note?: string;
+  lockMode?: ProcessLockMode;
+  lockReason?: string;
 }
 
-const createBlankRow = (processType = 1): GridRow => ({
+const createBlankRow = (processType = 1, lockMode: ProcessLockMode = 'NEW_CODE'): GridRow => ({
   key: 'row_' + Math.random().toString(36).substring(2, 9),
   styleCode: '',
   quantity: null,
   processType,
   isPendingReview: false,
   note: '',
+  lockMode,
 });
 
 export const WarehousePage: React.FC = () => {
@@ -85,6 +90,9 @@ export const WarehousePage: React.FC = () => {
   const [loadingProducts, setLoadingProducts] = useState<boolean>(false);
   const [productPickerVisible, setProductPickerVisible] = useState<boolean>(false);
 
+  // Cache sản phẩm đã tra cứu để nhận diện tức thì và đối chiếu giá
+  const productCacheRef = useRef<Map<string, ProductLookupItem>>(new Map());
+
   // Lịch sử phiếu
   const [historyDrawerVisible, setHistoryDrawerVisible] = useState<boolean>(false);
   const [historyBatches, setHistoryBatches] = useState<WarehouseBatchSummary[]>([]);
@@ -105,6 +113,186 @@ export const WarehousePage: React.FC = () => {
 
   // Input refs để điều khiển con trỏ phím Enter/Tab mượt như Excel
   const inputRefs = useRef<{ [key: string]: InputRef | null }>({});
+
+  // Tập hợp tất cả các mã đã được chọn trong bảng để loại trừ khỏi gợi ý
+  const allSelectedCodes = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((r) => {
+      const code = (r.styleCode || '').trim().toUpperCase();
+      if (code) {
+        set.add(code);
+        if (code.endsWith('.G')) {
+          set.add(code.slice(0, -2).trim());
+        }
+      }
+    });
+    return set;
+  }, [rows]);
+
+  // Danh mục mã trong modal picker sau khi đã loại trừ các mã đã chọn vào bảng
+  const availablePickerProducts = useMemo(() => {
+    return folderProducts.filter((p) => {
+      const code = p.styleCode.trim().toUpperCase();
+      return !allSelectedCodes.has(code) && !allSelectedCodes.has(code + '.G');
+    });
+  }, [folderProducts, allSelectedCodes]);
+
+  // Lấy tập hợp mã đã chọn ở các dòng khác (để loại trừ trên gợi ý AutoComplete của dòng hiện tại)
+  const getOtherSelectedCodes = useCallback(
+    (currentIndex: number): Set<string> => {
+      const set = new Set<string>();
+      rows.forEach((r, idx) => {
+        if (idx !== currentIndex) {
+          const code = (r.styleCode || '').trim().toUpperCase();
+          if (code) {
+            set.add(code);
+            if (code.endsWith('.G')) {
+              set.add(code.slice(0, -2).trim());
+            }
+          }
+        }
+      });
+      return set;
+    },
+    [rows]
+  );
+
+  // Tạo option cho AutoComplete kèm nhãn công đoạn trực quan
+  const renderProductOption = useCallback((p: ProductLookupItem) => {
+    const hasStd = p.hasStandardPrice ?? ((p.unitPriceCMT ?? 0) > 0 || (p.unitPriceDAP ?? 0) > 0);
+    const hasGo =
+      p.hasGoPrice ??
+      ((p.unitPriceCMT_Go ?? p.unitPriceGoKhongMay ?? 0) > 0 || (p.unitPriceDAP_Go ?? 0) > 0);
+    return {
+      value: p.styleCode,
+      label: (
+        <div className="flex justify-between items-center py-1 text-xs">
+          <span className="font-bold font-mono text-blue-600">{p.styleCode}</span>
+          <div className="flex items-center space-x-1">
+            {hasGo && !hasStd && (
+              <Tag color="orange" className="text-[10px] m-0 font-semibold">
+                Gò
+              </Tag>
+            )}
+            {hasStd && !hasGo && (
+              <Tag color="blue" className="text-[10px] m-0">
+                Thành hình
+              </Tag>
+            )}
+            {hasStd && hasGo && (
+              <Tag color="purple" className="text-[10px] m-0">
+                Cả 2
+              </Tag>
+            )}
+            <span className="text-slate-500 text-[11px] truncate max-w-[180px]">
+              {p.description || p.customer || ''}
+            </span>
+          </div>
+        </div>
+      ),
+    };
+  }, []);
+
+  // Tra cứu sản phẩm trong cache hoặc danh mục hợp đồng
+  const findCachedProduct = useCallback(
+    (code: string): ProductLookupItem | undefined => {
+      const upper = (code || '').trim().toUpperCase();
+      if (!upper) return undefined;
+      if (productCacheRef.current.has(upper)) return productCacheRef.current.get(upper);
+      if (upper.endsWith('.G')) {
+        const base = upper.slice(0, -2).trim();
+        if (productCacheRef.current.has(base)) return productCacheRef.current.get(base);
+      }
+      return folderProducts.find((p) => {
+        const pCode = p.styleCode.trim().toUpperCase();
+        return pCode === upper || (upper.endsWith('.G') && pCode === upper.slice(0, -2).trim());
+      });
+    },
+    [folderProducts]
+  );
+
+  // Suy luận công đoạn (Thành hình vs Gò không may) và trạng thái khóa dựa trên Master Data
+  const resolveRowConfig = useCallback(
+    (
+      styleCode: string,
+      matched?: ProductLookupItem,
+      noteText: string = contractNote
+    ): { processType: number; lockMode: ProcessLockMode; lockReason?: string; isPendingReview: boolean } => {
+      const upper = (styleCode || '').trim().toUpperCase();
+      if (!upper) {
+        return {
+          processType: 1,
+          lockMode: 'NEW_CODE',
+          isPendingReview: false,
+        };
+      }
+
+      // 1. Nếu mã có hậu tố .G -> 100% Gò không may (khóa cứng)
+      if (upper.endsWith('.G')) {
+        return {
+          processType: 2,
+          lockMode: 'ONLY_GO',
+          lockReason: 'Mã giày có hậu tố .G quy ước cho hàng Gò không may',
+          isPendingReview: !matched,
+        };
+      }
+
+      // 2. Tra cứu đối chiếu Master Data
+      const product = matched || findCachedProduct(upper);
+      if (product) {
+        const hasStandard =
+          product.hasStandardPrice ?? ((product.unitPriceCMT ?? 0) > 0 || (product.unitPriceDAP ?? 0) > 0);
+        const hasGo =
+          product.hasGoPrice ??
+          ((product.unitPriceCMT_Go ?? product.unitPriceGoKhongMay ?? 0) > 0 || (product.unitPriceDAP_Go ?? 0) > 0);
+
+        if (!hasStandard && hasGo) {
+          return {
+            processType: 2,
+            lockMode: 'ONLY_GO',
+            lockReason: 'Master Data chỉ có đơn giá Gò không may cho mã này (Cố định)',
+            isPendingReview: false,
+          };
+        }
+
+        if (hasStandard && !hasGo) {
+          return {
+            processType: 1,
+            lockMode: 'ONLY_STANDARD',
+            lockReason: 'Master Data chỉ có đơn giá Thành hình cho mã này (Cố định)',
+            isPendingReview: false,
+          };
+        }
+
+        if (hasStandard && hasGo) {
+          const noteUpper = (noteText || '').toUpperCase();
+          const preferGo = noteUpper.includes('GÒ') || noteUpper.includes('GO');
+          return {
+            processType: preferGo ? 2 : 1,
+            lockMode: 'BOTH',
+            lockReason: 'Mã này có cả đơn giá Thành hình và Gò không may trong Master Data',
+            isPendingReview: false,
+          };
+        }
+
+        return {
+          processType: 1,
+          lockMode: 'NO_PRICE',
+          lockReason: 'Mã đã có trong Master Data nhưng chưa cấu hình đơn giá',
+          isPendingReview: false,
+        };
+      }
+
+      // 3. Không có trong Master Data (Mã mới)
+      return {
+        processType: 1,
+        lockMode: 'NEW_CODE',
+        lockReason: 'Mã chưa có trong Master Data. Hệ thống sẽ lưu và chuyển XNK đối soát sau.',
+        isPendingReview: true,
+      };
+    },
+    [contractNote, findCachedProduct]
+  );
 
   // Tải danh mục hợp đồng & lịch sử khi mở trang
   useEffect(() => {
@@ -131,18 +319,13 @@ export const WarehousePage: React.FC = () => {
       const items = await warehouseApi.lookupProducts('', folderId);
       setFolderProducts(items);
 
-      // Tạo sẵn options gợi ý cho các dòng
-      const defaultOptions = items.map((p: ProductLookupItem) => ({
-        value: p.styleCode,
-        label: (
-          <div className="flex justify-between items-center py-1 text-xs">
-            <span className="font-bold font-mono text-blue-600">{p.styleCode}</span>
-            <span className="text-slate-500 text-[11px] truncate max-w-[220px]">
-              {p.description || p.customer || ''}
-            </span>
-          </div>
-        ),
-      }));
+      // Lưu vào cache
+      items.forEach((p: ProductLookupItem) => {
+        productCacheRef.current.set(p.styleCode.trim().toUpperCase(), p);
+      });
+
+      // Tạo sẵn options gợi ý cho các dòng (sẽ được tự động lọc theo từng dòng khi mở)
+      const defaultOptions = items.map(renderProductOption);
 
       setLookupOptions((prev) => {
         const next = { ...prev };
@@ -151,12 +334,30 @@ export const WarehousePage: React.FC = () => {
         });
         return next;
       });
+
+      // Tự động rà soát lại các dòng hiện tại để cập nhật lockMode và processType
+      setRows((prev) =>
+        prev.map((r) => {
+          if (!r.styleCode.trim()) return r;
+          const matched = items.find((p: ProductLookupItem) => p.styleCode.trim().toUpperCase() === r.styleCode.trim().toUpperCase());
+          if (!matched) return r;
+          const config = resolveRowConfig(r.styleCode, matched);
+          return {
+            ...r,
+            processType: config.processType,
+            lockMode: config.lockMode,
+            lockReason: config.lockReason,
+            isPendingReview: config.isPendingReview,
+          };
+        })
+      );
     } catch (err) {
       console.error('Lỗi nạp danh sách mã của hợp đồng:', err);
     } finally {
       setLoadingProducts(false);
     }
-  }, [rows]);
+  }, [rows, resolveRowConfig, renderProductOption]);
+
 
   // Khi người dùng chọn Thư mục Hợp đồng
   const handleFolderChange = (val: number | null) => {
@@ -200,78 +401,118 @@ export const WarehousePage: React.FC = () => {
   // Xử lý thay đổi mã giày & gợi ý thông minh
   const handleStyleCodeChange = (index: number, val: string) => {
     const upperVal = val.toUpperCase();
-    let processType = rows[index]?.processType || 1;
-
-    // Tự động chuyển Gò không may nếu gõ đuôi .G
-    if (upperVal.endsWith('.G')) {
-      processType = 2;
-    }
+    const cachedProduct = findCachedProduct(upperVal);
+    const initialConfig = resolveRowConfig(upperVal, cachedProduct);
 
     setRows((prev) => {
       const next = [...prev];
       next[index] = {
         ...next[index],
         styleCode: upperVal,
-        processType,
+        processType: initialConfig.processType,
+        lockMode: initialConfig.lockMode,
+        lockReason: initialConfig.lockReason,
+        isPendingReview: initialConfig.isPendingReview,
       };
       return next;
     });
 
     // Tìm kiếm tức thời khi gõ
-    warehouseApi.lookupProducts(val.trim(), contractFolderId)
-      .then((items) => {
-        const options = items.map((p: ProductLookupItem) => ({
-          value: p.styleCode,
-          label: (
-            <div className="flex justify-between items-center py-1 text-xs">
-              <span className="font-bold font-mono text-blue-600">{p.styleCode}</span>
-              <span className="text-slate-500 text-[11px] truncate max-w-[220px]">
-                {p.description || p.customer || ''}
-              </span>
-            </div>
-          ),
-        }));
-        const rowKey = rows[index]?.key;
-        if (rowKey) {
-          setLookupOptions((prev) => ({ ...prev, [rowKey]: options }));
-        }
-      })
-      .catch(() => {});
+    if (val.trim()) {
+      warehouseApi.lookupProducts(val.trim(), contractFolderId)
+        .then((items) => {
+          items.forEach((p: ProductLookupItem) => {
+            productCacheRef.current.set(p.styleCode.trim().toUpperCase(), p);
+          });
+
+          const otherCodes = getOtherSelectedCodes(index);
+          const options = items
+            .filter((p: ProductLookupItem) => {
+              const u = p.styleCode.trim().toUpperCase();
+              return !otherCodes.has(u) && !otherCodes.has(u + '.G');
+            })
+            .map(renderProductOption);
+          const rowKey = rows[index]?.key;
+          if (rowKey) {
+            setLookupOptions((prev) => ({ ...prev, [rowKey]: options }));
+          }
+
+          // Khớp chính xác nếu tìm thấy sản phẩm trong kết quả tìm kiếm
+          const exactMatch = items.find(
+            (p: ProductLookupItem) =>
+              p.styleCode.trim().toUpperCase() === upperVal ||
+              (upperVal.endsWith('.G') && p.styleCode.trim().toUpperCase() === upperVal.slice(0, -2).trim())
+          );
+          if (exactMatch) {
+            const refinedConfig = resolveRowConfig(upperVal, exactMatch);
+            setRows((prev) => {
+              const next = [...prev];
+              if (next[index] && next[index].styleCode === upperVal) {
+                next[index] = {
+                  ...next[index],
+                  processType: refinedConfig.processType,
+                  lockMode: refinedConfig.lockMode,
+                  lockReason: refinedConfig.lockReason,
+                  isPendingReview: refinedConfig.isPendingReview,
+                };
+              }
+              return next;
+            });
+          }
+        })
+        .catch(() => {});
+    }
   };
 
-  // Khi focus vào ô mã giày: hiện danh sách mã có sẵn của hợp đồng
+  // Khi chọn mã giày từ dropdown gợi ý AutoComplete
+  const handleStyleCodeSelect = (index: number, val: string) => {
+    const upperVal = val.toUpperCase();
+    const cachedProduct = findCachedProduct(upperVal);
+    const config = resolveRowConfig(upperVal, cachedProduct);
+
+    setRows((prev) => {
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        styleCode: upperVal,
+        processType: config.processType,
+        lockMode: config.lockMode,
+        lockReason: config.lockReason,
+        isPendingReview: config.isPendingReview,
+      };
+      return next;
+    });
+  };
+
+  // Khi focus vào ô mã giày: hiện danh sách mã có sẵn của hợp đồng (đã lọc bỏ các mã đã chọn ở dòng khác)
   const handleStyleCodeFocus = (index: number) => {
     const rowKey = rows[index]?.key;
     if (!rowKey) return;
 
+    const otherCodes = getOtherSelectedCodes(index);
+
     if (folderProducts.length > 0) {
-      const options = folderProducts.map((p: ProductLookupItem) => ({
-        value: p.styleCode,
-        label: (
-          <div className="flex justify-between items-center py-1 text-xs">
-            <span className="font-bold font-mono text-blue-600">{p.styleCode}</span>
-            <span className="text-slate-500 text-[11px] truncate max-w-[220px]">
-              {p.description || p.customer || ''}
-            </span>
-          </div>
-        ),
-      }));
+      const options = folderProducts
+        .filter((p: ProductLookupItem) => {
+          const u = p.styleCode.trim().toUpperCase();
+          return !otherCodes.has(u) && !otherCodes.has(u + '.G');
+        })
+        .map(renderProductOption);
       setLookupOptions((prev) => ({ ...prev, [rowKey]: options }));
     } else {
-      warehouseApi.lookupProducts('', contractFolderId)
+      warehouseApi
+        .lookupProducts('', contractFolderId)
         .then((items) => {
           setFolderProducts(items);
-          const options = items.map((p: ProductLookupItem) => ({
-            value: p.styleCode,
-            label: (
-              <div className="flex justify-between items-center py-1 text-xs">
-                <span className="font-bold font-mono text-blue-600">{p.styleCode}</span>
-                <span className="text-slate-500 text-[11px] truncate max-w-[220px]">
-                  {p.description || p.customer || ''}
-                </span>
-              </div>
-            ),
-          }));
+          items.forEach((p: ProductLookupItem) => {
+            productCacheRef.current.set(p.styleCode.trim().toUpperCase(), p);
+          });
+          const options = items
+            .filter((p: ProductLookupItem) => {
+              const u = p.styleCode.trim().toUpperCase();
+              return !otherCodes.has(u) && !otherCodes.has(u + '.G');
+            })
+            .map(renderProductOption);
           setLookupOptions((prev) => ({ ...prev, [rowKey]: options }));
         })
         .catch(() => {});
@@ -357,6 +598,9 @@ export const WarehousePage: React.FC = () => {
 
   // Chọn nhanh mã từ Modal Hợp đồng
   const handlePickProduct = (product: ProductLookupItem) => {
+    productCacheRef.current.set(product.styleCode.trim().toUpperCase(), product);
+    const config = resolveRowConfig(product.styleCode, product);
+
     // Tìm dòng trống đầu tiên hoặc thêm mới
     const emptyIndex = rows.findIndex((r) => !r.styleCode.trim());
     if (emptyIndex !== -1) {
@@ -366,6 +610,10 @@ export const WarehousePage: React.FC = () => {
           ...next[emptyIndex],
           styleCode: product.styleCode,
           quantity: next[emptyIndex].quantity || 12,
+          processType: config.processType,
+          lockMode: config.lockMode,
+          lockReason: config.lockReason,
+          isPendingReview: config.isPendingReview,
         };
         return next;
       });
@@ -376,13 +624,17 @@ export const WarehousePage: React.FC = () => {
           key: 'picked_' + Math.random().toString(36).substring(2, 9),
           styleCode: product.styleCode,
           quantity: 12,
-          processType: 1,
-          isPendingReview: false,
+          processType: config.processType,
+          lockMode: config.lockMode,
+          lockReason: config.lockReason,
+          isPendingReview: config.isPendingReview,
           note: '',
         },
       ]);
     }
-    message.success(`Đã thêm mã ${product.styleCode} vào bảng!`);
+    message.success(
+      `Đã thêm mã ${product.styleCode} (${config.processType === 2 ? 'Gò không may' : 'Thành hình'}) vào bảng!`
+    );
   };
 
   // Bấm Enter ở ô Mã giày -> nhảy sang ô Số lượng
@@ -441,8 +693,11 @@ export const WarehousePage: React.FC = () => {
       if (parts.length >= 2) {
         const rawCode = parts[0].toUpperCase();
         const rawQty = parseInt(parts[1].replace(/[^\d]/g, ''), 10);
-        let pType = 1;
-        if (rawCode.endsWith('.G') || (parts[2] && parts[2].toLowerCase().includes('gò'))) {
+        const cachedProd = findCachedProduct(rawCode);
+        const config = resolveRowConfig(rawCode, cachedProd);
+
+        let pType = config.processType;
+        if (parts[2] && parts[2].toLowerCase().includes('gò')) {
           pType = 2;
         }
 
@@ -452,6 +707,9 @@ export const WarehousePage: React.FC = () => {
             styleCode: rawCode,
             quantity: isNaN(rawQty) ? null : rawQty,
             processType: pType,
+            lockMode: config.lockMode,
+            lockReason: config.lockReason,
+            isPendingReview: config.isPendingReview,
             note: parts[2] || '',
           });
         }
@@ -465,7 +723,7 @@ export const WarehousePage: React.FC = () => {
       });
       message.success(`Đã tự động nhận diện và dán ${parsedRows.length} dòng từ bảng tính Excel!`);
     }
-  }, []);
+  }, [findCachedProduct, resolveRowConfig]);
 
   // Xử lý modal dán từ Excel
   const applyPastedText = () => {
@@ -489,8 +747,11 @@ export const WarehousePage: React.FC = () => {
       const style = parts[0]?.trim().toUpperCase() || '';
       const qtyStr = parts[1]?.trim().replace(/[^\d]/g, '') || '';
       const qty = parseInt(qtyStr, 10);
-      let pType = 1;
-      if (style.endsWith('.G') || (parts[2] && parts[2].toLowerCase().includes('gò'))) {
+      const cachedProd = findCachedProduct(style);
+      const config = resolveRowConfig(style, cachedProd);
+
+      let pType = config.processType;
+      if (parts[2] && parts[2].toLowerCase().includes('gò')) {
         pType = 2;
       }
 
@@ -500,6 +761,9 @@ export const WarehousePage: React.FC = () => {
           styleCode: style,
           quantity: isNaN(qty) ? null : qty,
           processType: pType,
+          lockMode: config.lockMode,
+          lockReason: config.lockReason,
+          isPendingReview: config.isPendingReview,
           note: parts[2]?.trim() || '',
         });
       }
@@ -561,7 +825,7 @@ export const WarehousePage: React.FC = () => {
     }
   }, [rows, batchId, batchNumber, exportDate, contractNote, contractFolderId, loadHistory, isLocked]);
 
-  // Bàn giao cho XNK (Submit to XNK)
+  // Bàn giao cho XNK (Submit to XNK) với chốt chặn an toàn Validation Guard
   const handleSubmitToXnk = async () => {
     if (submittingRef.current || isLocked) return;
     const validItems = rows.filter((r) => r.styleCode.trim() && (r.quantity || 0) > 0);
@@ -570,57 +834,117 @@ export const WarehousePage: React.FC = () => {
       return;
     }
 
-    submittingRef.current = true;
-    setSubmitting(true);
-    try {
-      const payload = {
-        id: batchId ?? undefined,
-        batchNumber: batchNumber.trim(),
-        exportDate: exportDate.format('YYYY-MM-DD'),
-        contractNote: contractNote.trim(),
-        contractFolderId: contractFolderId,
-        submitImmediately: true,
-        items: validItems.map((r) => ({
-          styleCode: r.styleCode.trim(),
-          quantity: r.quantity || 0,
-          processType: r.processType,
-          note: r.note,
-        })),
-      };
+    // Kiểm tra tính nhất quán giữa công đoạn và Master Data
+    const mismatchedRows: string[] = [];
+    validItems.forEach((r, idx) => {
+      const prod = findCachedProduct(r.styleCode);
+      if (prod) {
+        const hasStd = prod.hasStandardPrice ?? ((prod.unitPriceCMT ?? 0) > 0 || (prod.unitPriceDAP ?? 0) > 0);
+        const hasGo =
+          prod.hasGoPrice ??
+          ((prod.unitPriceCMT_Go ?? prod.unitPriceGoKhongMay ?? 0) > 0 || (prod.unitPriceDAP_Go ?? 0) > 0);
 
-      const result = await warehouseApi.saveBatch(payload);
-      setBatchId(result.id);
-      setStatus('SubmittedToXnk');
-      setSubmittedAt(result.submittedAt || new Date().toISOString());
-      loadHistory();
+        if (r.processType === 1 && !hasStd && hasGo) {
+          mismatchedRows.push(`Dòng ${idx + 1} (${r.styleCode}): Master Data chỉ có giá Gò không may nhưng đang chọn Thành hình`);
+        } else if (r.processType === 2 && hasStd && !hasGo) {
+          mismatchedRows.push(`Dòng ${idx + 1} (${r.styleCode}): Master Data chỉ có giá Thành hình nhưng đang chọn Gò không may`);
+        }
+      }
+    });
 
-      Modal.success({
-        title: 'Bàn giao cho XNK thành công!',
+    const executeSubmit = async () => {
+      submittingRef.current = true;
+      setSubmitting(true);
+      try {
+        const payload = {
+          id: batchId ?? undefined,
+          batchNumber: batchNumber.trim(),
+          exportDate: exportDate.format('YYYY-MM-DD'),
+          contractNote: contractNote.trim(),
+          contractFolderId: contractFolderId,
+          submitImmediately: true,
+          items: validItems.map((r) => {
+            // Tự động bảo toàn công đoạn nếu phát hiện sản phẩm chỉ có 1 loại giá
+            let finalType = r.processType;
+            const prod = findCachedProduct(r.styleCode);
+            if (prod) {
+              const hasStd = prod.hasStandardPrice ?? ((prod.unitPriceCMT ?? 0) > 0 || (prod.unitPriceDAP ?? 0) > 0);
+              const hasGo =
+                prod.hasGoPrice ??
+                ((prod.unitPriceCMT_Go ?? prod.unitPriceGoKhongMay ?? 0) > 0 || (prod.unitPriceDAP_Go ?? 0) > 0);
+              if (!hasStd && hasGo) finalType = 2;
+              else if (hasStd && !hasGo) finalType = 1;
+            }
+            return {
+              styleCode: r.styleCode.trim(),
+              quantity: r.quantity || 0,
+              processType: finalType,
+              note: r.note,
+            };
+          }),
+        };
+
+        const result = await warehouseApi.saveBatch(payload);
+        setBatchId(result.id);
+        setStatus('SubmittedToXnk');
+        setSubmittedAt(result.submittedAt || new Date().toISOString());
+        loadHistory();
+
+        Modal.success({
+          title: 'Bàn giao cho XNK thành công!',
+          content: (
+            <div className="space-y-2 mt-2 text-sm text-slate-700">
+              <div>
+                Đã bàn giao lô <strong>{batchNumber}</strong> gồm <strong>{validItems.length} mã giày</strong> với tổng số{' '}
+                <strong className="text-emerald-600">{totalQuantity.toLocaleString()} đôi</strong> cho phòng XNK.
+              </div>
+              <div className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded border border-slate-200">
+                Bảng dữ liệu đợt này đã được chuyển sang trạng thái <strong>[Đã bàn giao XNK]</strong> và khóa để chống chỉnh sửa trùng lặp. Đơn giá và công đoạn đã được đồng bộ chuẩn xác với Master Data.
+              </div>
+            </div>
+          ),
+          okText: '➕ Tạo đợt xuất kho mới ngay',
+          cancelText: 'Xem lại đợt vừa giao',
+          okCancel: true,
+          onOk: () => {
+            handleCreateNewBatch();
+          },
+        });
+      } catch (err: unknown) {
+        const errorMsg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Lỗi khi bàn giao lô hàng cho XNK.';
+        message.error(errorMsg);
+      } finally {
+        setSubmitting(false);
+        submittingRef.current = false;
+      }
+    };
+
+    if (mismatchedRows.length > 0) {
+      Modal.confirm({
+        title: 'Phát hiện mã có thể lệch đơn giá so với Master Data!',
         content: (
-          <div className="space-y-2 mt-2 text-sm text-slate-700">
-            <div>
-              Đã bàn giao lô <strong>{batchNumber}</strong> gồm <strong>{validItems.length} mã giày</strong> với tổng số{' '}
-              <strong className="text-emerald-600">{totalQuantity.toLocaleString()} đôi</strong> cho phòng XNK.
-            </div>
-            <div className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded border border-slate-200">
-              ℹ️ Bảng dữ liệu đợt này đã được chuyển sang trạng thái <strong>[Đã bàn giao XNK]</strong> và khóa để chống chỉnh sửa trùng lặp.
-            </div>
+          <div className="space-y-2 text-xs text-slate-700">
+            <p className="text-amber-700 font-semibold">
+              Các mã sau đây không khớp cấu hình đơn giá khai báo trong Master Data:
+            </p>
+            <ul className="list-disc pl-4 space-y-1 text-slate-600">
+              {mismatchedRows.map((msg, i) => (
+                <li key={i}>{msg}</li>
+              ))}
+            </ul>
+            <p className="text-slate-500 mt-2">
+              Hệ thống sẽ tự động hiệu chỉnh về đúng công đoạn có đơn giá để bảo toàn chứng từ cho XNK. Bạn có muốn tiếp tục bàn giao?
+            </p>
           </div>
         ),
-        okText: '➕ Tạo đợt xuất kho mới ngay',
-        cancelText: 'Xem lại đợt vừa giao',
-        okCancel: true,
-        onOk: () => {
-          handleCreateNewBatch();
-        },
+        okText: 'Tự động sửa & Bàn giao ngay',
+        cancelText: 'Xem lại',
+        onOk: () => executeSubmit(),
       });
-    } catch (err: unknown) {
-      const errorMsg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Lỗi khi bàn giao cho XNK.';
-      message.error(errorMsg);
-    } finally {
-      setSubmitting(false);
-      submittingRef.current = false;
+      return;
     }
+
+    await executeSubmit();
   };
 
   // Nạp 1 lô từ lịch sử vào Fast-Grid
@@ -642,14 +966,26 @@ export const WarehousePage: React.FC = () => {
 
       if (batch.items && batch.items.length > 0) {
         setRows(
-          batch.items.map((item) => ({
-            key: 'item_' + item.id,
-            styleCode: item.styleCode,
-            quantity: item.quantity,
-            processType: item.processType,
-            isPendingReview: item.isPendingReview,
-            note: item.note || '',
-          }))
+          batch.items.map((item) => {
+            const rawProcess = String(item.processType || '');
+            const rawCode = (item.styleCode || '').trim().toUpperCase();
+            const isGo =
+              (item.processType as unknown) === 2 ||
+              rawProcess === 'GoKhongMay' ||
+              rawProcess.toLowerCase().includes('go') ||
+              rawCode.endsWith('.G');
+            const cfg = resolveRowConfig(item.styleCode);
+            return {
+              key: 'item_' + item.id,
+              styleCode: item.styleCode,
+              quantity: item.quantity,
+              processType: isGo ? 2 : (cfg.lockMode === 'ONLY_GO' ? 2 : 1),
+              lockMode: cfg.lockMode,
+              lockReason: cfg.lockReason,
+              isPendingReview: item.isPendingReview,
+              note: item.note || '',
+            };
+          })
         );
       } else {
         setRows([createBlankRow()]);
@@ -694,9 +1030,9 @@ export const WarehousePage: React.FC = () => {
   return (
     <div className="space-y-6 max-w-[1550px] mx-auto pb-12" onPaste={handleGridPaste}>
       {/* 1. Page Header (Đồng bộ chuẩn phong cách giao diện ShoeDocX) */}
-      <div className="flex justify-between items-start flex-wrap gap-4 pb-4 border-b border-slate-200">
-        <div>
-          <div className="flex items-center space-x-2">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-slate-200">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight m-0">
               Lưới xuất kho thành phẩm (成品鞋出货交接单)
             </h1>
@@ -707,12 +1043,12 @@ export const WarehousePage: React.FC = () => {
             )}
             {status === 'SubmittedToXnk' && (
               <Tag className="border-blue-300 text-blue-700 bg-blue-50 text-xs font-semibold px-2 py-0.5 m-0">
-                🚀 Đã bàn giao XNK {submittedAt ? `(${dayjs(submittedAt).format('HH:mm DD/MM')})` : ''}
+                Đã bàn giao XNK {submittedAt ? `(${dayjs(submittedAt).format('HH:mm DD/MM')})` : ''}
               </Tag>
             )}
             {status === 'ProcessedByXnk' && (
               <Tag className="border-emerald-300 text-emerald-700 bg-emerald-50 text-xs font-semibold px-2 py-0.5 m-0">
-                ✅ XNK đã tiếp nhận {shipmentOrderId ? `(HĐ #${shipmentOrderId})` : ''}
+                XNK đã tiếp nhận {shipmentOrderId ? `(HĐ #${shipmentOrderId})` : ''}
               </Tag>
             )}
           </div>
@@ -722,37 +1058,37 @@ export const WarehousePage: React.FC = () => {
         </div>
 
         {/* Thanh nút bấm chức năng */}
-        <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
+        <div className="flex items-center flex-wrap gap-2 min-w-0">
           <Button
-            icon={<HistoryOutlined />}
+            icon={<HistoryOutlined className="text-xs" />}
             onClick={() => {
               loadHistory();
               setHistoryDrawerVisible(true);
             }}
-            className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+            className="text-xs h-9 px-3.5 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium"
           >
             Lịch sử ({historyBatches.length})
           </Button>
 
           <Button
             type={isLocked ? 'primary' : 'default'}
-            icon={<PlusOutlined />}
+            icon={<PlusOutlined className="text-xs" />}
             onClick={handleCreateNewBatch}
             className={
               isLocked
-                ? 'bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 px-3.5 shadow-xs'
-                : 'text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium'
+                ? 'bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium text-xs h-9 px-3.5 shadow-none'
+                : 'text-xs h-9 px-3.5 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium'
             }
           >
-            {isLocked ? '➕ Tạo đợt xuất mới' : 'Làm sạch / Tạo mới'}
+            {isLocked ? 'Tạo đợt xuất mới' : 'Làm mới phiếu'}
           </Button>
 
           <Button
-            icon={<SaveOutlined />}
+            icon={<SaveOutlined className="text-xs" />}
             loading={saving}
             onClick={handleSaveDraft}
             disabled={isLocked || saving || submitting}
-            className="text-xs h-9 px-3.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+            className="text-xs h-9 px-3.5 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium"
           >
             Lưu nháp (Ctrl+S)
           </Button>
@@ -762,10 +1098,10 @@ export const WarehousePage: React.FC = () => {
             description={
               <div>
                 Bạn chuẩn bị bàn giao lô <strong>{batchNumber}</strong> với{' '}
-                <strong className="text-emerald-600">{totalQuantity.toLocaleString()} đôi</strong> cho bộ phận XNK.
+                <strong className="text-[#15803D] font-mono">{totalQuantity.toLocaleString()} đôi</strong> cho bộ phận XNK.
                 {pendingReviewCount > 0 && (
-                  <div className="text-amber-600 text-xs mt-1">
-                    ⚠️ Có {pendingReviewCount} mã mới chưa đăng ký trong Master Data (XNK sẽ đối soát sau).
+                  <div className="text-[#B45309] text-xs mt-1">
+                    Có {pendingReviewCount} mã mới chưa đăng ký trong Master Data (XNK sẽ đối soát sau).
                   </div>
                 )}
               </div>
@@ -773,17 +1109,17 @@ export const WarehousePage: React.FC = () => {
             onConfirm={handleSubmitToXnk}
             okText="Bàn giao ngay"
             cancelText="Hủy"
-            okButtonProps={{ className: 'bg-emerald-600' }}
+            okButtonProps={{ className: 'bg-[#2563EB] hover:bg-[#1D4ED8]' }}
             disabled={isLocked || saving || submitting || validRowsCount === 0}
           >
             <Button
               type="primary"
-              icon={<RocketOutlined />}
+              icon={<RocketOutlined className="text-xs" />}
               loading={submitting}
               disabled={isLocked || saving || submitting || validRowsCount === 0}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-9 px-4 shadow-sm"
+              className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium text-xs h-9 px-4 shadow-none"
             >
-              🚀 BÀN GIAO CHO XNK ({totalQuantity.toLocaleString()} đôi)
+              Bàn giao cho XNK ({totalQuantity.toLocaleString()} đôi)
             </Button>
           </Popconfirm>
         </div>
@@ -791,14 +1127,13 @@ export const WarehousePage: React.FC = () => {
 
       {/* Thông báo trạng thái khi lô hàng đã được bàn giao hoặc xử lý */}
       {status === 'SubmittedToXnk' && (
-        <div className="bg-emerald-50 border border-emerald-300 rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 shadow-xs">
+        <div className="bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
           <div className="flex items-center space-x-3">
-            <span className="text-2xl">🚀</span>
             <div>
-              <div className="text-sm font-bold text-emerald-950">
-                Đợt hàng {batchNumber} ĐÃ BÀN GIAO CHO PHÒNG XNK THÀNH CÔNG!
+              <div className="text-sm font-semibold text-[#15803D]">
+                Đợt hàng {batchNumber} đã bàn giao cho phòng XNK thành công
               </div>
-              <div className="text-xs text-emerald-700 mt-0.5">
+              <div className="text-xs text-[#166534] mt-0.5">
                 Bàn giao lúc: {submittedAt ? dayjs(submittedAt).format('HH:mm:ss DD/MM/YYYY') : 'Vừa xong'}. Bảng dữ liệu hiện đang được khóa để bảo vệ tính toàn vẹn và chống trùng lặp.
               </div>
             </div>
@@ -806,19 +1141,19 @@ export const WarehousePage: React.FC = () => {
           <div className="flex items-center space-x-2">
             <Button
               type="primary"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined className="text-xs" />}
               onClick={handleCreateNewBatch}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-8 shadow-xs"
+              className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium text-xs h-8 px-3 shadow-none"
             >
-              ➕ Tạo đợt xuất kho tiếp theo
+              Tạo đợt xuất tiếp theo
             </Button>
             <Button
-              icon={<HistoryOutlined />}
+              icon={<HistoryOutlined className="text-xs" />}
               onClick={() => {
                 loadHistory();
                 setHistoryDrawerVisible(true);
               }}
-              className="text-xs h-8 border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50"
+              className="text-xs h-8 border-[#D1D5DB] text-[#374151] bg-white hover:bg-[#F9FAFB] hover:text-[#2563EB]"
             >
               Xem lịch sử ({historyBatches.length})
             </Button>
@@ -827,28 +1162,28 @@ export const WarehousePage: React.FC = () => {
       )}
 
       {status === 'ProcessedByXnk' && (
-        <div className="bg-blue-50 border border-blue-300 rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 shadow-xs">
+        <div className="bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
           <div className="flex items-center space-x-3">
-            <span className="text-2xl">✅</span>
             <div>
-              <div className="text-sm font-bold text-blue-950">
-                Phòng XNK đã tiếp nhận và lập Hóa đơn xuất khẩu cho đợt {batchNumber}!
+              <div className="text-sm font-semibold text-[#1D4ED8]">
+                Phòng XNK đã tiếp nhận và lập Hóa đơn xuất khẩu cho đợt {batchNumber}
               </div>
-              <div className="text-xs text-blue-700 mt-0.5">
+              <div className="text-xs text-[#2563EB] mt-0.5">
                 {shipmentOrderId ? `Đơn hàng liên kết: #${shipmentOrderId}. ` : ''}Dữ liệu đã vào sổ sách kế toán & hải quan.
               </div>
             </div>
           </div>
           <Button
             type="primary"
-            icon={<PlusOutlined />}
+            icon={<PlusOutlined className="text-xs" />}
             onClick={handleCreateNewBatch}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-8 shadow-xs"
+            className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium text-xs h-8 px-3 shadow-none"
           >
-            ➕ Tạo đợt xuất kho mới
+            Tạo đợt xuất mới
           </Button>
         </div>
       )}
+
 
       {/* 2. Card Thông tin đợt xuất (Clean Enterprise White Card) */}
       <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4 shadow-sm">
@@ -942,80 +1277,80 @@ export const WarehousePage: React.FC = () => {
 
       {/* 3. LƯỚI NHẬP LIỆU FAST-GRID (Clean White Table với màu cam/vàng đặc trưng của xưởng) */}
       <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4 shadow-sm">
-        <div className="flex justify-between items-center flex-wrap gap-3 pb-3 border-b border-slate-100">
-          <div className="text-xs font-semibold text-slate-800 uppercase tracking-wider">
-            2. Danh sách Hàng xuất kho ({validRowsCount} mã hợp lệ • Tổng: <span className="text-emerald-600 font-bold">{totalQuantity.toLocaleString()} đôi</span>)
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="text-xs font-semibold text-[#111827] uppercase tracking-wider min-w-0 flex-1">
+            2. Danh sách Hàng xuất kho ({validRowsCount} mã hợp lệ • Tổng: <span className="text-[#2563EB] font-bold font-mono">{totalQuantity.toLocaleString()} đôi</span>)
           </div>
 
-          <div className="flex-shrink-0 flex items-center flex-wrap gap-2">
+          <div className="flex items-center flex-wrap gap-2 min-w-0">
             <Button
               size="small"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined className="text-xs" />}
               onClick={() => addRows(1, 1)}
               disabled={isLocked}
-              className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium disabled:opacity-50"
+              className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium disabled:opacity-50"
             >
               + 1 dòng
             </Button>
             <Button
               size="small"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined className="text-xs" />}
               onClick={() => addRows(5, 1)}
               disabled={isLocked}
-              className="text-xs h-8 px-3 border-slate-300 text-slate-700 hover:bg-slate-50 font-medium disabled:opacity-50"
+              className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium disabled:opacity-50"
             >
-              + 5 dòng (加5行)
+              + 5 dòng
             </Button>
             <Button
               size="small"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined className="text-xs" />}
               onClick={() => addRows(1, 2)}
               disabled={isLocked}
-              className="text-xs h-8 px-3 border-orange-300 text-orange-800 bg-orange-50 hover:bg-orange-100 font-medium disabled:opacity-50"
+              className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium disabled:opacity-50"
             >
               + 1 dòng Gò không may
             </Button>
             <Button
               size="small"
-              icon={<SnippetsOutlined />}
+              icon={<SnippetsOutlined className="text-xs" />}
               onClick={() => setPasteModalVisible(true)}
               disabled={isLocked}
-              className="text-xs h-8 px-3 border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-medium disabled:opacity-50"
+              className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB] font-medium disabled:opacity-50"
             >
-              📋 Dán từ Excel (Clipboard)
+              Dán từ Excel (Clipboard)
             </Button>
           </div>
         </div>
 
         {/* Bảng dữ liệu Fast-Grid */}
-        <div className="border border-slate-200 rounded-lg overflow-x-auto shadow-sm">
+        <div className="border border-[#E5E7EB] rounded-lg overflow-x-auto shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
           <table className="w-full text-left border-collapse min-w-[950px]">
             {/* Table Header */}
             <thead>
-              <tr className="bg-slate-50 text-slate-700 text-xs uppercase tracking-wider font-semibold border-b border-slate-200 select-none">
-                <th className="py-3 px-3 w-14 text-center border-r border-slate-200">
-                  STT<br/><span className="text-[10px] text-slate-400 font-normal">序号</span>
+              <tr className="bg-[#F9FAFB] text-[#374151] text-xs uppercase tracking-wider font-semibold border-b border-[#E5E7EB] select-none">
+                <th className="py-3 px-3 w-14 text-center border-r border-[#E5E7EB]">
+                  STT<br/><span className="text-[10px] text-[#6B7280] font-normal">序号</span>
                 </th>
-                <th className="py-3 px-4 border-r border-slate-200">
-                  HÌNH THỂ / MÃ GIÀY<br/><span className="text-[10px] text-slate-400 font-normal">鞋型 (Style Code)</span>
+                <th className="py-3 px-4 border-r border-[#E5E7EB]">
+                  HÌNH THỂ / MÃ GIÀY<br/><span className="text-[10px] text-[#6B7280] font-normal">鞋型 (Style Code)</span>
                 </th>
-                <th className="py-3 px-4 w-52 border-r border-slate-200">
-                  CÔNG ĐOẠN<br/><span className="text-[10px] text-slate-400 font-normal">工序 (Process Type)</span>
+                <th className="py-3 px-4 w-52 border-r border-[#E5E7EB]">
+                  CÔNG ĐOẠN<br/><span className="text-[10px] text-[#6B7280] font-normal">工序 (Process Type)</span>
                 </th>
-                <th className="py-3 px-4 w-48 text-right border-r border-slate-200">
-                  SỐ LƯỢNG ĐI HÀNG<br/><span className="text-[10px] text-slate-400 font-normal">交货数量 (Đôi / Pairs)</span>
+                <th className="py-3 px-4 w-48 text-right border-r border-[#E5E7EB]">
+                  SỐ LƯỢNG ĐI HÀNG<br/><span className="text-[10px] text-[#6B7280] font-normal">交货数量 (Đôi / Pairs)</span>
                 </th>
-                <th className="py-3 px-4 border-r border-slate-200">
-                  GHI CHÚ<br/><span className="text-[10px] text-slate-400 font-normal">备注 (Note)</span>
+                <th className="py-3 px-4 border-r border-[#E5E7EB]">
+                  GHI CHÚ<br/><span className="text-[10px] text-[#6B7280] font-normal">备注 (Note)</span>
                 </th>
                 <th className="py-3 px-2 w-16 text-center">
-                  XÓA<br/><span className="text-[10px] text-slate-400 font-normal">操作</span>
+                  XÓA<br/><span className="text-[10px] text-[#6B7280] font-normal">操作</span>
                 </th>
               </tr>
             </thead>
 
             {/* Table Body */}
-            <tbody className="divide-y divide-slate-100 text-sm">
+            <tbody className="divide-y divide-[#F3F4F6] text-xs">
               {rows.map((row, index) => {
                 const isGo = row.processType === 2;
                 return (
@@ -1023,71 +1358,117 @@ export const WarehousePage: React.FC = () => {
                     key={row.key}
                     className={`transition-colors duration-150 ${
                       isGo
-                        ? 'bg-orange-50/80 hover:bg-orange-100/70 border-l-4 border-l-orange-500'
-                        : 'bg-white hover:bg-slate-50/80'
+                        ? 'bg-[#FFFBEB]/40 hover:bg-[#FEF3C7]/40 border-l-2 border-l-[#D97706]'
+                        : 'bg-white hover:bg-[#F9FAFB]'
                     }`}
                   >
                     {/* STT */}
                     <td
                       className={`py-2 px-3 text-center border-r select-none text-xs font-mono ${
-                        isGo ? 'border-orange-200 text-orange-800 font-bold' : 'border-slate-200 text-slate-400'
+                        isGo ? 'border-[#E5E7EB] text-[#B45309] font-semibold' : 'border-[#E5E7EB] text-[#6B7280]'
                       }`}
                     >
                       {index + 1}
                     </td>
 
                     {/* Mã Giày (Style Code) */}
-                    <td className={`py-1.5 px-3 border-r ${isGo ? 'border-orange-200' : 'border-slate-200'}`}>
-                      <div className="relative flex items-center space-x-2">
-                        <AutoComplete
-                          options={lookupOptions[row.key] || []}
-                          value={row.styleCode}
-                          onChange={(val) => handleStyleCodeChange(index, val)}
-                          onFocus={() => handleStyleCodeFocus(index)}
-                          className="w-full"
-                          disabled={isLocked}
-                        >
-                          <Input
-                            ref={(el) => {
-                              inputRefs.current[`style_${index}`] = el;
-                            }}
-                            onKeyDown={(e) => handleStyleCodeKeyDown(e, index)}
-                            placeholder="Nhập mã giày (VD: 40700-066)..."
-                            disabled={isLocked}
-                            className={`font-mono font-bold tracking-wide text-sm h-8 ${
-                              isGo
-                                ? 'bg-orange-50/60 border-orange-300 text-orange-950 placeholder-orange-400'
-                                : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'
-                            }`}
-                          />
-                        </AutoComplete>
+                    <td className="py-1.5 px-3 border-r border-[#E5E7EB]">
+                      {(() => {
+                        const otherCodes = getOtherSelectedCodes(index);
+                        const rowOpts = (
+                          lookupOptions[row.key] || folderProducts.map(renderProductOption)
+                        ).filter((opt) => {
+                          const upper = opt.value.trim().toUpperCase();
+                          return !otherCodes.has(upper) && !otherCodes.has(upper + '.G');
+                        });
+                        return (
+                          <div className="relative flex items-center space-x-2">
+                            <AutoComplete
+                              options={rowOpts}
+                              value={row.styleCode}
+                              onChange={(val) => handleStyleCodeChange(index, val)}
+                              onSelect={(val) => handleStyleCodeSelect(index, val)}
+                              onFocus={() => handleStyleCodeFocus(index)}
+                              className="w-full"
+                              disabled={isLocked}
+                            >
+                              <Input
+                                ref={(el) => {
+                                  inputRefs.current[`style_${index}`] = el;
+                                }}
+                                onKeyDown={(e) => handleStyleCodeKeyDown(e, index)}
+                                placeholder="Nhập mã giày (VD: 40700-066)..."
+                                disabled={isLocked}
+                                className={`font-mono font-semibold tracking-wide text-xs h-8 border-[#E5E7EB] ${
+                                  isGo
+                                    ? 'bg-[#FFFBEB]/60 text-[#92400E] placeholder-[#D97706]'
+                                    : 'bg-white text-[#111827] focus:border-[#2563EB]'
+                                }`}
+                              />
+                            </AutoComplete>
 
-                        {row.isPendingReview && row.styleCode.trim() && (
-                          <Tooltip title="Mã này chưa có trong Master Data. Hệ thống vẫn lưu bình thường và chuyển cho XNK đối soát sau.">
-                            <Tag color="warning" className="text-[10px] whitespace-nowrap m-0 cursor-help">
-                              ⚠️ Mã mới
-                            </Tag>
-                          </Tooltip>
-                        )}
-                      </div>
+                            {row.isPendingReview && row.styleCode.trim() && (
+                              <Tooltip title="Mã này chưa có trong Master Data. Hệ thống vẫn lưu bình thường và chuyển cho XNK đối soát sau.">
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#FFFBEB] text-[#B45309] border border-[#FDE68A] whitespace-nowrap cursor-help">
+                                  Mã mới
+                                </span>
+                              </Tooltip>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* Công đoạn (Thành hình vs Gò không may) */}
-                    <td className={`py-1.5 px-3 border-r ${isGo ? 'border-orange-200' : 'border-slate-200'}`}>
-                      <Select
-                        value={row.processType}
-                        onChange={(val) => handleProcessTypeChange(index, val)}
-                        disabled={isLocked}
-                        className="w-full"
-                        options={[
-                          { value: 1, label: 'Thành hình (标准)' },
-                          { value: 2, label: '🔶 GÒ KHÔNG MAY (仅成型)' },
-                        ]}
-                      />
+                    <td className="py-1.5 px-3 border-r border-[#E5E7EB]">
+                      <Tooltip title={row.lockReason || (isGo ? 'Hàng Gò không may' : 'Hàng Thành hình')}>
+                        <Select
+                          value={row.processType}
+                          onChange={(val) => handleProcessTypeChange(index, val)}
+                          disabled={isLocked || row.lockMode === 'ONLY_GO' || row.lockMode === 'ONLY_STANDARD'}
+                          className="w-full text-xs"
+                          options={[
+                            {
+                              value: 1,
+                              label: (
+                                <div className="flex items-center justify-between text-xs">
+                                  <span>Thành hình (标准)</span>
+                                  {row.lockMode === 'ONLY_STANDARD' && (
+                                    <span className="text-[10px] text-[#6B7280] font-normal ml-1">🔒 Khóa</span>
+                                  )}
+                                </div>
+                              ),
+                              disabled: row.lockMode === 'ONLY_GO',
+                            },
+                            {
+                              value: 2,
+                              label: (
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-semibold text-[#B45309]">GÒ KHÔNG MAY (仅成型)</span>
+                                  {row.lockMode === 'ONLY_GO' && (
+                                    <span className="text-[10px] text-[#B45309] font-normal ml-1">🔒 Khóa</span>
+                                  )}
+                                </div>
+                              ),
+                              disabled: row.lockMode === 'ONLY_STANDARD',
+                            },
+                          ]}
+                        />
+                      </Tooltip>
+                      {row.lockMode === 'BOTH' && (
+                        <div className="text-[10px] text-[#2563EB] mt-0.5 leading-tight font-medium">
+                          Đa hình thức (có cả 2 giá)
+                        </div>
+                      )}
+                      {row.lockMode === 'NO_PRICE' && row.styleCode.trim() && (
+                        <div className="text-[10px] text-[#B45309] mt-0.5 leading-tight">
+                          Chưa có đơn giá Master Data
+                        </div>
+                      )}
                     </td>
 
                     {/* Số lượng */}
-                    <td className={`py-1.5 px-3 border-r ${isGo ? 'border-orange-200' : 'border-slate-200'}`}>
+                    <td className="py-1.5 px-3 border-r border-[#E5E7EB]">
                       <Input
                         ref={(el) => {
                           inputRefs.current[`qty_${index}`] = el;
@@ -1097,24 +1478,22 @@ export const WarehousePage: React.FC = () => {
                         onKeyDown={(e) => handleQuantityKeyDown(e, index)}
                         placeholder="Số đôi..."
                         disabled={isLocked}
-                        className={`text-right font-mono font-bold text-sm h-8 ${
+                        className={`text-right font-mono font-bold text-xs h-8 border-[#E5E7EB] ${
                           isGo
-                            ? 'bg-orange-50/60 border-orange-300 text-orange-950 placeholder-orange-400'
-                            : 'bg-white border-slate-300 text-slate-900 focus:border-emerald-500'
+                            ? 'bg-[#FFFBEB]/60 text-[#92400E] placeholder-[#D97706]'
+                            : 'bg-white text-[#111827] focus:border-[#2563EB]'
                         }`}
                       />
                     </td>
 
                     {/* Ghi chú */}
-                    <td className={`py-1.5 px-3 border-r ${isGo ? 'border-orange-200' : 'border-slate-200'}`}>
+                    <td className="py-1.5 px-3 border-r border-[#E5E7EB]">
                       <Input
                         value={row.note || ''}
                         onChange={(e) => handleNoteChange(index, e.target.value)}
                         placeholder="Ghi chú (KM3, Đợt 2...)"
                         disabled={isLocked}
-                        className={`text-xs h-8 ${
-                          isGo ? 'bg-orange-50/60 border-orange-300' : 'bg-white border-slate-300'
-                        }`}
+                        className="text-xs h-8 border-[#E5E7EB]"
                       />
                     </td>
 
@@ -1126,7 +1505,7 @@ export const WarehousePage: React.FC = () => {
                         icon={<DeleteOutlined className="text-xs" />}
                         onClick={() => deleteRow(index)}
                         disabled={isLocked}
-                        className="text-slate-400 hover:text-rose-600 disabled:opacity-30"
+                        className="text-[#9CA3AF] hover:text-[#B91C1C] hover:bg-[#FEF2F2] disabled:opacity-30"
                       />
                     </td>
                   </tr>
@@ -1134,35 +1513,35 @@ export const WarehousePage: React.FC = () => {
               })}
             </tbody>
 
-            {/* 4. Chân bảng TỔNG CỘNG 共计 (Màu vàng sáng y hệt thực tế xưởng) */}
+            {/* 4. Chân bảng TỔNG CỘNG */}
             <tfoot>
-              <tr className="bg-yellow-200 text-yellow-950 font-bold border-t-2 border-yellow-400 select-none">
-                <td colSpan={3} className="py-3 px-4 text-xs uppercase tracking-wide border-r border-yellow-300">
+              <tr className="bg-[#F9FAFB] text-[#111827] font-semibold border-t border-[#E5E7EB] select-none">
+                <td colSpan={3} className="py-3 px-4 text-xs uppercase tracking-wide border-r border-[#E5E7EB]">
                   <div className="flex items-center space-x-2">
-                    <span className="text-base">📊</span>
-                    <span className="font-extrabold text-sm">TỔNG CỘNG 共计</span>
-                    <span className="text-xs font-normal text-yellow-900">
+                    <span className="font-bold text-xs text-[#111827]">TỔNG CỘNG</span>
+                    <span className="text-xs font-normal text-[#4B5563]">
                       ({validRowsCount} mã hợp lệ | Thành hình: {standardQuantity.toLocaleString()} đôi | Gò không may: {goKhongMayQuantity.toLocaleString()} đôi)
                     </span>
                   </div>
                 </td>
-                <td className="py-3 px-4 text-right font-mono text-base font-black border-r border-yellow-300">
+                <td className="py-3 px-4 text-right font-mono text-sm font-bold text-[#111827] border-r border-[#E5E7EB]">
                   {totalQuantity.toLocaleString()} đôi
                 </td>
-                <td colSpan={2} className="py-3 px-4 text-xs font-normal text-yellow-900">
+                <td colSpan={2} className="py-3 px-4 text-xs font-normal text-[#4B5563]">
                   {pendingReviewCount > 0 ? (
-                    <span className="text-amber-900 font-bold">
-                      ⚠️ {pendingReviewCount} mã tạm chờ XNK duyệt
+                    <span className="text-[#B45309] font-medium">
+                      {pendingReviewCount} mã tạm chờ XNK duyệt
                     </span>
                   ) : (
-                    <span className="text-emerald-900 font-semibold inline-flex items-center gap-1">
-                      <CheckCircleFilled className="text-emerald-700" /> Đầy đủ thông tin
+                    <span className="text-[#15803D] font-medium inline-flex items-center gap-1">
+                      <CheckCircleFilled className="text-[#15803D]" /> Đầy đủ thông tin
                     </span>
                   )}
                 </td>
               </tr>
             </tfoot>
           </table>
+
         </div>
 
         {/* Hướng dẫn thao tác nhanh cho thủ kho */}
@@ -1193,7 +1572,9 @@ export const WarehousePage: React.FC = () => {
         title={
           <div className="flex items-center space-x-2 text-sm font-bold text-slate-800">
             <FolderOpenOutlined className="text-blue-600 text-base" />
-            <span>Danh mục mã giày của Hợp đồng ({folderProducts.length} mã)</span>
+            <span>
+              Danh mục mã giày của Hợp đồng ({availablePickerProducts.length}/{folderProducts.length} mã khả dụng)
+            </span>
           </div>
         }
         open={productPickerVisible}
@@ -1203,19 +1584,21 @@ export const WarehousePage: React.FC = () => {
       >
         <div className="space-y-3 py-2">
           <p className="text-xs text-slate-500 m-0">
-            Bấm vào bất kỳ mã giày nào bên dưới để chèn nhanh vào bảng phiếu xuất kho:
+            Bấm vào bất kỳ mã giày nào bên dưới để chèn nhanh vào bảng phiếu xuất kho (các mã đã có trong bảng sẽ tự động ẩn):
           </p>
           {loadingProducts ? (
             <div className="text-center py-8">
               <Spin tip="Đang tải danh mục mã..." />
             </div>
-          ) : folderProducts.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 text-xs">
-              Hợp đồng này chưa có mã sản phẩm nào được đăng ký trong Master Data.
+          ) : availablePickerProducts.length === 0 ? (
+            <div className="text-center py-8 text-slate-500 text-xs">
+              {folderProducts.length > 0
+                ? 'Toàn bộ các mã trong hợp đồng này đã được thêm vào bảng xuất kho.'
+                : 'Hợp đồng này chưa có mã sản phẩm nào được đăng ký trong Master Data.'}
             </div>
           ) : (
             <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg">
-              {folderProducts.map((p) => (
+              {availablePickerProducts.map((p) => (
                 <div
                   key={p.id}
                   onClick={() => handlePickProduct(p)}
@@ -1228,6 +1611,15 @@ export const WarehousePage: React.FC = () => {
                         <Tag className="text-[10px] bg-slate-100 text-slate-600 border-slate-200">
                           {p.customer}
                         </Tag>
+                      )}
+                      {(p.hasGoPrice && !p.hasStandardPrice) && (
+                        <Tag color="orange" className="text-[10px] font-semibold m-0">🔶 Gò không may</Tag>
+                      )}
+                      {(p.hasStandardPrice && !p.hasGoPrice) && (
+                        <Tag color="blue" className="text-[10px] m-0">Thành hình</Tag>
+                      )}
+                      {(p.hasStandardPrice && p.hasGoPrice) && (
+                        <Tag color="purple" className="text-[10px] m-0">✨ Cả 2 giá</Tag>
                       )}
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5">

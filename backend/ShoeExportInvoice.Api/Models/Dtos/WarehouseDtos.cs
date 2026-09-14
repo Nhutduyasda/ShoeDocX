@@ -1,4 +1,5 @@
 using ShoeExportInvoice.Api.Models.Entities;
+using System.ComponentModel.DataAnnotations;
 
 namespace ShoeExportInvoice.Api.Models.Dtos;
 
@@ -52,8 +53,11 @@ public class SaveWarehouseBatchRequestDto
 
 public class SaveWarehouseBatchItemRequestDto
 {
+    [Required, MaxLength(50)]
     public string StyleCode { get; set; } = string.Empty;
+    [Range(1, int.MaxValue)]
     public int Quantity { get; set; }
+    [EnumDataType(typeof(ProcessType))]
     public ProcessType ProcessType { get; set; } = ProcessType.Standard;
     public bool IsPendingReview { get; set; } = false;
     public string? Note { get; set; }

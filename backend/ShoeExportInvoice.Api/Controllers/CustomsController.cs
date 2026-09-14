@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Services;
@@ -6,6 +7,7 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "Admin,Xnk,KeToan")]
 public class CustomsController : ControllerBase
 {
     private readonly ICustomsDeclarationService _customsService;

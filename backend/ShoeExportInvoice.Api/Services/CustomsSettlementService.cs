@@ -195,8 +195,23 @@ public class CustomsSettlementService : ICustomsSettlementService
     /// </summary>
     public async Task<CustomsSettlementPeriod> SaveSettlementPeriodAsync(SaveSettlementPeriodRequestDto request)
     {
+        if (request.FromDate.Date > request.ToDate.Date)
+            throw new InvalidOperationException("Ngày bắt đầu phải trước hoặc bằng ngày kết thúc.");
+        var requestedStatus = string.IsNullOrWhiteSpace(request.Status) ? "Draft" : request.Status.Trim();
+        if (requestedStatus != "Draft")
+            throw new InvalidOperationException("API lưu chỉ chấp nhận bản nháp. Hãy dùng thao tác chốt sổ riêng.");
+
         await using var transaction = await _context.Database.BeginTransactionAsync();
         request.Items = await RefreshExportQuantitiesAsync(request.Year, request.FromDate, request.ToDate, request.ContractFolderId, request.ContractNo, request.Items);
+        var normalizedContract = request.ContractNo?.Trim().ToUpperInvariant();
+        var overlaps = await _context.CustomsSettlementPeriods.AsNoTracking().AnyAsync(p =>
+            (!request.Id.HasValue || p.Id != request.Id.Value) &&
+            p.ContractFolderId == request.ContractFolderId &&
+            ((p.ContractNo == null && normalizedContract == null) ||
+             (p.ContractNo != null && normalizedContract != null && p.ContractNo.ToUpper() == normalizedContract)) &&
+            p.FromDate <= request.ToDate.Date && p.ToDate >= request.FromDate.Date);
+        if (overlaps)
+            throw new InvalidOperationException("Khoảng thời gian quyết toán bị trùng với một kỳ đã tồn tại trong cùng hợp đồng.");
         CustomsSettlementPeriod? period = null;
 
         if (request.Id.HasValue && request.Id.Value > 0)
@@ -204,6 +219,8 @@ public class CustomsSettlementService : ICustomsSettlementService
             period = await _context.CustomsSettlementPeriods
                 .Include(p => p.Items)
                 .FirstOrDefaultAsync(p => p.Id == request.Id.Value);
+            if (period == null)
+                throw new KeyNotFoundException($"Không tìm thấy kỳ quyết toán #{request.Id.Value}.");
         }
 
         if (period == null)
@@ -216,7 +233,7 @@ public class CustomsSettlementService : ICustomsSettlementService
                 ContractFolderId = request.ContractFolderId,
             ContractNo = request.ContractNo?.Trim(),
                 CustomsOffice = string.IsNullOrWhiteSpace(request.CustomsOffice) ? _options.DefaultCustomsOffice : request.CustomsOffice.Trim(),
-                Status = string.IsNullOrWhiteSpace(request.Status) ? "Draft" : request.Status.Trim(),
+                Status = requestedStatus,
                 CompanyName = string.IsNullOrWhiteSpace(request.CompanyName) ? _options.DefaultCompanyName : request.CompanyName.Trim(),
                 TaxCode = string.IsNullOrWhiteSpace(request.TaxCode) ? _options.DefaultTaxCode : request.TaxCode.Trim(),
                 Address = string.IsNullOrWhiteSpace(request.Address) ? _options.DefaultAddress : request.Address.Trim(),
@@ -234,7 +251,7 @@ public class CustomsSettlementService : ICustomsSettlementService
             period.ToDate = request.ToDate.Date;
             period.ContractNo = request.ContractNo?.Trim();
             period.CustomsOffice = string.IsNullOrWhiteSpace(request.CustomsOffice) ? period.CustomsOffice : request.CustomsOffice.Trim();
-            period.Status = string.IsNullOrWhiteSpace(request.Status) ? period.Status : request.Status.Trim();
+            period.Status = requestedStatus;
             period.CompanyName = request.CompanyName?.Trim();
             period.TaxCode = request.TaxCode?.Trim();
             period.Address = request.Address?.Trim();
@@ -267,6 +284,26 @@ public class CustomsSettlementService : ICustomsSettlementService
 
         await _context.SaveChangesAsync();
         await transaction.CommitAsync();
+        return period;
+    }
+
+    public async Task<CustomsSettlementPeriod> FinalizeSettlementPeriodAsync(int id)
+    {
+        var period = await _context.CustomsSettlementPeriods
+            .Include(p => p.Items)
+            .FirstOrDefaultAsync(p => p.Id == id)
+            ?? throw new KeyNotFoundException($"Không tìm thấy kỳ quyết toán #{id}.");
+
+        if (period.Status == "Finalized")
+            return period;
+        if (period.Status != "Draft")
+            throw new InvalidOperationException("Chỉ kỳ quyết toán bản nháp mới có thể chốt sổ.");
+        if (period.Items.Count == 0)
+            throw new InvalidOperationException("Không thể chốt kỳ quyết toán không có dữ liệu.");
+
+        period.Status = "Finalized";
+        period.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
         return period;
     }
 

@@ -74,12 +74,13 @@ Yêu cầu: Máy tính đã cài đặt [Docker Desktop](https://www.docker.com/
    cd clever-faraday
    ```
 
-2. (Tùy chọn) Cấu hình Google Gemini API Key:
-   - Tạo file `.env` tại thư mục gốc:
+2. Tạo file `.env` từ `.env.example` và cấu hình khóa JWT mạnh:
+   - Khóa JWT là bắt buộc; API key OCR là tùy chọn:
      ```env
-     GEMINI_API_KEY=AIzaSyYourGeminiApiKeyHere
+     JWT_KEY=replace-with-a-random-secret-at-least-32-bytes
+     OPENAI_API_KEY=
      ```
-   - *(Nếu không cấu hình, hệ thống sẽ tự động chuyển sang chế độ mô phỏng Demo để bạn dùng thử).*
+   - Để tạo tài khoản quản trị lần đầu, bật `BOOTSTRAP_ADMIN_ENABLED=true`, đặt tên đăng nhập và mật khẩu mạnh trong `.env`, khởi động một lần rồi tắt lại.
 
 3. Khởi chạy toàn bộ hệ thống:
    ```bash
@@ -103,10 +104,11 @@ Yêu cầu: Máy tính đã cài đặt [Docker Desktop](https://www.docker.com/
 # Di chuyển vào thư mục backend
 cd backend/ShoeExportInvoice.Api
 
-# Khởi chạy server API (mặc định port 5270)
+# Khởi chạy server API (PowerShell, mặc định port 5270)
+$env:Jwt__Key="replace-with-a-random-secret-at-least-32-bytes"
 dotnet run --urls "http://localhost:5270"
 ```
-*Cơ sở dữ liệu SQLite `shoe_export.db` sẽ được tự động khởi tạo và nạp dữ liệu mẫu ban đầu.*
+*Cơ sở dữ liệu SQLite `shoe_export.db` sẽ được tự động migrate. Hệ thống không còn tạo tài khoản hoặc mật khẩu mặc định.*
 
 #### Bước 2: Chạy Frontend (React + Vite)
 Mở một terminal mới:
@@ -143,6 +145,14 @@ BACKEND_PORT=5270
 
 # OpenAI API Key dùng cho tính năng Vision OCR
 OPENAI_API_KEY=sk-proj-...
+
+# Bắt buộc: bí mật ký JWT, tối thiểu 32 byte và không đưa vào Git
+JWT_KEY=replace-with-a-random-secret-at-least-32-bytes
+
+# Chỉ bật cho lần tạo quản trị viên đầu tiên, sau đó đổi thành false
+BOOTSTRAP_ADMIN_ENABLED=true
+BOOTSTRAP_ADMIN_USERNAME=admin
+BOOTSTRAP_ADMIN_PASSWORD=replace-with-a-strong-unique-password
 ```
 
 ### 2. Khởi chạy toàn bộ hệ thống

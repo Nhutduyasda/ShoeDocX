@@ -118,6 +118,7 @@ public class MasterDataFolderService : IMasterDataFolderService
 
     public async Task<MasterDataFolderDto> CreateFolderAsync(CreateFolderDto dto)
     {
+        await EnsureValidParentAsync(null, dto.ParentId);
         var folder = new MasterDataFolder
         {
             Name = dto.Name.Trim(),
@@ -161,11 +162,7 @@ public class MasterDataFolderService : IMasterDataFolderService
         var folder = await _context.MasterDataFolders.FindAsync(id);
         if (folder == null) return null;
 
-        // Tránh vòng lặp: không cho phép ParentId = chính nó
-        if (dto.ParentId.HasValue && dto.ParentId.Value == id)
-        {
-            throw new InvalidOperationException("Thư mục cha không thể là chính nó.");
-        }
+        await EnsureValidParentAsync(id, dto.ParentId);
 
         folder.Name = dto.Name.Trim();
         folder.ParentId = dto.ParentId;
@@ -190,24 +187,7 @@ public class MasterDataFolderService : IMasterDataFolderService
         var folder = await _context.MasterDataFolders.FindAsync(id);
         if (folder == null) return false;
 
-        if (dto.TargetParentId.HasValue && dto.TargetParentId.Value == id)
-        {
-            throw new InvalidOperationException("Không thể chuyển thư mục vào chính nó.");
-        }
-
-        // Kiểm tra xem targetParent có phải là con cháu của folder hiện tại không
-        if (dto.TargetParentId.HasValue)
-        {
-            var curParent = await _context.MasterDataFolders.FindAsync(dto.TargetParentId.Value);
-            while (curParent != null)
-            {
-                if (curParent.ParentId == id)
-                {
-                    throw new InvalidOperationException("Không thể chuyển thư mục vào thư mục con của nó.");
-                }
-                curParent = curParent.ParentId.HasValue ? await _context.MasterDataFolders.FindAsync(curParent.ParentId.Value) : null;
-            }
-        }
+        await EnsureValidParentAsync(id, dto.TargetParentId);
 
         folder.ParentId = dto.TargetParentId;
         folder.DisplayOrder = dto.DisplayOrder;
@@ -275,5 +255,28 @@ public class MasterDataFolderService : IMasterDataFolderService
         await _context.SaveChangesAsync();
         _logger.LogInformation("Đã chuyển {Count} mã sản phẩm sang thư mục #{FolderId}", products.Count, dto.TargetFolderId);
         return products.Count;
+    }
+
+    private async Task EnsureValidParentAsync(int? folderId, int? targetParentId)
+    {
+        if (!targetParentId.HasValue) return;
+        if (folderId == targetParentId)
+            throw new InvalidOperationException("Thư mục cha không thể là chính nó.");
+
+        var current = await _context.MasterDataFolders.AsNoTracking()
+            .FirstOrDefaultAsync(f => f.Id == targetParentId.Value)
+            ?? throw new InvalidOperationException("Thư mục cha không tồn tại.");
+        var visited = new HashSet<int>();
+        while (true)
+        {
+            if (!visited.Add(current.Id))
+                throw new InvalidOperationException("Cây thư mục hiện có chứa chu kỳ và phải được xử lý trước.");
+            if (folderId.HasValue && current.Id == folderId.Value)
+                throw new InvalidOperationException("Không thể chuyển thư mục vào thư mục con của nó.");
+            if (!current.ParentId.HasValue) break;
+            current = await _context.MasterDataFolders.AsNoTracking()
+                .FirstOrDefaultAsync(f => f.Id == current.ParentId.Value)
+                ?? throw new InvalidOperationException("Cây thư mục chứa liên kết cha không hợp lệ.");
+        }
     }
 }

@@ -178,6 +178,19 @@ export const ProcessType = {
 
 export type ProcessType = typeof ProcessType[keyof typeof ProcessType];
 
+export function normalizeProcessType(val: unknown): ProcessType {
+  if (
+    val === ProcessType.GoKhongMay ||
+    val === 2 ||
+    val === '2' ||
+    val === 'GoKhongMay' ||
+    (typeof val === 'string' && val.toLowerCase().includes('go'))
+  ) {
+    return ProcessType.GoKhongMay;
+  }
+  return ProcessType.Standard;
+}
+
 export const ShipmentStatus = {
   Draft: 0,
   Exported: 1,

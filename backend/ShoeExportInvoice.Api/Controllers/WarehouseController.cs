@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShoeExportInvoice.Api.Data;
@@ -8,6 +9,7 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "Admin,Kho,Xnk")]
 public class WarehouseController : ControllerBase
 {
     private readonly AppDbContext _context;
@@ -145,20 +147,28 @@ public class WarehouseController : ControllerBase
             return BadRequest(new { message = "Lô hàng phải có ít nhất 1 dòng mã giày." });
         }
 
-        // Lấy danh sách mã giày cần kiểm tra
+        // Lấy danh sách mã giày cần kiểm tra (bao gồm cả mã bỏ đuôi .G)
         var rawCodes = request.Items
             .Select(i => (i.StyleCode ?? string.Empty).Trim())
             .Where(c => !string.IsNullOrEmpty(c))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Lấy các mã đã có trong ProductMaster
-        var existingCodes = await _context.ProductMasters
+        var lookupCodes = rawCodes
+            .Select(c => c.EndsWith(".G", StringComparison.OrdinalIgnoreCase) ? c[..^2].Trim() : c)
+            .Concat(rawCodes)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Lấy các mã đã có trong ProductMaster kèm thông tin giá để đối chiếu và bảo toàn logic
+        var masterProducts = await _context.ProductMasters
             .AsNoTracking()
-            .Where(p => rawCodes.Contains(p.StyleCode))
-            .Select(p => p.StyleCode.ToUpper())
+            .Where(p => lookupCodes.Contains(p.StyleCode))
             .ToListAsync();
-        var existingSet = new HashSet<string>(existingCodes, StringComparer.OrdinalIgnoreCase);
+
+        var productMap = masterProducts
+            .GroupBy(p => p.StyleCode.ToUpperInvariant())
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         // Sinh tên lô nếu chưa có
         var batchNum = string.IsNullOrWhiteSpace(request.BatchNumber) ? "LẦN X" : request.BatchNumber.Trim();
@@ -179,9 +189,9 @@ public class WarehouseController : ControllerBase
                 return NotFound(new { message = $"Không tìm thấy lô #{request.Id.Value} để cập nhật." });
             }
 
-            if (existing.Status == WarehouseBatchStatus.ProcessedByXnk)
+            if (existing.Status != WarehouseBatchStatus.Draft)
             {
-                return BadRequest(new { message = "Lô hàng này đã được XNK tiếp nhận xử lý, không thể chỉnh sửa." });
+                return Conflict(new { message = "Chỉ lô hàng ở trạng thái Bản nháp mới được chỉnh sửa." });
             }
 
             batch = existing;
@@ -218,17 +228,43 @@ public class WarehouseController : ControllerBase
             var styleCode = (item.StyleCode ?? string.Empty).Trim().ToUpper();
             if (string.IsNullOrEmpty(styleCode)) continue;
 
-            // Tự động nhận diện nếu người dùng gõ đuôi .G hoặc chọn Gò không may
+            var baseCode = styleCode.EndsWith(".G", StringComparison.OrdinalIgnoreCase)
+                ? styleCode[..^2].Trim()
+                : styleCode;
+
+            productMap.TryGetValue(styleCode, out var matchedProduct);
+            if (matchedProduct == null)
+            {
+                productMap.TryGetValue(baseCode, out matchedProduct);
+            }
+
+            var isKnown = matchedProduct != null;
+            var isPendingReview = !isKnown || item.IsPendingReview;
+
+            // Failsafe Auto-Correction:
+            // 1. Có đuôi .G -> Chắc chắn là Gò không may
+            // 2. Không có đuôi .G nhưng Master Data CHỈ có đơn giá Gò -> Tự động sửa về Gò không may
+            // 3. Master Data CHỈ có đơn giá Thành hình -> Tự động sửa về Standard (Thành hình)
             var processType = item.ProcessType;
             if (styleCode.EndsWith(".G", StringComparison.OrdinalIgnoreCase))
             {
                 processType = ProcessType.GoKhongMay;
             }
+            else if (matchedProduct != null)
+            {
+                bool hasStandard = matchedProduct.UnitPriceCMT > 0 || matchedProduct.UnitPriceDAP > 0;
+                bool hasGo = (matchedProduct.UnitPriceCMT_Go.HasValue && matchedProduct.UnitPriceCMT_Go.Value > 0) ||
+                             (matchedProduct.UnitPriceDAP_Go.HasValue && matchedProduct.UnitPriceDAP_Go.Value > 0);
 
-            // Kiểm tra xem mã đã có trong Master Data chưa
-            var isKnown = existingSet.Contains(styleCode) || 
-                          (styleCode.EndsWith(".G") && existingSet.Contains(styleCode[..^2].Trim()));
-            var isPendingReview = !isKnown || item.IsPendingReview;
+                if (!hasStandard && hasGo)
+                {
+                    processType = ProcessType.GoKhongMay;
+                }
+                else if (hasStandard && !hasGo)
+                {
+                    processType = ProcessType.Standard;
+                }
+            }
 
             var batchItem = new WarehouseBatchItem
             {
@@ -240,7 +276,7 @@ public class WarehouseController : ControllerBase
                 Note = item.Note
             };
 
-            totalQty += item.Quantity;
+            totalQty = checked(totalQty + item.Quantity);
             batch.Items.Add(batchItem);
         }
 
@@ -264,6 +300,7 @@ public class WarehouseController : ControllerBase
     /// Bàn giao lô hàng cho bộ phận XNK
     /// </summary>
     [HttpPost("batches/{id:int}/submit")]
+    [Authorize(Roles = "Admin,Kho")]
     public async Task<ActionResult<WarehouseBatchDto>> SubmitBatch(int id)
     {
         var batch = await _context.WarehouseBatches
@@ -280,6 +317,9 @@ public class WarehouseController : ControllerBase
             return BadRequest(new { message = "Lô hàng chưa có dữ liệu mặt hàng hợp lệ để bàn giao." });
         }
 
+        if (batch.Status != WarehouseBatchStatus.Draft)
+            return Conflict(new { message = "Chỉ lô hàng Bản nháp mới được bàn giao cho XNK." });
+
         batch.Status = WarehouseBatchStatus.SubmittedToXnk;
         batch.SubmittedAt = DateTime.UtcNow;
 
@@ -295,6 +335,7 @@ public class WarehouseController : ControllerBase
     /// Xóa lô hàng xuất kho (chỉ áp dụng cho bản nháp Draft)
     /// </summary>
     [HttpDelete("batches/{id:int}")]
+    [Authorize(Roles = "Admin,Kho")]
     public async Task<IActionResult> DeleteBatch(int id)
     {
         var batch = await _context.WarehouseBatches.FirstOrDefaultAsync(b => b.Id == id);
@@ -303,9 +344,9 @@ public class WarehouseController : ControllerBase
             return NotFound(new { message = $"Không tìm thấy lô #{id}." });
         }
 
-        if (batch.Status == WarehouseBatchStatus.ProcessedByXnk)
+        if (batch.Status != WarehouseBatchStatus.Draft)
         {
-            return BadRequest(new { message = "Không thể xóa lô hàng đã được XNK tiếp nhận và lên hóa đơn." });
+            return Conflict(new { message = "Chỉ lô hàng Bản nháp mới được xóa." });
         }
 
         _context.WarehouseBatches.Remove(batch);
@@ -338,7 +379,7 @@ public class WarehouseController : ControllerBase
 
         var products = await query
             .OrderBy(p => p.StyleCode)
-            .Take(folderId.HasValue ? 100 : 25)
+            .Take(folderId.HasValue ? 500 : 50)
             .Select(p => new
             {
                 p.Id,
@@ -348,7 +389,12 @@ public class WarehouseController : ControllerBase
                 p.FolderId,
                 FolderName = p.Folder != null ? p.Folder.Name : null,
                 UnitPriceCMT = p.UnitPriceCMT,
+                UnitPriceDAP = p.UnitPriceDAP,
+                UnitPriceCMT_Go = p.UnitPriceCMT_Go,
+                UnitPriceDAP_Go = p.UnitPriceDAP_Go,
                 UnitPriceGoKhongMay = p.UnitPriceCMT_Go,
+                HasStandardPrice = p.UnitPriceCMT > 0 || p.UnitPriceDAP > 0,
+                HasGoPrice = (p.UnitPriceCMT_Go.HasValue && p.UnitPriceCMT_Go.Value > 0) || (p.UnitPriceDAP_Go.HasValue && p.UnitPriceDAP_Go.Value > 0),
                 PairPerCarton = p.PairPerCarton,
                 Unit = p.Unit
             })
@@ -361,6 +407,7 @@ public class WarehouseController : ControllerBase
     /// Đánh dấu lô hàng đã được XNK tiếp nhận và liên kết mã hóa đơn ShipmentOrderId
     /// </summary>
     [HttpPost("batches/{id:int}/mark-processed")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> MarkProcessed(int id, [FromQuery] int shipmentOrderId)
     {
         var batch = await _context.WarehouseBatches.FirstOrDefaultAsync(b => b.Id == id);
@@ -368,6 +415,16 @@ public class WarehouseController : ControllerBase
         {
             return NotFound(new { message = $"Không tìm thấy lô #{id}." });
         }
+
+        if (batch.Status != WarehouseBatchStatus.SubmittedToXnk)
+            return Conflict(new { message = "Chỉ lô hàng đã bàn giao XNK mới được đánh dấu hoàn tất." });
+
+        var shipment = await _context.ShipmentOrders.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == shipmentOrderId);
+        if (shipment == null)
+            return BadRequest(new { message = "ShipmentOrderId không tồn tại." });
+        if (shipment.ContractFolderId != batch.ContractFolderId)
+            return Conflict(new { message = "Đơn hàng và lô kho không thuộc cùng hợp đồng." });
 
         batch.Status = WarehouseBatchStatus.ProcessedByXnk;
         batch.ShipmentOrderId = shipmentOrderId;

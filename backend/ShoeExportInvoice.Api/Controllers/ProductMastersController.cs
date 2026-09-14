@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Services;
@@ -6,6 +7,7 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/product-masters")]
+[Authorize]
 public class ProductMastersController : ControllerBase
 {
     private readonly IProductMasterService _productService;
@@ -26,6 +28,7 @@ public class ProductMastersController : ControllerBase
     /// Lấy danh sách sản phẩm phân trang và tìm kiếm theo mã hoặc mô tả
     /// </summary>
     [HttpGet]
+    [Authorize(Roles = "Admin,Xnk,Kho,KeToan")]
     public async Task<ActionResult<PagedResultDto<ProductMasterDto>>> GetPaged(
         [FromQuery] string? search,
         [FromQuery] int page = 1,
@@ -40,6 +43,7 @@ public class ProductMastersController : ControllerBase
     /// Lấy toàn bộ danh sách sản phẩm (cho việc chọn mã hàng nhanh)
     /// </summary>
     [HttpGet("all")]
+    [Authorize(Roles = "Admin,Xnk,Kho,KeToan")]
     public async Task<ActionResult<IEnumerable<ProductMasterDto>>> GetAll()
     {
         var list = await _productService.GetAllAsync();
@@ -50,6 +54,7 @@ public class ProductMastersController : ControllerBase
     /// Lấy thông tin chi tiết một mã sản phẩm theo ID
     /// </summary>
     [HttpGet("{id:int}")]
+    [Authorize(Roles = "Admin,Xnk,Kho,KeToan")]
     public async Task<ActionResult<ProductMasterDto>> GetById(int id)
     {
         var item = await _productService.GetByIdAsync(id);
@@ -64,6 +69,7 @@ public class ProductMastersController : ControllerBase
     /// Thêm mới một mã sản phẩm gốc
     /// </summary>
     [HttpPost]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<ActionResult<ProductMasterDto>> Create([FromBody] CreateProductMasterDto dto)
     {
         if (!ModelState.IsValid)
@@ -91,6 +97,7 @@ public class ProductMastersController : ControllerBase
     /// Cập nhật thông tin mã sản phẩm
     /// </summary>
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<ActionResult<ProductMasterDto>> Update(int id, [FromBody] UpdateProductMasterDto dto)
     {
         if (!ModelState.IsValid)
@@ -122,6 +129,7 @@ public class ProductMastersController : ControllerBase
     /// Xóa mã sản phẩm khỏi hệ thống
     /// </summary>
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> Delete(int id)
     {
         var success = await _productService.DeleteAsync(id);
@@ -136,6 +144,7 @@ public class ProductMastersController : ControllerBase
     /// Xóa toàn bộ sản phẩm trong một thư mục (hoặc toàn bộ danh mục nếu không truyền folderId)
     /// </summary>
     [HttpDelete("all")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> DeleteAll([FromQuery] int? folderId = null)
     {
         var count = await _productService.DeleteAllAsync(folderId);
@@ -149,6 +158,7 @@ public class ProductMastersController : ControllerBase
     /// Cập nhật ĐVT (Đơn vị tính) đồng loạt cho toàn bộ danh mục sản phẩm
     /// </summary>
     [HttpPut("bulk-update-unit")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> BulkUpdateUnit([FromBody] BulkUpdateUnitDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.Unit))
@@ -164,6 +174,7 @@ public class ProductMastersController : ControllerBase
     /// Tải file Excel mẫu để chuẩn bị dữ liệu import
     /// </summary>
     [HttpGet("template")]
+    [Authorize(Roles = "Admin,Xnk")]
     public IActionResult DownloadTemplate()
     {
         var fileBytes = _excelService.GenerateProductMasterTemplate();
@@ -175,6 +186,7 @@ public class ProductMastersController : ControllerBase
     /// Xuất hóa đơn Commercial Invoice (INV) và Packing List (PKL) ra file Excel trực tiếp từ file mẫu chuẩn công ty
     /// </summary>
     [HttpGet("export")]
+    [Authorize(Roles = "Admin,Xnk,Kho,KeToan")]
     public async Task<IActionResult> ExportExcel()
     {
         var fileBytes = await _excelService.ExportProductMastersToExcelAsync();
@@ -186,6 +198,7 @@ public class ProductMastersController : ControllerBase
     /// Xuất Commercial Invoice (INV) và Packing List (PKL) theo dữ liệu lô hàng cụ thể
     /// </summary>
     [HttpPost("export-shipment")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> ExportShipment([FromBody] ShipmentExportModel model)
     {
         var fileBytes = await _excelService.ExportShipmentToExcelAsync(model);
@@ -197,6 +210,7 @@ public class ProductMastersController : ControllerBase
     /// Di chuyển danh sách sản phẩm sang thư mục khác
     /// </summary>
     [HttpPost("bulk-move")]
+    [Authorize(Roles = "Admin,Xnk")]
     public async Task<IActionResult> BulkMove([FromBody] BulkMoveProductsDto dto)
     {
         var success = await _productService.BulkMoveProductsAsync(dto.ProductIds, dto.TargetFolderId);
@@ -208,6 +222,7 @@ public class ProductMastersController : ControllerBase
     /// </summary>
     [HttpPost("preview-import")]
     [HttpPost("/api/master-data/preview-import")]
+    [Authorize(Roles = "Admin,Xnk")]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<ImportPreviewResponseDto>> PreviewImport(
         IFormFile? file,
@@ -242,6 +257,7 @@ public class ProductMastersController : ControllerBase
     /// </summary>
     [HttpPost("import")]
     [HttpPost("/api/master-data/import-excel")]
+    [Authorize(Roles = "Admin,Xnk")]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<ImportResultDto>> ImportExcel(
         IFormFile? file,
@@ -299,6 +315,7 @@ public class ProductMastersController : ControllerBase
     /// </summary>
     [HttpPost("validate-items")]
     [HttpPost("/api/master-data/validate-items")]
+    [Authorize(Roles = "Admin,Xnk,Kho,KeToan")]
     public async Task<ActionResult<ValidateItemsResult>> ValidateItems([FromBody] ValidateItemsRequest request)
     {
         try

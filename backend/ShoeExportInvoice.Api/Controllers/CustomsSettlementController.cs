@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Models.Entities;
@@ -7,6 +8,7 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/customs-settlement")]
+[Authorize(Roles = "Admin,Xnk,KeToan")]
 public class CustomsSettlementController : ControllerBase
 {
     private readonly ICustomsSettlementService _settlementService;
@@ -18,6 +20,28 @@ public class CustomsSettlementController : ControllerBase
     {
         _settlementService = settlementService;
         _logger = logger;
+    }
+
+    [HttpPost("{id:int}/finalize")]
+    public async Task<ActionResult<CustomsSettlementPeriod>> FinalizeSettlementPeriod(int id)
+    {
+        try
+        {
+            return Ok(await _settlementService.FinalizeSettlementPeriodAsync(id));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Xung đột khi chốt kỳ quyết toán {Id}", id);
+            return Conflict(new { message = "Kỳ quyết toán vừa được thay đổi. Vui lòng tải lại trước khi chốt." });
+        }
     }
 
     /// <summary>
@@ -73,6 +97,10 @@ public class CustomsSettlementController : ControllerBase
         {
             var period = await _settlementService.SaveSettlementPeriodAsync(request);
             return Ok(period);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
         {

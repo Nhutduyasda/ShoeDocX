@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Models.Entities;
@@ -30,6 +31,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting("login")]
     public async Task<ActionResult<LoginResponseDto>> Login([FromBody] LoginRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
@@ -43,11 +45,13 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Tên đăng nhập hoặc mật khẩu không chính xác." });
         }
 
-        var isPasswordValid = await _userManager.CheckPasswordAsync(user, request.Password);
-        if (!isPasswordValid)
+        if (await _userManager.IsLockedOutAsync(user) || !await _userManager.CheckPasswordAsync(user, request.Password))
         {
+            await _userManager.AccessFailedAsync(user);
             return BadRequest(new { message = "Tên đăng nhập hoặc mật khẩu không chính xác." });
         }
+
+        await _userManager.ResetAccessFailedCountAsync(user);
 
         var token = GenerateJwtToken(user, request.RememberMe);
 
@@ -123,10 +127,13 @@ public class AuthController : ControllerBase
     private string GenerateJwtToken(ApplicationUser user, bool rememberMe)
     {
         var jwtSettings = _configuration.GetSection("Jwt");
-        var secretKey = jwtSettings["Key"] ?? "ShoeExportInvoice_Default_Secret_Key_For_Jwt_2026!";
+        var secretKey = jwtSettings["Key"]
+            ?? throw new InvalidOperationException("Jwt:Key is not configured.");
         var issuer = jwtSettings["Issuer"] ?? "ShoeExportInvoiceApi";
         var audience = jwtSettings["Audience"] ?? "ShoeExportInvoiceClient";
-        var expiryDays = rememberMe ? 30 : 1;
+        var expiryHours = rememberMe
+            ? jwtSettings.GetValue<int?>("RememberMeExpiryHours") ?? 24
+            : jwtSettings.GetValue<int?>("ExpiryHours") ?? 8;
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -136,15 +143,17 @@ public class AuthController : ControllerBase
             new(ClaimTypes.NameIdentifier, user.Id),
             new(ClaimTypes.Name, user.UserName ?? string.Empty),
             new(ClaimTypes.GivenName, user.FullName),
+            new(ClaimTypes.Role, user.Department.ToString()),
             new("Department", user.Department.ToString()),
             new("DepartmentId", ((int)user.Department).ToString()),
+            new("security_stamp", user.SecurityStamp ?? string.Empty),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 
         var tokenDescriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(claims),
-            Expires = DateTime.UtcNow.AddDays(expiryDays),
+            Expires = DateTime.UtcNow.AddHours(expiryHours),
             Issuer = issuer,
             Audience = audience,
             SigningCredentials = creds

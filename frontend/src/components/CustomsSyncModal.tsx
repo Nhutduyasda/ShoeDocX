@@ -26,7 +26,7 @@ import type {
   CustomsReconciliationResult,
   CustomsComparisonRow,
 } from '../types';
-import { ProcessType } from '../types';
+import { ProcessType, normalizeProcessType } from '../types';
 
 interface CustomsSyncModalProps {
   open: boolean;
@@ -222,7 +222,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
       render: (code: string, record) => (
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-semibold text-slate-800">{code}</span>
-          {record.processType === ProcessType.GoKhongMay && (
+          {normalizeProcessType(record.processType) === ProcessType.GoKhongMay && (
             <Tag className="bg-purple-50 text-purple-700 border-purple-200 text-[10px] px-1 py-0 m-0">
               Gò
             </Tag>

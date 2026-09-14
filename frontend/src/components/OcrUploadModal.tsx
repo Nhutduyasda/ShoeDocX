@@ -24,7 +24,7 @@ import {
 } from '@ant-design/icons';
 import { ocrApi } from '../api/ocrApi';
 import type { CreateShipmentItem, OcrItem, ProductMaster } from '../types';
-import { ProcessType } from '../types';
+import { ProcessType, normalizeProcessType } from '../types';
 
 import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
 
@@ -99,6 +99,7 @@ export const OcrUploadModal: React.FC<OcrUploadModalProps> = ({
         return {
           ...item,
           styleCode: normalizedCode,
+          processType: normalizeProcessType(item.processType),
           unitPriceCMT: pm?.unitPriceCMT ?? item.unitPriceCMT,
           unitPriceDAP: pm?.unitPriceDAP ?? item.unitPriceDAP,
           pairPerCarton: (pm?.pairPerCarton && pm.pairPerCarton > 0) ? pm.pairPerCarton : item.pairPerCarton || 12,
@@ -310,7 +311,7 @@ export const OcrUploadModal: React.FC<OcrUploadModalProps> = ({
     const converted: CreateShipmentItem[] = validItems.map((item) => ({
       styleCode: item.styleCode,
       quantity: item.quantity,
-      processType: item.processType,
+      processType: normalizeProcessType(item.processType),
       unitPriceCMT: item.unitPriceCMT,
       unitPriceDAP: item.unitPriceDAP,
       unit: item.unit,
@@ -338,9 +339,11 @@ export const OcrUploadModal: React.FC<OcrUploadModalProps> = ({
       width: 140,
       render: (code: string, record) => (
         <div>
-          <span className="font-mono font-medium text-slate-900 text-xs">{code}</span>
+          <span className="font-mono font-medium text-xs text-slate-800">{code}</span>
           {record.description && (
-            <div className="text-[11px] text-slate-400 truncate max-w-[130px]">{record.description}</div>
+            <div className="text-[11px] text-slate-400 truncate max-w-[130px]">
+              {record.description}
+            </div>
           )}
         </div>
       ),
@@ -369,7 +372,7 @@ export const OcrUploadModal: React.FC<OcrUploadModalProps> = ({
       render: (proc: ProcessType, _, index) => (
         <Select
           size="small"
-          value={proc}
+          value={normalizeProcessType(proc)}
           onChange={(val) => handleUpdateProcess(index, val)}
           className="text-xs w-32"
           options={[

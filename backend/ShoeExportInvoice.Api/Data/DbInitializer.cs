@@ -43,7 +43,6 @@ public static class DbInitializer
         }
         await EnsureColumn("ShipmentOrders", "IsLocked", "INTEGER NOT NULL DEFAULT 0");
         await EnsureColumn("ShipmentOrders", "CustomsAttachmentFilePath", "TEXT NULL");
-        await EnsureColumn("ProductMasters", "FolderId", "INTEGER NULL REFERENCES MasterDataFolders(Id) ON DELETE RESTRICT");
         await EnsureColumn("CustomsSettlementPeriods", "CustomsOffice", "TEXT NOT NULL DEFAULT ''");
         await EnsureColumn("CustomsSettlementPeriods", "Status", "TEXT NOT NULL DEFAULT 'Draft'");
         await EnsureColumn("CustomsSettlementItems", "HsCode", "TEXT NOT NULL DEFAULT ''");
@@ -55,39 +54,32 @@ public static class DbInitializer
         if (unresolved > 0) logger.LogWarning("{Count} historical orders have no unambiguous contract folder; review before editing.", unresolved);
     }
 
-    public static async Task SeedUsersAsync(Microsoft.AspNetCore.Identity.UserManager<ShoeExportInvoice.Api.Models.Entities.ApplicationUser> userManager, ILogger logger)
+    public static async Task SeedBootstrapAdminAsync(
+        Microsoft.AspNetCore.Identity.UserManager<ShoeExportInvoice.Api.Models.Entities.ApplicationUser> userManager,
+        ILogger logger,
+        string? username,
+        string? password,
+        string? fullName)
     {
-        var defaultUsers = new List<(string Username, string Password, string FullName, ShoeExportInvoice.Api.Models.Entities.Department Dept)>
-        {
-            ("admin", "@Admin123", "Ban Giám Đốc (Quản Trị)", ShoeExportInvoice.Api.Models.Entities.Department.Admin),
-            ("xnk", "@Xnk123", "Nhân Viên Xuất Nhập Khẩu", ShoeExportInvoice.Api.Models.Entities.Department.Xnk),
-            ("kho", "@Kho123", "Thủ Kho Thành Phẩm", ShoeExportInvoice.Api.Models.Entities.Department.Kho),
-            ("ketoan", "@KeToan123", "Kế Toán Doanh Thu CMT", ShoeExportInvoice.Api.Models.Entities.Department.KeToan)
-        };
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+            throw new InvalidOperationException("BootstrapAdmin is enabled but Username or Password is missing.");
 
-        foreach (var (username, password, fullName, dept) in defaultUsers)
+        var existing = await userManager.FindByNameAsync(username.Trim());
+        if (existing == null)
         {
-            var existing = await userManager.FindByNameAsync(username);
-            if (existing == null)
+            var user = new ShoeExportInvoice.Api.Models.Entities.ApplicationUser
             {
-                var user = new ShoeExportInvoice.Api.Models.Entities.ApplicationUser
-                {
-                    UserName = username,
-                    FullName = fullName,
-                    Department = dept,
-                    IsActive = true,
-                    CreatedAt = DateTime.UtcNow
-                };
-                var result = await userManager.CreateAsync(user, password);
-                if (result.Succeeded)
-                {
-                    logger.LogInformation("Đã khởi tạo tài khoản mặc định: {Username} ({FullName})", username, fullName);
-                }
-                else
-                {
-                    logger.LogWarning("Không thể tạo tài khoản mặc định {Username}: {Errors}", username, string.Join(", ", result.Errors.Select(e => e.Description)));
-                }
-            }
+                UserName = username.Trim(),
+                FullName = string.IsNullOrWhiteSpace(fullName) ? "System Administrator" : fullName.Trim(),
+                Department = ShoeExportInvoice.Api.Models.Entities.Department.Admin,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            var result = await userManager.CreateAsync(user, password);
+            if (!result.Succeeded)
+                throw new InvalidOperationException($"Cannot create bootstrap administrator: {string.Join(", ", result.Errors.Select(e => e.Description))}");
+
+            logger.LogWarning("Bootstrap administrator {Username} was created. Disable BootstrapAdmin immediately after first use.", user.UserName);
         }
     }
 }

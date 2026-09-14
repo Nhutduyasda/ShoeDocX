@@ -991,6 +991,9 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         var comparison = await ReconcileAsync(parsed, orderId);
         if (!comparison.IsFullyMatched)
             throw new InvalidOperationException(string.Join(" ", comparison.Discrepancies.Prepend("Tờ khai chưa khớp với đơn hiện tại.")));
+        if (await _context.ShipmentOrders.AsNoTracking().AnyAsync(s =>
+                s.Id != orderId && s.DeclarationNo != null && s.DeclarationNo.ToUpper() == parsed.DeclarationNo.Trim().ToUpper()))
+            throw new InvalidOperationException($"Tờ khai {parsed.DeclarationNo} đã được đồng bộ với một đơn hàng khác.");
 
         var storageDir = Path.GetFullPath(Path.Combine(_environment.ContentRootPath, _options.CustomsStoragePath));
         Directory.CreateDirectory(storageDir);

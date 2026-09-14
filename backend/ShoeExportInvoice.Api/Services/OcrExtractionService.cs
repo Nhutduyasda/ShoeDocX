@@ -139,7 +139,7 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogError("OpenAI API trả về lỗi HTTP {StatusCode}: {Response}", response.StatusCode, responseString);
+            _logger.LogError("OpenAI API trả về lỗi HTTP {StatusCode}", response.StatusCode);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
@@ -157,7 +157,7 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
                     errorObj.TryGetProperty("message", out var msgProp))
                 {
                     var msg = msgProp.GetString();
-                    throw new HttpRequestException($"Lỗi từ OpenAI API: {msg}");
+                    _logger.LogWarning("OpenAI API error message: {ProviderMessage}", msg);
                 }
             }
             catch (JsonException)
@@ -165,7 +165,7 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
                 // Bỏ qua nếu không parse được JSON lỗi
             }
 
-            throw new HttpRequestException($"OpenAI API gặp sự cố (HTTP {(int)response.StatusCode}): {responseString}");
+            throw new HttpRequestException($"OpenAI API gặp sự cố (HTTP {(int)response.StatusCode}).");
         }
 
         using var doc = JsonDocument.Parse(responseString);

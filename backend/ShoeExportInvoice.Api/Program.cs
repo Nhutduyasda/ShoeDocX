@@ -1,14 +1,24 @@
 using System.Text;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Threading.RateLimiting;
 using ShoeExportInvoice.Api.Data;
 using ShoeExportInvoice.Api.Models.Entities;
 using ShoeExportInvoice.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Keep local/CLI startup independent from the Windows Event Log, which may
+// require elevated permissions and must never make a successful migration fail.
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+if (builder.Environment.IsDevelopment())
+    builder.Logging.AddDebug();
 
 // Controllers & JSON options
 builder.Services.AddControllers()
@@ -52,19 +62,24 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // ASP.NET Core Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 {
-    options.Password.RequireDigit = false;
-    options.Password.RequireLowercase = false;
-    options.Password.RequireNonAlphanumeric = false;
-    options.Password.RequireUppercase = false;
-    options.Password.RequiredLength = 6;
+    options.Password.RequireDigit = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireNonAlphanumeric = true;
+    options.Password.RequireUppercase = true;
+    options.Password.RequiredLength = 10;
     options.User.RequireUniqueEmail = false;
+    options.Lockout.AllowedForNewUsers = true;
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
 })
 .AddEntityFrameworkStores<AppDbContext>()
 .AddDefaultTokenProviders();
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("Jwt");
-var secretKey = jwtSettings["Key"] ?? "ShoeExportInvoice_SuperSecretKey_ForJwtTokenGeneration_2026_Minimum32Characters!";
+var secretKey = jwtSettings["Key"];
+if (string.IsNullOrWhiteSpace(secretKey) || Encoding.UTF8.GetByteCount(secretKey) < 32)
+    throw new InvalidOperationException("Jwt:Key must be supplied through secure configuration and contain at least 32 bytes.");
 var issuer = jwtSettings["Issuer"] ?? "ShoeExportInvoiceApi";
 var audience = jwtSettings["Audience"] ?? "ShoeExportInvoiceClient";
 
@@ -72,6 +87,7 @@ builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultForbidScheme = JwtBearerDefaults.AuthenticationScheme;
 })
 .AddJwtBearer(options =>
 {
@@ -88,10 +104,45 @@ builder.Services.AddAuthentication(options =>
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero
     };
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+            var tokenStamp = context.Principal?.FindFirstValue("security_stamp");
+            var userManager = context.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = string.IsNullOrWhiteSpace(userId) ? null : await userManager.FindByIdAsync(userId);
+            if (user == null || !user.IsActive || string.IsNullOrWhiteSpace(tokenStamp) ||
+                !string.Equals(tokenStamp, user.SecurityStamp, StringComparison.Ordinal))
+                context.Fail("The user session is no longer valid.");
+        }
+    };
 });
 
 // Dependency Injection Services
 builder.Services.AddHttpClient();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: $"{context.Connection.RemoteIpAddress}:{context.Request.Path}",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+    options.AddPolicy("ocr", context => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+});
 builder.Services.AddScoped<IProductMasterService, ProductMasterService>();
 builder.Services.AddScoped<IMasterDataFolderService, MasterDataFolderService>();
 builder.Services.AddScoped<IExcelImportExportService, ExcelImportExportService>();
@@ -180,7 +231,13 @@ using (var scope = app.Services.CreateScope())
     try
     {
         await DbInitializer.InitializeAsync(context, logger);
-        await DbInitializer.SeedUsersAsync(userManager, logger);
+        if (builder.Configuration.GetValue<bool>("BootstrapAdmin:Enabled"))
+        {
+            var username = builder.Configuration["BootstrapAdmin:Username"];
+            var password = builder.Configuration["BootstrapAdmin:Password"];
+            var fullName = builder.Configuration["BootstrapAdmin:FullName"];
+            await DbInitializer.SeedBootstrapAdminAsync(userManager, logger, username, password, fullName);
+        }
         logger.LogInformation("Database initialized and verified successfully.");
     }
     catch (Exception ex)
@@ -204,6 +261,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowFrontend");
 
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 

@@ -987,6 +987,16 @@ public class ExcelImportExportService : IExcelImportExportService
                     });
                     continue;
                 }
+                if (cmtPrice < 0 || cmtPrice > 999999999.9999m || dapPrice < 0 || dapPrice > 999999999.9999m)
+                {
+                    result.Errors.Add(new ImportErrorDetail
+                    {
+                        RowNumber = r,
+                        StyleCode = rawCodeStr,
+                        Message = "Đơn giá phải nằm trong khoảng 0 đến 999999999.9999."
+                    });
+                    continue;
+                }
 
                 // Mô tả hải quan
                 var customsDescription = mapping.DescriptionCol > 0 ? row.Cell(mapping.DescriptionCol).GetString()?.Trim() ?? string.Empty : string.Empty;
@@ -1009,6 +1019,16 @@ public class ExcelImportExportService : IExcelImportExportService
                         pairCtn = pVal;
                     }
                 }
+                if (pairCtn is < 1 or > 1000)
+                {
+                    result.Errors.Add(new ImportErrorDetail
+                    {
+                        RowNumber = r,
+                        StyleCode = rawCodeStr,
+                        Message = "Số đôi mỗi thùng phải từ 1 đến 1000."
+                    });
+                    continue;
+                }
 
                 // Tách mã sản phẩm và nhận diện công đoạn Gò (.G)
                 var cleanRaw = rawCodeStr;
@@ -1030,6 +1050,16 @@ public class ExcelImportExportService : IExcelImportExportService
                         RowNumber = r,
                         StyleCode = rawCodeStr,
                         Message = "Không thể trích xuất mã hình thể hợp lệ."
+                    });
+                    continue;
+                }
+                if (baseCode.Length > 50 || customsDescription.Length > 255 || unit!.Length > 30 || hsCode!.Length > 30)
+                {
+                    result.Errors.Add(new ImportErrorDetail
+                    {
+                        RowNumber = r,
+                        StyleCode = rawCodeStr,
+                        Message = "Mã, mô tả, đơn vị hoặc HS code vượt quá độ dài cho phép."
                     });
                     continue;
                 }

@@ -160,7 +160,7 @@ export const CheatsheetModal: React.FC<CheatsheetModalProps> = ({
         {/* Phím tắt hữu ích */}
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center space-x-2">
-            <span className="font-semibold text-slate-800">⌨️ Phím tắt nhanh:</span>
+            <span className="font-semibold text-slate-800">Phím tắt nhanh:</span>
             <span>
               <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-[11px] shadow-sm">Ctrl + V</kbd> dán ảnh/bảng
             </span>

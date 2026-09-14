@@ -1,6 +1,8 @@
 using System.IO.Compression;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using ShoeExportInvoice.Api.Data;
 using ShoeExportInvoice.Api.Models.Dtos;
@@ -11,8 +13,13 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "Admin,Xnk")]
+[EnableRateLimiting("ocr")]
 public class OcrController : ControllerBase
 {
+    private const int MaxBatchFiles = 20;
+    private const long MaxImageBytes = 20L * 1024 * 1024;
+    private const long MaxBatchBytes = 100L * 1024 * 1024;
     private readonly IOcrExtractionService _ocrService;
     private readonly ISequenceService _sequenceService;
     private readonly IExcelImportExportService _excelService;
@@ -63,7 +70,7 @@ public class OcrController : ControllerBase
             return BadRequest(new { message = "Định dạng file không được hỗ trợ. Vui lòng tải lên ảnh PNG, JPG hoặc WEBP." });
         }
 
-        if (targetFile.Length > 20 * 1024 * 1024)
+        if (targetFile.Length > MaxImageBytes)
         {
             return BadRequest(new { message = "Kích thước ảnh vượt quá giới hạn cho phép (20MB)." });
         }
@@ -87,12 +94,12 @@ public class OcrController : ControllerBase
         catch (HttpRequestException ex)
         {
             _logger.LogError(ex, "Lỗi từ OpenAI API: {Message}", ex.Message);
-            return StatusCode(502, new { message = ex.Message });
+            return StatusCode(502, new { message = "Dịch vụ nhận dạng ảnh đang tạm thời không khả dụng. Vui lòng thử lại sau." });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lỗi khi trích xuất dữ liệu OCR từ ảnh phiếu kho.");
-            return StatusCode(500, new { message = $"Lỗi khi bóc tách ảnh: {ex.Message}" });
+            return StatusCode(500, new { message = "Không thể bóc tách ảnh phiếu kho." });
         }
     }
 
@@ -110,6 +117,12 @@ public class OcrController : ControllerBase
         {
             return BadRequest(new { message = "Vui lòng chọn ít nhất một ảnh phiếu kho." });
         }
+
+        if (files.Count > MaxBatchFiles)
+            return BadRequest(new { message = $"Mỗi lần chỉ được tải tối đa {MaxBatchFiles} ảnh." });
+
+        if (files.Sum(f => f.Length) > MaxBatchBytes)
+            return BadRequest(new { message = "Tổng dung lượng lô ảnh vượt quá giới hạn 100MB." });
 
         // Tải danh mục ProductMaster vào bộ nhớ để đối chiếu giá và thông số đóng thùng
         var masterRows = await _context.ProductMasters
@@ -142,7 +155,7 @@ public class OcrController : ControllerBase
                     return batchResult;
                 }
 
-                if (file.Length > 20 * 1024 * 1024)
+                if (file.Length > MaxImageBytes)
                 {
                     batchResult.IsSuccess = false;
                     batchResult.ErrorMessage = "Dung lượng ảnh vượt quá 20MB.";
@@ -197,7 +210,7 @@ public class OcrController : ControllerBase
             {
                 _logger.LogError(ex, "Lỗi bóc tách ảnh {FileName} trong lô", file.FileName);
                 batchResult.IsSuccess = false;
-                batchResult.ErrorMessage = ex.Message;
+                batchResult.ErrorMessage = "Không thể nhận dạng ảnh này. Vui lòng kiểm tra ảnh hoặc thử lại sau.";
             }
             finally
             {
@@ -442,20 +455,16 @@ public class OcrController : ControllerBase
             productMasters.TryGetValue(key, out var pm);
 
             bool isGo = item.ProcessType == ProcessType.GoKhongMay;
-            decimal cmt = item.UnitPriceCMT ?? (isGo ? (pm?.UnitPriceCMT_Go ?? pm?.UnitPriceCMT ?? 0) : (pm?.UnitPriceCMT ?? 0));
-            decimal dap = item.UnitPriceDAP ?? (isGo ? (pm?.UnitPriceDAP_Go ?? pm?.UnitPriceDAP ?? 0) : (pm?.UnitPriceDAP ?? 0));
-
-            string fullCode = !string.IsNullOrWhiteSpace(item.FullItemCode)
-                ? item.FullItemCode
-                : (isGo ? $"{item.StyleCode}.G {request.PoSuffix}".Trim() : $"{item.StyleCode} {request.PoSuffix}".Trim());
+            decimal cmt = isGo ? (pm?.UnitPriceCMT_Go ?? pm?.UnitPriceCMT ?? 0) : (pm?.UnitPriceCMT ?? 0);
+            decimal dap = isGo ? (pm?.UnitPriceDAP_Go ?? pm?.UnitPriceDAP ?? 0) : (pm?.UnitPriceDAP ?? 0);
 
             shipment.Items.Add(new ShipmentOrderItem
             {
                 StyleCode = CustomsDeclarationService.NormalizeStyleCode(item.StyleCode),
-                Description = item.Description ?? pm?.Description ?? "",
-                Unit = item.Unit,
-                PairPerCarton = item.PairPerCarton ?? pm?.PairPerCarton ?? 12,
-                FullItemCode = fullCode,
+                Description = pm?.Description ?? string.Empty,
+                Unit = pm?.Unit ?? "đôi",
+                PairPerCarton = pm?.PairPerCarton ?? 12,
+                FullItemCode = isGo ? $"{CustomsDeclarationService.NormalizeStyleCode(item.StyleCode)}.G {request.PoSuffix}".Trim() : $"{CustomsDeclarationService.NormalizeStyleCode(item.StyleCode)} {request.PoSuffix}".Trim(),
                 Quantity = item.Quantity,
                 ProcessType = item.ProcessType,
                 UnitPriceCMT = cmt,

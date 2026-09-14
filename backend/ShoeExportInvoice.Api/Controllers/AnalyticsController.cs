@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Services;
 
@@ -6,6 +7,7 @@ namespace ShoeExportInvoice.Api.Controllers;
 
 [ApiController]
 [Route("api/analytics")]
+[Authorize(Roles = "Admin,Xnk,KeToan")]
 public class AnalyticsController : ControllerBase
 {
     private readonly ICustomsSettlementService _settlementService;

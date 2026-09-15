@@ -1,13 +1,15 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ShoeExportInvoice.Api.Models.Entities;
 
 [Table("MasterDataFolders")]
-public class MasterDataFolder
+public class MasterDataFolder : ITenantEntity
 {
     [Key]
     public int Id { get; set; }
+
+    public Guid? TenantId { get; set; }
 
     [Required]
     [MaxLength(150)]

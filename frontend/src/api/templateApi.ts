@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { CompanyTemplate, AiTemplateAnalysisResponse, DocumentPreviewResponse } from '../types';
+import type { CompanyTemplate, AiTemplateAnalysisResponse, DocumentPreviewResponse, TenantAiCreditsInfo } from '../types';
 
 export const templateApi = {
   getAll: async (): Promise<CompanyTemplate[]> => {
@@ -33,6 +33,16 @@ export const templateApi = {
         'Content-Type': 'multipart/form-data',
       },
     });
+    return response.data;
+  },
+
+  getAiCredits: async (): Promise<TenantAiCreditsInfo> => {
+    const response = await apiClient.get<TenantAiCreditsInfo>('/templates/ai-credits');
+    return response.data;
+  },
+
+  addDemoCredits: async (): Promise<{ aiCredits: number; message: string }> => {
+    const response = await apiClient.post<{ aiCredits: number; message: string }>('/templates/ai-credits/add-demo');
     return response.data;
   },
 

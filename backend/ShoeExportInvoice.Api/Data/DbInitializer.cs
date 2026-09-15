@@ -62,9 +62,28 @@ public static class DbInitializer
         }
         await context.Database.CloseConnectionAsync();
         await context.Database.MigrateAsync();
+        await EnsureDefaultTenantWorkspaceAsync(context, logger);
         await EnsureDefaultCompanyTemplateAsync(context, logger);
         var unresolved = await context.ShipmentOrders.CountAsync(o => o.ContractFolderId == null);
         if (unresolved > 0) logger.LogWarning("{Count} historical orders have no unambiguous contract folder; review before editing.", unresolved);
+    }
+
+    private static async Task EnsureDefaultTenantWorkspaceAsync(AppDbContext context, ILogger logger)
+    {
+        var defaultWorkspace = await context.TenantWorkspaces.IgnoreQueryFilters().FirstOrDefaultAsync(w => w.Id == AppDbContext.DefaultTenantId);
+        if (defaultWorkspace == null)
+        {
+            context.TenantWorkspaces.Add(new Models.Entities.TenantWorkspace
+            {
+                Id = AppDbContext.DefaultTenantId,
+                CompanyName = "Công ty Mặc Định (Hải An / Kingmaker)",
+                TaxCode = "1800123456",
+                AiCredits = 2,
+                CreatedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+            logger.LogInformation("Khởi tạo thành công Workspace mặc định với 2 AI Credits.");
+        }
     }
 
     private static async Task EnsureDefaultCompanyTemplateAsync(AppDbContext context, ILogger logger)

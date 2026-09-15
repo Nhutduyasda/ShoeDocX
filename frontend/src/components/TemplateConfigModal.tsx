@@ -97,6 +97,35 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
   const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
   const [previewActiveTab, setPreviewActiveTab] = useState<'inv' | 'pkl'>('inv');
 
+  // Multi-Tenancy & AI Credit Wallet state
+  const [aiCredits, setAiCredits] = useState<number>(2);
+  const [paywallModalVisible, setPaywallModalVisible] = useState<boolean>(false);
+  const [addingDemoCredits, setAddingDemoCredits] = useState<boolean>(false);
+
+  const fetchAiCredits = async () => {
+    try {
+      const data = await templateApi.getAiCredits();
+      setAiCredits(data.aiCredits);
+      return data.aiCredits;
+    } catch {
+      return 2;
+    }
+  };
+
+  const handleAddDemoCredits = async () => {
+    try {
+      setAddingDemoCredits(true);
+      const res = await templateApi.addDemoCredits();
+      setAiCredits(res.aiCredits);
+      message.success(res.message || 'Đã nhận thêm 5 lượt dùng thử demo thành công!');
+      setPaywallModalVisible(false);
+    } catch (err: any) {
+      message.error('Không thể nạp thêm credit: ' + (err?.response?.data?.message || err.message));
+    } finally {
+      setAddingDemoCredits(false);
+    }
+  };
+
   const fetchTemplates = async () => {
     setLoading(true);
     try {
@@ -113,6 +142,7 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
 
   useEffect(() => {
     if (visible) {
+      fetchAiCredits();
       fetchTemplates().then((list) => {
         const targetId = selectedTemplateId || list.find((t) => t.isDefault)?.id || list[0]?.id;
         if (targetId) {
@@ -292,6 +322,13 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
       message.warning('Vui lòng chọn file mẫu Excel (.xlsx) trước khi phân tích AI');
       return;
     }
+
+    // Kiểm tra số dư Credit trước khi thực hiện
+    if (aiCredits <= 0) {
+      setPaywallModalVisible(true);
+      return;
+    }
+
     const file = uploadFileList[0].originFileObj as File;
     setIsAiAnalyzing(true);
     setAiLoadingStep(0);
@@ -306,14 +343,25 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
       const preview = await templateApi.previewWithConfig(file, JSON.stringify(result.config));
 
       clearInterval(stepTimer);
+      if (result.remainingCredits !== undefined) {
+        setAiCredits(result.remainingCredits);
+      } else {
+        fetchAiCredits();
+      }
+
       setDetectedAiResult(result);
       setUploadedFileForPreview(file);
       setLivePreviewData(preview);
       setUploadModalVisible(false);
       setLivePreviewModalVisible(true);
-      message.success('AI phân tích biểu mẫu và tạo bản xem trước thành công!');
+      message.success('AI phân tích biểu mẫu và tạo bản xem trước thành công (Đã trừ 1 Credit)!');
     } catch (err: any) {
       clearInterval(stepTimer);
+      if (err?.response?.status === 402 || err?.response?.data?.code === 'OUT_OF_CREDITS') {
+        fetchAiCredits();
+        setPaywallModalVisible(true);
+        return;
+      }
       message.error('Phân tích AI thất bại: ' + (err?.response?.data?.message || err.message));
     } finally {
       clearInterval(stepTimer);
@@ -848,10 +896,15 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
       {/* Sub-modal: Tải lên mẫu phôi mới với AI Onboarding */}
       <Modal
         title={
-          <Space>
-            <UploadOutlined style={{ color: '#1890ff' }} />
-            <span>Tải Lên Mẫu Phôi Excel Mới (BYOT - Bring Your Own Template)</span>
-          </Space>
+          <div className="flex items-center justify-between pr-6">
+            <Space>
+              <UploadOutlined style={{ color: '#1890ff' }} />
+              <span>Tải Lên Mẫu Phôi Excel Mới (BYOT)</span>
+            </Space>
+            <Tag color={aiCredits > 0 ? 'green' : 'error'} className="font-semibold px-2 py-0.5 text-xs">
+              ✨ Lượt quét AI khả dụng: {aiCredits} lượt
+            </Tag>
+          </div>
         }
         open={uploadModalVisible}
         onCancel={() => {
@@ -903,11 +956,16 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
           {/* AI Onboarding Callout khi đã chọn file */}
           {uploadFileList.length > 0 && (
             <div className="mt-4 p-4 rounded-lg bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 border border-purple-200">
-              <div className="flex items-center gap-2 mb-2">
-                <ThunderboltOutlined className="text-purple-600 text-lg" />
-                <Text strong className="text-purple-900 text-base">
-                  Cấu hình Biểu mẫu Thông minh với AI
-                </Text>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <ThunderboltOutlined className="text-purple-600 text-lg" />
+                  <Text strong className="text-purple-900 text-base">
+                    Cấu hình Biểu mẫu Thông minh với AI
+                  </Text>
+                </div>
+                <Tag color={aiCredits > 0 ? 'green' : 'error'} className="font-semibold">
+                  Ví: {aiCredits} Credits
+                </Tag>
               </div>
               <p className="text-xs text-slate-600 mb-4">
                 Hệ thống sẽ tự động quét ma trận các ô văn bản của phôi Excel, định vị các ô Số HĐ, Ngày, Bên mua, bảng chi tiết INV & PKL, đồng thời tạo bản xem trước Live Preview với dữ liệu mẫu hoàn chỉnh.
@@ -948,6 +1006,56 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
             </div>
           )}
         </Form>
+      </Modal>
+
+      {/* Paywall / Out of Credits Modal */}
+      <Modal
+        title={
+          <Space>
+            <ThunderboltOutlined style={{ color: '#f5222d' }} />
+            <span className="font-bold text-slate-800">Hết Lượt Phân Tích AI Miễn Phí</span>
+          </Space>
+        }
+        open={paywallModalVisible}
+        onCancel={() => setPaywallModalVisible(false)}
+        footer={null}
+        centered
+        width={540}
+      >
+        <div className="py-2 space-y-4">
+          <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg text-slate-700 text-sm">
+            <p className="font-semibold text-orange-900 mb-1">
+              Bạn đã sử dụng hết 2 lượt phân tích AI miễn phí của tổ chức.
+            </p>
+            <p className="text-xs text-slate-600 mb-0">
+              Mỗi workspace được cấp mặc định 2 lượt quét AI miễn phí để trải nghiệm tính năng bóc tách phôi tự động.
+              Để tiếp tục sử dụng tính năng AI, bạn có thể nhận thêm lượt dùng thử demo hoặc chuyển sang chế độ tự nhập tọa độ thủ công hoàn toàn miễn phí.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
+            <Button
+              icon={<EditOutlined />}
+              onClick={() => {
+                setPaywallModalVisible(false);
+                setUploadModalVisible(false);
+                setActiveTab('mapper');
+                message.info('Đã chuyển sang Trình ánh xạ tọa độ thủ công (Miễn phí 100%).');
+              }}
+            >
+              📝 Chuyển sang Nhập thủ công (Miễn phí)
+            </Button>
+            <Button
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              loading={addingDemoCredits}
+              onClick={handleAddDemoCredits}
+              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 border-none text-white font-semibold"
+            >
+              💳 Nhận thêm 5 lượt dùng thử demo
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Interactive Live Preview Modal */}

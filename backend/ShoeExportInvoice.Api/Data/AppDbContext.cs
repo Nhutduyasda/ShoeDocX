@@ -1,15 +1,24 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using ShoeExportInvoice.Api.Models.Entities;
+using ShoeExportInvoice.Api.Services;
 
 namespace ShoeExportInvoice.Api.Data;
 
 public class AppDbContext : IdentityDbContext<ApplicationUser>
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+    private readonly ICurrentTenantService? _currentTenantService;
+
+    public static readonly Guid DefaultTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    public Guid CurrentTenantId => _currentTenantService?.TenantId ?? DefaultTenantId;
+
+    public AppDbContext(DbContextOptions<AppDbContext> options, ICurrentTenantService? currentTenantService = null) : base(options)
     {
+        _currentTenantService = currentTenantService;
     }
 
+    public DbSet<TenantWorkspace> TenantWorkspaces => Set<TenantWorkspace>();
     public DbSet<ProductMaster> ProductMasters => Set<ProductMaster>();
     public DbSet<MasterDataFolder> MasterDataFolders => Set<MasterDataFolder>();
     public DbSet<ShipmentOrder> ShipmentOrders => Set<ShipmentOrder>();
@@ -23,7 +32,6 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<BusinessAuditLog> BusinessAuditLogs => Set<BusinessAuditLog>();
     public DbSet<RevokedJwt> RevokedJwts => Set<RevokedJwt>();
     public DbSet<CompanyTemplate> CompanyTemplates => Set<CompanyTemplate>();
-
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -176,5 +184,53 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                   .HasForeignKey(e => e.FolderId)
                   .OnDelete(DeleteBehavior.SetNull);
         });
+
+        // TenantWorkspace configuration
+        modelBuilder.Entity<TenantWorkspace>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CompanyName).HasMaxLength(255);
+            entity.Property(e => e.TaxCode).HasMaxLength(50);
+        });
+
+        // Global Query Filters for Multi-Tenancy
+        modelBuilder.Entity<CompanyTemplate>()
+            .HasQueryFilter(t => t.IsDefault || t.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && t.TenantId == null));
+
+        modelBuilder.Entity<ProductMaster>()
+            .HasQueryFilter(p => p.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && p.TenantId == null));
+
+        modelBuilder.Entity<MasterDataFolder>()
+            .HasQueryFilter(f => f.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && f.TenantId == null));
+
+        modelBuilder.Entity<ShipmentOrder>()
+            .HasQueryFilter(s => s.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && s.TenantId == null));
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        AssignTenantIds();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        AssignTenantIds();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void AssignTenantIds()
+    {
+        var tenantId = CurrentTenantId;
+        foreach (var entry in ChangeTracker.Entries())
+        {
+            if (entry.State == EntityState.Added && entry.Entity is ITenantEntity tenantEntity)
+            {
+                if (!tenantEntity.TenantId.HasValue || tenantEntity.TenantId.Value == Guid.Empty)
+                {
+                    tenantEntity.TenantId = tenantId;
+                }
+            }
+        }
     }
 }

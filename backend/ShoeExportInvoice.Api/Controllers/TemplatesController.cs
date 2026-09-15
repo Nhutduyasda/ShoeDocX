@@ -14,16 +14,63 @@ public class TemplatesController : ControllerBase
 {
     private readonly ITemplateService _templateService;
     private readonly ITemplateAiParserService _aiParserService;
+    private readonly ICurrentTenantService? _currentTenantService;
+    private readonly ShoeExportInvoice.Api.Data.AppDbContext? _context;
     private readonly ILogger<TemplatesController> _logger;
 
     public TemplatesController(
         ITemplateService templateService,
         ITemplateAiParserService aiParserService,
-        ILogger<TemplatesController> logger)
+        ILogger<TemplatesController> logger,
+        ICurrentTenantService? currentTenantService = null,
+        ShoeExportInvoice.Api.Data.AppDbContext? context = null)
     {
         _templateService = templateService;
         _aiParserService = aiParserService;
         _logger = logger;
+        _currentTenantService = currentTenantService;
+        _context = context;
+    }
+
+    /// <summary>
+    /// Lấy thông tin số dư AI Credit của Workspace/Tenant hiện tại
+    /// </summary>
+    [HttpGet("ai-credits")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetAiCredits()
+    {
+        if (_currentTenantService == null)
+        {
+            return Ok(new { tenantId = Guid.Empty, companyName = "Hệ thống", aiCredits = 2 });
+        }
+        var ws = await _currentTenantService.GetCurrentWorkspaceAsync();
+        return Ok(new
+        {
+            tenantId = ws.Id,
+            companyName = ws.CompanyName,
+            aiCredits = ws.AiCredits
+        });
+    }
+
+    /// <summary>
+    /// Nạp thêm 5 credit demo phục vụ kiểm thử và trải nghiệm
+    /// </summary>
+    [HttpPost("ai-credits/add-demo")]
+    [AllowAnonymous]
+    public async Task<IActionResult> AddDemoCredits()
+    {
+        if (_currentTenantService == null || _context == null)
+        {
+            return Ok(new { aiCredits = 5, message = "Đã nạp thêm 5 credit dùng thử thành công!" });
+        }
+        var ws = await _currentTenantService.GetCurrentWorkspaceAsync();
+        ws.AiCredits += 5;
+        await _context.SaveChangesAsync();
+        return Ok(new
+        {
+            aiCredits = ws.AiCredits,
+            message = "Đã nạp thêm 5 credit dùng thử thành công!"
+        });
     }
 
     /// <summary>
@@ -59,15 +106,12 @@ public class TemplatesController : ControllerBase
     [AllowAnonymous]
     public async Task<ActionResult<CompanyTemplateDto>> GetDefault()
     {
-        try
+        var template = await _templateService.GetDefaultTemplateAsync();
+        if (template == null)
         {
-            var template = await _templateService.GetDefaultTemplateAsync();
-            return Ok(template);
+            return NotFound(new { message = "Chưa cấu hình biểu mẫu mặc định." });
         }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
+        return Ok(template);
     }
 
     /// <summary>
@@ -189,7 +233,7 @@ public class TemplatesController : ControllerBase
     }
 
     /// <summary>
-    /// Bóc tách ma trận ô và tự động nhận diện cấu hình template bằng AI
+    /// Bóc tách ma trận ô và tự động nhận diện cấu hình template bằng AI (Có trừ credit)
     /// </summary>
     [HttpPost("ai-analyze")]
     [Authorize(Roles = "Admin,Xnk")]
@@ -201,16 +245,40 @@ public class TemplatesController : ControllerBase
             return BadRequest(new { message = "Vui lòng chọn file mẫu Excel (.xlsx) để phân tích." });
         }
 
+        // Kiểm tra số dư Credit AI của Tenant
+        Models.Entities.TenantWorkspace? ws = null;
+        if (_currentTenantService != null)
+        {
+            ws = await _currentTenantService.GetCurrentWorkspaceAsync();
+            if (ws.AiCredits <= 0)
+            {
+                return StatusCode(StatusCodes.Status402PaymentRequired, new
+                {
+                    code = "OUT_OF_CREDITS",
+                    message = "Bạn đã sử dụng hết lượt phân tích AI miễn phí. Vui lòng nạp thêm credit hoặc sử dụng chế độ 'Nhập tọa độ thủ công' hoàn toàn miễn phí."
+                });
+            }
+        }
+
         try
         {
             using var stream = form.File.OpenReadStream();
             var result = await _aiParserService.AnalyzeTemplateAsync(stream, form.File.FileName);
+
+            // Trừ 1 credit sau khi phân tích thành công
+            if (ws != null && _context != null)
+            {
+                ws.AiCredits = Math.Max(0, ws.AiCredits - 1);
+                await _context.SaveChangesAsync();
+            }
+
             return Ok(new
             {
                 detectedName = result.DetectedName,
                 config = result.Config,
                 textGrid = result.TextGridSummary,
-                isAiAnalyzed = result.IsAiAnalyzed
+                isAiAnalyzed = result.IsAiAnalyzed,
+                remainingCredits = ws?.AiCredits ?? 0
             });
         }
         catch (Exception ex)

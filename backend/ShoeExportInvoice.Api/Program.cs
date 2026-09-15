@@ -168,6 +168,8 @@ builder.Services.AddScoped<ICustomsSettlementService, CustomsSettlementService>(
 builder.Services.AddScoped<IBusinessAuditService, BusinessAuditService>();
 builder.Services.AddScoped<ITemplateService, TemplateService>();
 builder.Services.AddScoped<ITemplateAiParserService, TemplateAiParserService>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentTenantService, CurrentTenantService>();
 
 // CORS Policy for Vite Frontend
 builder.Services.AddCors(options =>

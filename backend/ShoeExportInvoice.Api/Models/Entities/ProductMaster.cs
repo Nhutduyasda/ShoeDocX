@@ -4,10 +4,12 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace ShoeExportInvoice.Api.Models.Entities;
 
 [Table("ProductMasters")]
-public class ProductMaster
+public class ProductMaster : ITenantEntity
 {
     [Key]
     public int Id { get; set; }
+
+    public Guid? TenantId { get; set; }
 
     [Required]
     [MaxLength(50)]

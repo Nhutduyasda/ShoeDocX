@@ -851,5 +851,13 @@ export interface AiTemplateAnalysisResponse {
   config: DocumentTemplateConfig;
   textGrid: string;
   isAiAnalyzed: boolean;
+  remainingCredits?: number;
 }
+
+export interface TenantAiCreditsInfo {
+  tenantId: string;
+  companyName: string;
+  aiCredits: number;
+}
+
 

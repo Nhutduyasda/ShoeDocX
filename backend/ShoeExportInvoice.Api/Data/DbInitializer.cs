@@ -62,8 +62,82 @@ public static class DbInitializer
         }
         await context.Database.CloseConnectionAsync();
         await context.Database.MigrateAsync();
+        await EnsureDefaultCompanyTemplateAsync(context, logger);
         var unresolved = await context.ShipmentOrders.CountAsync(o => o.ContractFolderId == null);
         if (unresolved > 0) logger.LogWarning("{Count} historical orders have no unambiguous contract folder; review before editing.", unresolved);
+    }
+
+    private static async Task EnsureDefaultCompanyTemplateAsync(AppDbContext context, ILogger logger)
+    {
+        var defaultTemplate = await context.CompanyTemplates.FirstOrDefaultAsync(t => t.IsDefault);
+        if (defaultTemplate == null)
+        {
+            var config = new ShoeExportInvoice.Api.Models.Templates.DocumentTemplateConfig
+            {
+                TemplateName = "Mẫu Tiêu Chuẩn Kingmaker / Hải An (Mặc định)",
+                InvSheet = new ShoeExportInvoice.Api.Models.Templates.InvSheetConfig
+                {
+                    SheetName = "INV",
+                    Header = new ShoeExportInvoice.Api.Models.Templates.InvHeaderCells
+                    {
+                        InvoiceNoCell = "J4",
+                        DateCell = "J5",
+                        ContractNoCell = "J6",
+                        DeliveryTermsCell = "J7",
+                        PaymentTermsCell = "J8",
+                        DestinationCell = "J9",
+                        BuyerNameCell = "D4",
+                        BuyerAddressCell = "D5"
+                    },
+                    Table = new ShoeExportInvoice.Api.Models.Templates.InvTableColumns
+                    {
+                        StartRow = 13,
+                        SttCol = "B",
+                        ItemCodeCol = "C",
+                        DescriptionCol = "D",
+                        QuantityCol = "E",
+                        UnitCol = "F",
+                        CmtUnitPriceCol = "G",
+                        DapUnitPriceCol = "H",
+                        CmtAmountCol = "I",
+                        DapAmountCol = "J"
+                    }
+                },
+                PklSheet = new ShoeExportInvoice.Api.Models.Templates.PklSheetConfig
+                {
+                    SheetName = "PKL",
+                    StartRow = 12,
+                    CartonRangeCol = "A",
+                    ItemCodeCol = "B",
+                    DescriptionCol = "C",
+                    QuantityCol = "D",
+                    UnitCol = "E",
+                    CartonsCol = "F",
+                    NetWeightCol = "G",
+                    GrossWeightCol = "H"
+                }
+            };
+
+            var jsonOptions = new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var configJson = System.Text.Json.JsonSerializer.Serialize(config, jsonOptions);
+
+            context.CompanyTemplates.Add(new ShoeExportInvoice.Api.Models.Entities.CompanyTemplate
+            {
+                Name = "Mẫu Tiêu Chuẩn Kingmaker / Hải An (Mặc định)",
+                Description = "Mẫu phôi Excel hóa đơn xuất khẩu và đóng gói chuẩn cho Kingmaker / Hải An",
+                TemplateFileName = "Shipment_Template.xlsx",
+                TemplateFilePath = "Templates/Shipment_Template.xlsx",
+                ConfigJson = configJson,
+                IsDefault = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+            logger.LogInformation("Đã khởi tạo bản ghi mẫu phôi mặc định: Mẫu Tiêu Chuẩn Kingmaker / Hải An (Mặc định)");
+        }
     }
 
     public static async Task SeedBootstrapAdminAsync(

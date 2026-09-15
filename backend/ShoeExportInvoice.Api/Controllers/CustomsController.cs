@@ -36,7 +36,7 @@ public class CustomsController : ControllerBase
     [HttpPost("parse-and-compare")]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<CustomsReconciliationResultDto>> ParseAndCompare(
-        [FromForm] IFormFile file,
+        IFormFile file,
         [FromQuery] int? orderId = null)
     {
         if (file == null || file.Length == 0)
@@ -83,8 +83,8 @@ public class CustomsController : ControllerBase
     public async Task<IActionResult> ConfirmSync(
         [FromRoute] int? orderId,
         [FromForm] ConfirmCustomsSyncRequestDto request,
-        [FromForm] IFormFile? file = null,
-        [FromForm] IFormFile? customsFile = null)
+        IFormFile? file = null,
+        IFormFile? customsFile = null)
     {
         int targetOrderId = orderId.HasValue && orderId.Value > 0 ? orderId.Value : request.OrderId;
         if (targetOrderId <= 0)

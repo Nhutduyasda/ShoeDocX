@@ -48,8 +48,8 @@ public class OcrController : ControllerBase
     /// </summary>
     [HttpPost("extract")]
     public async Task<ActionResult<OcrExtractionResponseDto>> ExtractFromImage(
-        [FromForm] IFormFile? file,
-        [FromForm] IFormFile? image,
+        IFormFile? file,
+        IFormFile? image,
         CancellationToken cancellationToken)
     {
         var targetFile = file ?? image;

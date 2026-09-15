@@ -22,6 +22,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipmentUnlockAudit> ShipmentUnlockAudits => Set<ShipmentUnlockAudit>();
     public DbSet<BusinessAuditLog> BusinessAuditLogs => Set<BusinessAuditLog>();
     public DbSet<RevokedJwt> RevokedJwts => Set<RevokedJwt>();
+    public DbSet<CompanyTemplate> CompanyTemplates => Set<CompanyTemplate>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -164,6 +165,16 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         {
             entity.HasIndex(e => new { e.WarehouseBatchId, e.StyleCode });
             entity.ToTable(t => t.HasCheckConstraint("CK_WarehouseBatchItems_Quantity_Positive", "Quantity > 0"));
+        });
+
+        // CompanyTemplate configuration
+        modelBuilder.Entity<CompanyTemplate>(entity =>
+        {
+            entity.HasIndex(e => e.IsDefault);
+            entity.HasOne(e => e.Folder)
+                  .WithMany()
+                  .HasForeignKey(e => e.FolderId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

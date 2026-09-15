@@ -846,3 +846,10 @@ export interface CompanyTemplate {
   updatedAt?: string | null;
 }
 
+export interface AiTemplateAnalysisResponse {
+  detectedName: string;
+  config: DocumentTemplateConfig;
+  textGrid: string;
+  isAiAnalyzed: boolean;
+}
+

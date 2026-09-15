@@ -17,6 +17,7 @@ import {
   Popconfirm,
   message,
   Typography,
+  Spin,
 } from 'antd';
 import {
   DownloadOutlined,
@@ -27,12 +28,31 @@ import {
   FileExcelOutlined,
   SaveOutlined,
   PlusOutlined,
+  ThunderboltOutlined,
+  EyeOutlined,
+  LoadingOutlined,
+  FileTextOutlined,
+  InboxOutlined,
+  BulbOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
-import type { CompanyTemplate, DocumentTemplateConfig } from '../types';
+import type {
+  CompanyTemplate,
+  DocumentTemplateConfig,
+  AiTemplateAnalysisResponse,
+  DocumentPreviewResponse,
+  InvoicePreviewItem,
+  PklBreakdownItem,
+} from '../types';
 import { templateApi } from '../api/templateApi';
 
 const { Text } = Typography;
+
+const format2 = (val: number) =>
+  (val || 0).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 interface TemplateConfigModalProps {
   visible: boolean;
@@ -61,6 +81,21 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
   const [uploadForm] = Form.useForm();
   const [uploadFileList, setUploadFileList] = useState<UploadFile[]>([]);
   const [uploading, setUploading] = useState<boolean>(false);
+
+  // AI Smart Template Parser & Interactive Live Preview state
+  const [isAiAnalyzing, setIsAiAnalyzing] = useState<boolean>(false);
+  const [aiLoadingStep, setAiLoadingStep] = useState<number>(0);
+  const aiSteps = [
+    'Đang đọc ma trận các ô văn bản Excel (INV & PKL)...',
+    'AI phân tích ngữ nghĩa vị trí Số HĐ, Ngày, Bên mua & các cột...',
+    'Đang khởi tạo dữ liệu mẫu và lập bản xem trước Live Preview...',
+  ];
+  const [livePreviewModalVisible, setLivePreviewModalVisible] = useState<boolean>(false);
+  const [livePreviewData, setLivePreviewData] = useState<DocumentPreviewResponse | null>(null);
+  const [detectedAiResult, setDetectedAiResult] = useState<AiTemplateAnalysisResponse | null>(null);
+  const [uploadedFileForPreview, setUploadedFileForPreview] = useState<File | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
+  const [previewActiveTab, setPreviewActiveTab] = useState<'inv' | 'pkl'>('inv');
 
   const fetchTemplates = async () => {
     setLoading(true);
@@ -252,6 +287,175 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
     }
   };
 
+  const handleAiAnalyze = async () => {
+    if (uploadFileList.length === 0) {
+      message.warning('Vui lòng chọn file mẫu Excel (.xlsx) trước khi phân tích AI');
+      return;
+    }
+    const file = uploadFileList[0].originFileObj as File;
+    setIsAiAnalyzing(true);
+    setAiLoadingStep(0);
+
+    const stepTimer = setInterval(() => {
+      setAiLoadingStep((prev) => (prev + 1) % aiSteps.length);
+    }, 1200);
+
+    try {
+      const result = await templateApi.aiAnalyze(file);
+      // Tự động tạo bản xem trước Live Preview với dữ liệu mẫu
+      const preview = await templateApi.previewWithConfig(file, JSON.stringify(result.config));
+
+      clearInterval(stepTimer);
+      setDetectedAiResult(result);
+      setUploadedFileForPreview(file);
+      setLivePreviewData(preview);
+      setUploadModalVisible(false);
+      setLivePreviewModalVisible(true);
+      message.success('AI phân tích biểu mẫu và tạo bản xem trước thành công!');
+    } catch (err: any) {
+      clearInterval(stepTimer);
+      message.error('Phân tích AI thất bại: ' + (err?.response?.data?.message || err.message));
+    } finally {
+      clearInterval(stepTimer);
+      setIsAiAnalyzing(false);
+    }
+  };
+
+  const handleConfirmAndUseTemplate = async () => {
+    if (!uploadedFileForPreview || !detectedAiResult) return;
+    try {
+      setUploading(true);
+      const name = detectedAiResult.detectedName || uploadForm.getFieldValue('name') || 'Mẫu Mới';
+      const configJson = JSON.stringify(detectedAiResult.config, null, 2);
+      const newTpl = await templateApi.uploadTemplate(uploadedFileForPreview, name, configJson, true);
+      message.success(`Đã lưu và áp dụng biểu mẫu "${newTpl.name}" làm mặc định thành công!`);
+
+      setLivePreviewModalVisible(false);
+      uploadForm.resetFields();
+      setUploadFileList([]);
+      setUploadedFileForPreview(null);
+      setDetectedAiResult(null);
+
+      const refreshed = await fetchTemplates();
+      selectTemplateForMapping(newTpl.id, refreshed);
+      onTemplateUpdated?.(refreshed, newTpl.id);
+    } catch (err: any) {
+      message.error('Lưu biểu mẫu thất bại: ' + (err?.response?.data?.message || err.message));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleEditCoordinatesFromAi = () => {
+    if (!detectedAiResult) return;
+    const cfg = detectedAiResult.config;
+    mapperForm.setFieldsValue({
+      templateName: cfg.templateName || detectedAiResult.detectedName,
+      invSheetName: cfg.invSheet?.sheetName || 'INV',
+      invInvoiceNoCell: cfg.invSheet?.header?.invoiceNoCell || 'J4',
+      invDateCell: cfg.invSheet?.header?.dateCell || 'J5',
+      invContractNoCell: cfg.invSheet?.header?.contractNoCell || 'J6',
+      invBuyerNameCell: cfg.invSheet?.header?.buyerNameCell || 'D4',
+      invBuyerAddressCell: cfg.invSheet?.header?.buyerAddressCell || 'D5',
+      invDeliveryTermsCell: cfg.invSheet?.header?.deliveryTermsCell || 'J7',
+      invPaymentTermsCell: cfg.invSheet?.header?.paymentTermsCell || 'J8',
+      invDestinationCell: cfg.invSheet?.header?.destinationCell || 'D6',
+
+      invStartRow: cfg.invSheet?.table?.startRow || 13,
+      invItemCodeCol: cfg.invSheet?.table?.itemCodeCol || 'C',
+      invDescriptionCol: cfg.invSheet?.table?.descriptionCol || 'D',
+      invQuantityCol: cfg.invSheet?.table?.quantityCol || 'E',
+      invUnitCol: cfg.invSheet?.table?.unitCol || 'F',
+      invCmtUnitPriceCol: cfg.invSheet?.table?.cmtUnitPriceCol || 'G',
+      invDapUnitPriceCol: cfg.invSheet?.table?.dapUnitPriceCol || 'H',
+      invCmtAmountCol: cfg.invSheet?.table?.cmtAmountCol || 'I',
+      invDapAmountCol: cfg.invSheet?.table?.dapAmountCol || 'J',
+
+      invTotalAmountCell: cfg.invSheet?.totalAmountCell || '',
+      invWordsAmountCell: cfg.invSheet?.wordsAmountCell || '',
+
+      pklSheetName: cfg.pklSheet?.sheetName || 'PKL',
+      pklStartRow: cfg.pklSheet?.startRow || 12,
+      pklCartonRangeCol: cfg.pklSheet?.cartonRangeCol || 'A',
+      pklItemCodeCol: cfg.pklSheet?.itemCodeCol || 'B',
+      pklDescriptionCol: cfg.pklSheet?.descriptionCol || 'C',
+      pklQuantityCol: cfg.pklSheet?.quantityCol || 'D',
+      pklUnitCol: cfg.pklSheet?.unitCol || 'E',
+      pklCartonsCol: cfg.pklSheet?.cartonsCol || 'F',
+      pklNetWeightCol: cfg.pklSheet?.netWeightCol || 'G',
+      pklGrossWeightCol: cfg.pklSheet?.grossWeightCol || 'H',
+    });
+
+    setLivePreviewModalVisible(false);
+    setActiveTab('mapper');
+    message.info('Đã nạp tọa độ từ AI vào Trình ánh xạ. Bạn có thể kiểm tra và lưu cấu hình.');
+  };
+
+  const handlePreviewFromMapper = async () => {
+    try {
+      const values = await mapperForm.validateFields();
+      setLoadingPreview(true);
+
+      const cfg: DocumentTemplateConfig = {
+        templateName: values.templateName,
+        invSheet: {
+          sheetName: values.invSheetName,
+          header: {
+            invoiceNoCell: values.invInvoiceNoCell?.toUpperCase(),
+            dateCell: values.invDateCell?.toUpperCase(),
+            contractNoCell: values.invContractNoCell?.toUpperCase(),
+            buyerNameCell: values.invBuyerNameCell?.toUpperCase(),
+            buyerAddressCell: values.invBuyerAddressCell?.toUpperCase(),
+            deliveryTermsCell: values.invDeliveryTermsCell?.toUpperCase(),
+            paymentTermsCell: values.invPaymentTermsCell?.toUpperCase(),
+            destinationCell: values.invDestinationCell?.toUpperCase(),
+          },
+          table: {
+            startRow: Number(values.invStartRow),
+            itemCodeCol: values.invItemCodeCol?.toUpperCase(),
+            descriptionCol: values.invDescriptionCol?.toUpperCase(),
+            quantityCol: values.invQuantityCol?.toUpperCase(),
+            unitCol: values.invUnitCol?.toUpperCase(),
+            cmtUnitPriceCol: values.invCmtUnitPriceCol?.toUpperCase(),
+            dapUnitPriceCol: values.invDapUnitPriceCol?.toUpperCase(),
+            cmtAmountCol: values.invCmtAmountCol?.toUpperCase(),
+            dapAmountCol: values.invDapAmountCol?.toUpperCase(),
+          },
+          totalAmountCell: values.invTotalAmountCell ? values.invTotalAmountCell.toUpperCase() : undefined,
+          wordsAmountCell: values.invWordsAmountCell ? values.invWordsAmountCell.toUpperCase() : undefined,
+        },
+        pklSheet: {
+          sheetName: values.pklSheetName,
+          startRow: Number(values.pklStartRow),
+          cartonRangeCol: values.pklCartonRangeCol?.toUpperCase(),
+          itemCodeCol: values.pklItemCodeCol?.toUpperCase(),
+          descriptionCol: values.pklDescriptionCol?.toUpperCase(),
+          quantityCol: values.pklQuantityCol?.toUpperCase(),
+          unitCol: values.pklUnitCol?.toUpperCase(),
+          cartonsCol: values.pklCartonsCol?.toUpperCase(),
+          netWeightCol: values.pklNetWeightCol?.toUpperCase(),
+          grossWeightCol: values.pklGrossWeightCol?.toUpperCase(),
+        },
+      };
+
+      const preview = await templateApi.previewWithConfig(null, JSON.stringify(cfg), editingTemplateId);
+      setDetectedAiResult({
+        detectedName: cfg.templateName,
+        config: cfg,
+        textGrid: '',
+        isAiAnalyzed: false,
+      });
+      setUploadedFileForPreview(null);
+      setLivePreviewData(preview);
+      setLivePreviewModalVisible(true);
+    } catch (err: any) {
+      if (err?.errorFields) return;
+      message.error('Không thể tạo bản xem trước: ' + (err?.response?.data?.message || err.message));
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
   const columns = [
     {
       title: 'Tên Biểu Mẫu',
@@ -339,6 +543,16 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
           <Button key="close" onClick={onClose}>
             Đóng
           </Button>,
+          activeTab === 'mapper' && (
+            <Button
+              key="preview"
+              icon={<EyeOutlined />}
+              loading={loadingPreview}
+              onClick={handlePreviewFromMapper}
+            >
+              Xem thử dữ liệu mẫu
+            </Button>
+          ),
           activeTab === 'mapper' && (
             <Button
               key="save"
@@ -631,19 +845,23 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
         />
       </Modal>
 
-      {/* Sub-modal: Tải lên mẫu phôi mới */}
+      {/* Sub-modal: Tải lên mẫu phôi mới với AI Onboarding */}
       <Modal
-        title="Tải Lên Mẫu Phôi Excel Mới"
+        title={
+          <Space>
+            <UploadOutlined style={{ color: '#1890ff' }} />
+            <span>Tải Lên Mẫu Phôi Excel Mới (BYOT - Bring Your Own Template)</span>
+          </Space>
+        }
         open={uploadModalVisible}
         onCancel={() => {
+          if (isAiAnalyzing) return;
           setUploadModalVisible(false);
           uploadForm.resetFields();
           setUploadFileList([]);
         }}
-        onOk={handleUploadSubmit}
-        confirmLoading={uploading}
-        okText="Tải lên & Khởi tạo"
-        cancelText="Hủy"
+        footer={null}
+        width={680}
       >
         <Form form={uploadForm} layout="vertical">
           <Form.Item
@@ -651,7 +869,7 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
             label="Tên Biểu Mẫu"
             rules={[{ required: true, message: 'Vui lòng nhập tên biểu mẫu' }]}
           >
-            <Input placeholder="Vd: Mẫu Phôi Đối Tác Nike / Adidas" />
+            <Input placeholder="Vd: Mẫu Phôi Đối Tác Nike / Kingmaker" />
           </Form.Item>
 
           <Form.Item label="File Phôi Excel (.xlsx)" required>
@@ -666,15 +884,300 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
                   return Upload.LIST_IGNORE;
                 }
                 setUploadFileList([file]);
+                // Tự động gợi ý tên biểu mẫu từ tên tệp nếu người dùng chưa nhập
+                if (!uploadForm.getFieldValue('name')) {
+                  const rawName = file.name.replace(/\.[^/.]+$/, '').replace(/[_\-\.]+/g, ' ');
+                  uploadForm.setFieldsValue({ name: `Mẫu ${rawName}` });
+                }
                 return false;
               }}
-              onRemove={() => setUploadFileList([])}
+              onRemove={() => {
+                setUploadFileList([]);
+              }}
               maxCount={1}
             >
               <Button icon={<UploadOutlined />}>Chọn tệp .xlsx từ máy tính</Button>
             </Upload>
           </Form.Item>
+
+          {/* AI Onboarding Callout khi đã chọn file */}
+          {uploadFileList.length > 0 && (
+            <div className="mt-4 p-4 rounded-lg bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 border border-purple-200">
+              <div className="flex items-center gap-2 mb-2">
+                <ThunderboltOutlined className="text-purple-600 text-lg" />
+                <Text strong className="text-purple-900 text-base">
+                  Cấu hình Biểu mẫu Thông minh với AI
+                </Text>
+              </div>
+              <p className="text-xs text-slate-600 mb-4">
+                Hệ thống sẽ tự động quét ma trận các ô văn bản của phôi Excel, định vị các ô Số HĐ, Ngày, Bên mua, bảng chi tiết INV & PKL, đồng thời tạo bản xem trước Live Preview với dữ liệu mẫu hoàn chỉnh.
+              </p>
+
+              {isAiAnalyzing ? (
+                <div className="py-4 text-center bg-white/80 rounded-md border border-purple-200">
+                  <Spin indicator={<LoadingOutlined style={{ fontSize: 28, color: '#722ed1' }} spin />} />
+                  <div className="mt-3 font-medium text-purple-800 text-sm animate-pulse">
+                    {aiSteps[aiLoadingStep]}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Đang xử lý ma trận ClosedXML và ngữ nghĩa AI...
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<ThunderboltOutlined />}
+                    onClick={handleAiAnalyze}
+                    className="w-full sm:w-auto flex-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 border-none text-white font-semibold shadow-md"
+                  >
+                    ✨ Phân tích tự động bằng AI
+                  </Button>
+                  <Button
+                    size="large"
+                    icon={<EditOutlined />}
+                    onClick={handleUploadSubmit}
+                    loading={uploading}
+                    className="w-full sm:w-auto"
+                  >
+                    📝 Tự nhập tọa độ thủ công
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
         </Form>
+      </Modal>
+
+      {/* Interactive Live Preview Modal */}
+      <Modal
+        title={
+          <div className="flex items-center justify-between pr-8">
+            <Space>
+              <EyeOutlined style={{ color: '#722ed1' }} />
+              <span className="font-bold text-slate-800">
+                Bản Xem Trước Trực Quan & Kiểm Tra Tọa Độ (Interactive Live Preview)
+              </span>
+            </Space>
+            {detectedAiResult && (
+              detectedAiResult.isAiAnalyzed ? (
+                <Tag color="purple" icon={<ThunderboltOutlined />}>
+                  ✨ Phân tích bởi OpenAI GPT-4o-mini
+                </Tag>
+              ) : (
+                <Tag color="blue" icon={<BulbOutlined />}>
+                  ⚡ Nhận diện thông minh (Rule Heuristic Engine)
+                </Tag>
+              )
+            )}
+          </div>
+        }
+        open={livePreviewModalVisible}
+        onCancel={() => setLivePreviewModalVisible(false)}
+        width={1080}
+        footer={
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-slate-500">
+              Kiểm tra dữ liệu mẫu được điền vào đúng vị trí trước khi áp dụng.
+            </div>
+            <Space>
+              {uploadedFileForPreview ? (
+                <>
+                  <Button icon={<EditOutlined />} onClick={handleEditCoordinatesFromAi}>
+                    🛠️ Chỉnh sửa lại tọa độ
+                  </Button>
+                  <Button onClick={() => setLivePreviewModalVisible(false)}>
+                    Hủy
+                  </Button>
+                  <Button
+                    type="primary"
+                    icon={<CheckCircleOutlined />}
+                    loading={uploading}
+                    onClick={handleConfirmAndUseTemplate}
+                    className="bg-green-600 hover:bg-green-700 text-white font-semibold"
+                  >
+                    ✅ Xác nhận & Dùng Mẫu Này
+                  </Button>
+                </>
+              ) : (
+                <Button type="primary" onClick={() => setLivePreviewModalVisible(false)}>
+                  Đóng Bản Xem Trước
+                </Button>
+              )}
+            </Space>
+          </div>
+        }
+      >
+        {/* AI Insights Card */}
+        {detectedAiResult?.config && (
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-xs text-slate-700 uppercase tracking-wide">
+                📌 Tọa độ trích xuất tự động (AI Detected Coordinates):
+              </span>
+              <Tag color="green">Dữ liệu mẫu: 3 dòng kiểm thử (Tiêu chuẩn 1200, Tiêu chuẩn 38 lẻ thùng, Gò 780)</Tag>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Tag color="blue">Số HĐ (Invoice No): <b>{detectedAiResult.config.invSheet.header.invoiceNoCell}</b></Tag>
+              <Tag color="blue">Ngày (Date): <b>{detectedAiResult.config.invSheet.header.dateCell}</b></Tag>
+              <Tag color="blue">Hợp đồng (Contract): <b>{detectedAiResult.config.invSheet.header.contractNoCell}</b></Tag>
+              <Tag color="blue">Khách hàng (Buyer): <b>{detectedAiResult.config.invSheet.header.buyerNameCell}</b></Tag>
+              <Tag color="geekblue">Dòng bắt đầu INV: <b>Dòng {detectedAiResult.config.invSheet.table.startRow}</b> (Mã: {detectedAiResult.config.invSheet.table.itemCodeCol}, SL: {detectedAiResult.config.invSheet.table.quantityCol}, CMT: {detectedAiResult.config.invSheet.table.cmtUnitPriceCol}, DAP: {detectedAiResult.config.invSheet.table.dapUnitPriceCol})</Tag>
+              <Tag color="volcano">Dòng bắt đầu PKL: <b>Dòng {detectedAiResult.config.pklSheet.startRow}</b> (Dải kiện: {detectedAiResult.config.pklSheet.cartonRangeCol}, Thùng: {detectedAiResult.config.pklSheet.cartonsCol})</Tag>
+            </div>
+          </div>
+        )}
+
+        {/* Live Preview Tabs */}
+        {livePreviewData ? (
+          <Tabs
+            activeKey={previewActiveTab}
+            onChange={(k) => setPreviewActiveTab(k as 'inv' | 'pkl')}
+            type="card"
+            items={[
+              {
+                key: 'inv',
+                label: (
+                  <span className="font-semibold">
+                    <FileTextOutlined /> Xem thử Hóa Đơn (INV)
+                  </span>
+                ),
+                children: (
+                  <div className="border border-slate-200 rounded p-4 bg-white">
+                    {/* Header info */}
+                    <div className="grid grid-cols-2 gap-4 text-xs border border-slate-300 p-3 mb-4 rounded bg-slate-50">
+                      <div>
+                        <div><span className="font-semibold text-slate-700">Người mua (Buyer):</span> <span className="font-bold text-slate-900">{livePreviewData.invoice.buyerName}</span></div>
+                        <div><span className="font-semibold text-slate-700">Địa chỉ:</span> <span className="text-slate-700">{livePreviewData.invoice.buyerAddressLine1}</span></div>
+                        <div><span className="font-semibold text-slate-700">Điều kiện giao:</span> <Tag color="blue">{livePreviewData.invoice.deliveryTerms}</Tag></div>
+                      </div>
+                      <div className="space-y-1">
+                        <div><span className="font-semibold text-slate-700">Số hóa đơn:</span> <span className="font-bold text-slate-900 font-mono">{livePreviewData.invoice.invoiceNo}</span></div>
+                        <div><span className="font-semibold text-slate-700">Ngày lập:</span> <span className="text-slate-800">{livePreviewData.invoice.invoiceDate}</span></div>
+                        <div><span className="font-semibold text-slate-700">Số hợp đồng:</span> <span className="text-slate-800">{livePreviewData.invoice.contractNo}</span></div>
+                        <div><span className="font-semibold text-slate-700">Thanh toán:</span> <span className="text-slate-800">{livePreviewData.invoice.paymentTerms}</span></div>
+                      </div>
+                    </div>
+
+                    {/* Table items */}
+                    <table className="w-full text-xs border-collapse border border-slate-300">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-800 text-center font-bold">
+                          <th className="border border-slate-300 p-2 w-12">STT</th>
+                          <th className="border border-slate-300 p-2 w-36">Mã hàng</th>
+                          <th className="border border-slate-300 p-2">Mô tả hàng hóa</th>
+                          <th className="border border-slate-300 p-2 w-20">Số lượng</th>
+                          <th className="border border-slate-300 p-2 w-14">ĐVT</th>
+                          <th className="border border-slate-300 p-2 w-24">Đơn giá CMT</th>
+                          <th className="border border-slate-300 p-2 w-24">Đơn giá DAP</th>
+                          <th className="border border-slate-300 p-2 w-28">Thành tiền CMT</th>
+                          <th className="border border-slate-300 p-2 w-28">Thành tiền DAP</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {livePreviewData.invoice.items.map((it: InvoicePreviewItem, idx: number) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="border border-slate-300 p-2 text-center font-mono">{it.lineNo}</td>
+                            <td className="border border-slate-300 p-2 font-mono font-semibold text-slate-900">{it.fullItemCode}</td>
+                            <td className="border border-slate-300 p-2 text-slate-700">{it.description}</td>
+                            <td className="border border-slate-300 p-2 text-right font-mono font-medium">{format2(it.quantity)}</td>
+                            <td className="border border-slate-300 p-2 text-center">{it.unit}</td>
+                            <td className="border border-slate-300 p-2 text-right font-mono">${it.unitPriceCMT.toFixed(2)}</td>
+                            <td className="border border-slate-300 p-2 text-right font-mono">${it.unitPriceDAP.toFixed(2)}</td>
+                            <td className="border border-slate-300 p-2 text-right font-mono font-medium">${format2(it.amountCMT)}</td>
+                            <td className="border border-slate-300 p-2 text-right font-mono font-medium text-blue-700">${format2(it.amountDAP)}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-slate-100 font-bold text-slate-900">
+                          <td colSpan={3} className="border border-slate-300 p-2 text-center uppercase">
+                            TỔNG CỘNG (TOTAL)
+                          </td>
+                          <td className="border border-slate-300 p-2 text-right font-mono font-bold">
+                            {format2(livePreviewData.invoice.totalQuantity)}
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center">đôi</td>
+                          <td colSpan={2} className="border border-slate-300 p-2"></td>
+                          <td className="border border-slate-300 p-2 text-right font-mono font-bold">
+                            ${format2(livePreviewData.invoice.totalAmountCMT)}
+                          </td>
+                          <td className="border border-slate-300 p-2 text-right font-mono font-bold text-blue-800">
+                            ${format2(livePreviewData.invoice.totalAmountDAP)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ),
+              },
+              {
+                key: 'pkl',
+                label: (
+                  <span className="font-semibold">
+                    <InboxOutlined /> Xem thử Bảng Kê (PKL)
+                  </span>
+                ),
+                children: (
+                  <div className="border border-slate-200 rounded p-4 bg-white">
+                    <table className="w-full text-xs border-collapse border border-slate-300">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-800 text-center font-bold">
+                          <th className="border border-slate-300 p-2 w-12">STT</th>
+                          <th className="border border-slate-300 p-2 w-28">Dải kiện (C/No)</th>
+                          <th className="border border-slate-300 p-2 w-36">Mã hàng</th>
+                          <th className="border border-slate-300 p-2">Mô tả hàng hóa</th>
+                          <th className="border border-slate-300 p-2 w-20">Số lượng</th>
+                          <th className="border border-slate-300 p-2 w-14">ĐVT</th>
+                          <th className="border border-slate-300 p-2 w-20">Số thùng</th>
+                          <th className="border border-slate-300 p-2 w-24">TL Tịnh (KGM)</th>
+                          <th className="border border-slate-300 p-2 w-24">TL Cả bì (KGM)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {livePreviewData.packingList.breakdownItems.map((it: PklBreakdownItem, idx: number) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="border border-slate-300 p-2 text-center font-mono">{idx + 1}</td>
+                            <td className="border border-slate-300 p-2 text-center font-mono font-semibold text-slate-800">{it.cartonRange}</td>
+                            <td className="border border-slate-300 p-2 font-mono font-semibold text-slate-900">{it.fullItemCode}</td>
+                            <td className="border border-slate-300 p-2 text-slate-700">{it.description}</td>
+                            <td className="border border-slate-300 p-2 text-right font-mono font-medium">{format2(it.quantity)}</td>
+                            <td className="border border-slate-300 p-2 text-center">đôi</td>
+                            <td className="border border-slate-300 p-2 text-right font-mono font-medium text-purple-700">{it.cartonCount}</td>
+                            <td className="border border-slate-300 p-2 text-right font-mono">{it.netWeight.toFixed(2)}</td>
+                            <td className="border border-slate-300 p-2 text-right font-mono">{it.grossWeight.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-slate-100 font-bold text-slate-900">
+                          <td colSpan={4} className="border border-slate-300 p-2 text-center uppercase">
+                            TỔNG CỘNG (TOTAL)
+                          </td>
+                          <td className="border border-slate-300 p-2 text-right font-mono font-bold">
+                            {format2(livePreviewData.packingList.totalQuantity)}
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center">đôi</td>
+                          <td className="border border-slate-300 p-2 text-right font-mono font-bold text-purple-800">
+                            {livePreviewData.packingList.totalCartons}
+                          </td>
+                          <td className="border border-slate-300 p-2 text-right font-mono font-bold">
+                            {livePreviewData.packingList.totalNetWeight.toFixed(2)}
+                          </td>
+                          <td className="border border-slate-300 p-2 text-right font-mono font-bold">
+                            {livePreviewData.packingList.totalGrossWeight.toFixed(2)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ),
+              },
+            ]}
+          />
+        ) : (
+          <div className="py-12 text-center">
+            <Spin size="large" />
+            <div className="mt-3 text-slate-500 text-sm">Đang tải dữ liệu xem trước...</div>
+          </div>
+        )}
       </Modal>
     </>
   );

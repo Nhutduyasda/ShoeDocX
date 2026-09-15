@@ -28,6 +28,13 @@ public class TestWebHostEnvironment : IWebHostEnvironment
 
 public class TemplateSchemaTests
 {
+    private readonly Xunit.Abstractions.ITestOutputHelper _output;
+
+    public TemplateSchemaTests(Xunit.Abstractions.ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     private static (AppDbContext Context, SqliteConnection Connection) CreateInMemoryDb()
     {
         var connection = new SqliteConnection("Data Source=:memory:");
@@ -188,7 +195,13 @@ public class TemplateSchemaTests
             await context.SaveChangesAsync();
 
             var service = new TemplateService(context, new TestWebHostEnvironment(), NullLogger<TemplateService>.Instance);
-            var controller = new TemplatesController(service, NullLogger<TemplatesController>.Instance);
+            var excelService = new ExcelImportExportService(context, NullLogger<ExcelImportExportService>.Instance);
+            var aiParser = new TemplateAiParserService(
+                new HttpClient(),
+                new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
+                excelService,
+                NullLogger<TemplateAiParserService>.Instance);
+            var controller = new TemplatesController(service, aiParser, NullLogger<TemplatesController>.Instance);
 
             var getAllResult = await controller.GetAll();
             var okResult = Assert.IsType<OkObjectResult>(getAllResult.Result);
@@ -435,5 +448,108 @@ public class TemplateSchemaTests
             Assert.Equal("KHÁCH HÀNG MODEL TEST", invSheet.Cell("D4").GetString());
             Assert.Equal("VIETNAM", invSheet.Cell("D6").GetString());
         }
+    }
+
+    private static string FindTemplateFilePath()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "Templates", "Shipment_Template.xlsx"),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "backend", "ShoeExportInvoice.Api", "Templates", "Shipment_Template.xlsx"),
+            Path.Combine(Directory.GetCurrentDirectory(), "backend", "ShoeExportInvoice.Api", "Templates", "Shipment_Template.xlsx")
+        };
+
+        foreach (var c in candidates)
+        {
+            var fullPath = Path.GetFullPath(c);
+            if (File.Exists(fullPath)) return fullPath;
+        }
+
+        throw new FileNotFoundException("Không tìm thấy file mẫu Shipment_Template.xlsx để chạy test.");
+    }
+
+    [Fact]
+    public void TemplateAiParser_ExtractTextGrid_ProducesCompactAndAccurateGridRepresentation()
+    {
+        var templatePath = FindTemplateFilePath();
+        using var stream = File.OpenRead(templatePath);
+
+        var excelService = new ExcelImportExportService(null!, null!);
+        var parserService = new TemplateAiParserService(
+            new HttpClient(),
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
+            excelService,
+            NullLogger<TemplateAiParserService>.Instance);
+
+        var grid = parserService.ExtractTextGrid(stream);
+        _output.WriteLine("=== EXTRACTED GRID ===");
+        _output.WriteLine(grid);
+
+        Assert.NotNull(grid);
+        Assert.Contains("=== SHEET: INV ===", grid);
+        Assert.Contains("=== SHEET: PKL ===", grid);
+    }
+
+    [Fact]
+    public async Task TemplateAiParser_AnalyzeTemplateAsync_RecognizesTemplateCoordinates()
+    {
+        var templatePath = FindTemplateFilePath();
+        using var stream = File.OpenRead(templatePath);
+
+        var excelService = new ExcelImportExportService(null!, null!);
+        var parserService = new TemplateAiParserService(
+            new HttpClient(),
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
+            excelService,
+            NullLogger<TemplateAiParserService>.Instance);
+
+        var result = await parserService.AnalyzeTemplateAsync(stream, "Mẫu_Thử_Nghiệm_Kingmaker.xlsx");
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Config);
+        Assert.Contains("Mẫu Thử Nghiệm Kingmaker", result.DetectedName);
+
+        // Header coordinates in INV
+        Assert.Equal("J4", result.Config.InvSheet.Header.InvoiceNoCell);
+        Assert.Equal("J5", result.Config.InvSheet.Header.DateCell);
+        Assert.Equal("J6", result.Config.InvSheet.Header.ContractNoCell);
+        Assert.Equal("D4", result.Config.InvSheet.Header.BuyerNameCell);
+
+        // Table coordinates
+        Assert.Equal(13, result.Config.InvSheet.Table.StartRow);
+        Assert.Equal("C", result.Config.InvSheet.Table.ItemCodeCol);
+
+        // PKL coordinates
+        Assert.Equal(12, result.Config.PklSheet.StartRow);
+    }
+
+    [Fact]
+    public async Task TemplateAiParser_GenerateDummyPreviewAsync_ProducesCompleteDocumentPreview()
+    {
+        var templatePath = FindTemplateFilePath();
+        using var stream = File.OpenRead(templatePath);
+
+        var excelService = new ExcelImportExportService(null!, null!);
+        var parserService = new TemplateAiParserService(
+            new HttpClient(),
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
+            excelService,
+            NullLogger<TemplateAiParserService>.Instance);
+
+        var config = new DocumentTemplateConfig();
+        var preview = await parserService.GenerateDummyPreviewAsync(stream, config);
+
+        Assert.NotNull(preview);
+        Assert.NotNull(preview.Invoice);
+        Assert.NotNull(preview.PackingList);
+
+        // 3 dummy items: Standard 1200, Standard 38 (with odd carton), Go 780
+        Assert.Equal("INV-SAMPLE-001", preview.Invoice.InvoiceNo);
+        Assert.Equal(3, preview.Invoice.Items.Count);
+        Assert.Equal(1200 + 38 + 780, preview.Invoice.TotalQuantity); // 2018
+
+        // Packing list breakdown has odd carton for 38 pairs (36 pairs in 3 ctn, 2 pairs in 1 odd ctn)
+        Assert.Contains(preview.PackingList.BreakdownItems, b => b.IsOddCarton);
+        Assert.Equal(2018, preview.PackingList.TotalQuantity);
     }
 }

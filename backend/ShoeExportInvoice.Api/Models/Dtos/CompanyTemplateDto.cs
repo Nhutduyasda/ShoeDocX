@@ -40,3 +40,15 @@ public class CreateCompanyTemplateForm
     public int? FolderId { get; set; }
 }
 
+public class AnalyzeTemplateForm
+{
+    public Microsoft.AspNetCore.Http.IFormFile File { get; set; } = null!;
+}
+
+public class PreviewWithConfigForm
+{
+    public Microsoft.AspNetCore.Http.IFormFile? File { get; set; }
+    public string? ConfigJson { get; set; }
+}
+
+

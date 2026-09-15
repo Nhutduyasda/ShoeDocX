@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using ShoeExportInvoice.Api.Models.Dtos;
+using ShoeExportInvoice.Api.Models.Templates;
 using ShoeExportInvoice.Api.Services;
 
 namespace ShoeExportInvoice.Api.Controllers;
@@ -12,13 +13,16 @@ namespace ShoeExportInvoice.Api.Controllers;
 public class TemplatesController : ControllerBase
 {
     private readonly ITemplateService _templateService;
+    private readonly ITemplateAiParserService _aiParserService;
     private readonly ILogger<TemplatesController> _logger;
 
     public TemplatesController(
         ITemplateService templateService,
+        ITemplateAiParserService aiParserService,
         ILogger<TemplatesController> logger)
     {
         _templateService = templateService;
+        _aiParserService = aiParserService;
         _logger = logger;
     }
 
@@ -182,5 +186,85 @@ public class TemplatesController : ControllerBase
         }
 
         return File(result.Value.Bytes, result.Value.ContentType, result.Value.FileName);
+    }
+
+    /// <summary>
+    /// Bóc tách ma trận ô và tự động nhận diện cấu hình template bằng AI
+    /// </summary>
+    [HttpPost("ai-analyze")]
+    [Authorize(Roles = "Admin,Xnk")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> AiAnalyze([FromForm] AnalyzeTemplateForm form)
+    {
+        if (form == null || form.File == null || form.File.Length == 0)
+        {
+            return BadRequest(new { message = "Vui lòng chọn file mẫu Excel (.xlsx) để phân tích." });
+        }
+
+        try
+        {
+            using var stream = form.File.OpenReadStream();
+            var result = await _aiParserService.AnalyzeTemplateAsync(stream, form.File.FileName);
+            return Ok(new
+            {
+                detectedName = result.DetectedName,
+                config = result.Config,
+                textGrid = result.TextGridSummary,
+                isAiAnalyzed = result.IsAiAnalyzed
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi xảy ra khi phân tích biểu mẫu bằng AI");
+            return StatusCode(500, new { message = "Lỗi khi phân tích biểu mẫu bằng AI: " + ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Điền dữ liệu giả lập và xem trước tức thì kết quả với file phôi và cấu hình tọa độ
+    /// </summary>
+    [HttpPost("preview-with-config")]
+    [Authorize(Roles = "Admin,Xnk")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> PreviewWithConfig([FromForm] PreviewWithConfigForm form)
+    {
+        DocumentTemplateConfig? config = null;
+        if (!string.IsNullOrWhiteSpace(form?.ConfigJson))
+        {
+            try
+            {
+                config = JsonSerializer.Deserialize<DocumentTemplateConfig>(form.ConfigJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = "Cấu hình JSON không hợp lệ: " + ex.Message });
+            }
+        }
+
+        config ??= new DocumentTemplateConfig();
+
+        try
+        {
+            Stream stream;
+            if (form?.File != null && form.File.Length > 0)
+            {
+                stream = form.File.OpenReadStream();
+            }
+            else
+            {
+                stream = Stream.Null;
+            }
+
+            using (stream)
+            {
+                var preview = await _aiParserService.GenerateDummyPreviewAsync(stream, config);
+                return Ok(preview);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi sinh dữ liệu xem trước giả lập");
+            return StatusCode(500, new { message = "Lỗi khi sinh dữ liệu xem trước: " + ex.Message });
+        }
     }
 }

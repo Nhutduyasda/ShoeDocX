@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { CompanyTemplate } from '../types';
+import type { CompanyTemplate, AiTemplateAnalysisResponse, DocumentPreviewResponse } from '../types';
 
 export const templateApi = {
   getAll: async (): Promise<CompanyTemplate[]> => {
@@ -29,6 +29,36 @@ export const templateApi = {
     }
 
     const response = await apiClient.post<CompanyTemplate>('/templates', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  aiAnalyze: async (file: File): Promise<AiTemplateAnalysisResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await apiClient.post<AiTemplateAnalysisResponse>('/templates/ai-analyze', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  previewWithConfig: async (file: File | null, configJson: string, templateId?: number | null): Promise<DocumentPreviewResponse> => {
+    const formData = new FormData();
+    if (file) {
+      formData.append('file', file);
+    }
+    formData.append('configJson', configJson);
+    if (templateId !== undefined && templateId !== null) {
+      formData.append('templateId', String(templateId));
+    }
+
+    const response = await apiClient.post<DocumentPreviewResponse>('/templates/preview-with-config', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
@@ -198,6 +199,241 @@ public class TemplateSchemaTests
             var okById = Assert.IsType<OkObjectResult>(getByIdResult.Result);
             var resultDto = Assert.IsType<CompanyTemplateDto>(okById.Value);
             Assert.Equal(templates[0].Id, resultDto.Id);
+        }
+    }
+
+    [Fact]
+    public async Task ExportShipmentMultiSheetExcel_WithDefaultTemplate_MapsCoordinatesAccurately()
+    {
+        var service = new ExcelImportExportService(null!, null!);
+        var request = new CreateShipmentRequestDto
+        {
+            InvoiceNo = "INV-DEFAULT-TEST-01",
+            InvoiceDate = new DateTime(2026, 9, 15),
+            ContractNo = "CTR-DEFAULT-01",
+            CustomerName = "CÔNG TY TNHH HẢI AN",
+            Address = "Hải Phòng, Việt Nam",
+            Items = new List<CreateShipmentItemDto>
+            {
+                new()
+                {
+                    StyleCode = "TEST-STYLE-01",
+                    Description = "Giày Thể Thao Mẫu",
+                    Quantity = 24,
+                    UnitPriceCMT = 5.0m,
+                    UnitPriceDAP = 15.0m,
+                    PairPerCarton = 12
+                }
+            }
+        };
+
+        var bytes = await service.ExportShipmentMultiSheetExcelAsync(request);
+        Assert.NotNull(bytes);
+
+        using var ms = new MemoryStream(bytes);
+        using var wb = new XLWorkbook(ms);
+        var invSheet = wb.Worksheet("INV");
+        Assert.NotNull(invSheet);
+
+        // Default coordinates: J4 for InvoiceNo, J6 for ContractNo, D4 for BuyerName
+        Assert.Equal("INV-DEFAULT-TEST-01", invSheet.Cell("J4").GetString());
+        Assert.Equal("CTR-DEFAULT-01", invSheet.Cell("J6").GetString());
+        Assert.Equal("CÔNG TY TNHH HẢI AN", invSheet.Cell("D4").GetString());
+    }
+
+    [Fact]
+    public async Task ExportShipmentMultiSheetExcel_WithCustomTemplateConfig_MapsCoordinatesDynamically()
+    {
+        var (context, conn) = CreateInMemoryDb();
+        using (conn)
+        using (context)
+        {
+            var customConfig = new DocumentTemplateConfig
+            {
+                TemplateName = "Mẫu Tùy Chỉnh Điểm Tọa Độ",
+                InvSheet = new InvSheetConfig
+                {
+                    SheetName = "INV",
+                    Header = new InvHeaderCells
+                    {
+                        InvoiceNoCell = "J4",
+                        DateCell = "J5",
+                        ContractNoCell = "J6",
+                        BuyerNameCell = "D4",
+                        BuyerAddressCell = "D5",
+                        DestinationCell = "D6"
+                    },
+                    Table = new InvTableColumns
+                    {
+                        StartRow = 13,
+                        ItemCodeCol = "C",
+                        DescriptionCol = "D",
+                        QuantityCol = "E",
+                        UnitCol = "F",
+                        CmtUnitPriceCol = "G",
+                        DapUnitPriceCol = "H",
+                        CmtAmountCol = "I",
+                        DapAmountCol = "J"
+                    }
+                },
+                PklSheet = new PklSheetConfig
+                {
+                    SheetName = "PKL",
+                    StartRow = 12,
+                    CartonRangeCol = "A",
+                    ItemCodeCol = "B",
+                    DescriptionCol = "C",
+                    QuantityCol = "D",
+                    UnitCol = "E",
+                    CartonsCol = "F",
+                    NetWeightCol = "G",
+                    GrossWeightCol = "H"
+                }
+            };
+
+            var customTpl = new CompanyTemplate
+            {
+                Name = "Mẫu Tùy Chỉnh",
+                TemplateFileName = "Shipment_Template.xlsx",
+                TemplateFilePath = "Templates/Shipment_Template.xlsx",
+                ConfigJson = JsonSerializer.Serialize(customConfig),
+                IsDefault = false,
+                CreatedAt = DateTime.UtcNow
+            };
+            context.CompanyTemplates.Add(customTpl);
+            await context.SaveChangesAsync();
+
+            var tplService = new TemplateService(context, new TestWebHostEnvironment(), NullLogger<TemplateService>.Instance);
+            var service = new ExcelImportExportService(context, NullLogger<ExcelImportExportService>.Instance, templateService: tplService);
+
+            var request = new CreateShipmentRequestDto
+            {
+                TemplateId = customTpl.Id,
+                InvoiceNo = "INV-CUSTOM-0099",
+                InvoiceDate = new DateTime(2026, 9, 15),
+                ContractNo = "CTR-CUSTOM-0099",
+                CustomerName = "TẬP ĐOÀN ĐỐI TÁC MỚI",
+                Address = "Bình Dương, Việt Nam",
+                UseSavedSnapshot = true,
+                Items = new List<CreateShipmentItemDto>
+                {
+                    new()
+                    {
+                        StyleCode = "STYLE-CUSTOM-01",
+                        Description = "Giày Thời Trang Mới",
+                        Quantity = 120,
+                        UnitPriceCMT = 4.5m,
+                        UnitPriceDAP = 14.0m,
+                        PairPerCarton = 12
+                    }
+                }
+            };
+
+            var bytes = await service.ExportShipmentMultiSheetExcelAsync(request);
+            Assert.NotNull(bytes);
+
+            using var ms = new MemoryStream(bytes);
+            using var wb = new XLWorkbook(ms);
+            var invSheet = wb.Worksheet("INV");
+            Assert.NotNull(invSheet);
+
+            Assert.Equal("INV-CUSTOM-0099", invSheet.Cell("J4").GetString());
+            Assert.Equal("CTR-CUSTOM-0099", invSheet.Cell("J6").GetString());
+            Assert.Equal("TẬP ĐOÀN ĐỐI TÁC MỚI", invSheet.Cell("D4").GetString());
+            Assert.Equal("VIETNAM", invSheet.Cell("D6").GetString());
+
+            // Check PKL sheet
+            var pklSheet = wb.Worksheet("PKL");
+            Assert.NotNull(pklSheet);
+            Assert.Equal("STYLE-CUSTOM-01", pklSheet.Cell("B12").GetString());
+            Assert.Equal(120, pklSheet.Cell("D12").GetDouble());
+        }
+    }
+
+    [Fact]
+    public async Task ExportShipmentToExcel_WithCustomTemplateConfig_MapsCoordinatesDynamically()
+    {
+        var (context, conn) = CreateInMemoryDb();
+        using (conn)
+        using (context)
+        {
+            var customConfig = new DocumentTemplateConfig
+            {
+                TemplateName = "Mẫu Shipment Model Tùy Chỉnh",
+                InvSheet = new InvSheetConfig
+                {
+                    SheetName = "INV",
+                    Header = new InvHeaderCells
+                    {
+                        InvoiceNoCell = "J4",
+                        DateCell = "J5",
+                        ContractNoCell = "J6",
+                        BuyerNameCell = "D4",
+                        DestinationCell = "D6"
+                    },
+                    Table = new InvTableColumns
+                    {
+                        StartRow = 13,
+                        ItemCodeCol = "C",
+                        DescriptionCol = "D",
+                        QuantityCol = "E",
+                        UnitCol = "F",
+                        CmtUnitPriceCol = "G",
+                        DapUnitPriceCol = "H",
+                        CmtAmountCol = "I",
+                        DapAmountCol = "J"
+                    }
+                }
+            };
+
+            var customTpl = new CompanyTemplate
+            {
+                Name = "Mẫu Model Tùy Chỉnh",
+                TemplateFileName = "Shipment_Template.xlsx",
+                TemplateFilePath = "Templates/Shipment_Template.xlsx",
+                ConfigJson = JsonSerializer.Serialize(customConfig),
+                IsDefault = false,
+                CreatedAt = DateTime.UtcNow
+            };
+            context.CompanyTemplates.Add(customTpl);
+            await context.SaveChangesAsync();
+
+            var tplService = new TemplateService(context, new TestWebHostEnvironment(), NullLogger<TemplateService>.Instance);
+            var service = new ExcelImportExportService(context, NullLogger<ExcelImportExportService>.Instance, templateService: tplService);
+
+            var model = new ShipmentExportModel
+            {
+                TemplateId = customTpl.Id,
+                InvoiceNo = "INV-MODEL-001",
+                InvoiceDate = new DateTime(2026, 9, 15),
+                ContractNo = "CTR-MODEL-001",
+                CustomerName = "KHÁCH HÀNG MODEL TEST",
+                Items = new List<ShipmentExportItemModel>
+                {
+                    new()
+                    {
+                        StyleCode = "MD-01",
+                        Description = "Mô tả mẫu",
+                        Quantity = 50,
+                        UnitPriceCMT = 2.0m,
+                        UnitPriceDAP = 8.0m,
+                        PairPerCarton = 10
+                    }
+                }
+            };
+
+            var bytes = await service.ExportShipmentToExcelAsync(model);
+            Assert.NotNull(bytes);
+
+            using var ms = new MemoryStream(bytes);
+            using var wb = new XLWorkbook(ms);
+            var invSheet = wb.Worksheet("INV");
+            Assert.NotNull(invSheet);
+
+            Assert.Equal("INV-MODEL-001", invSheet.Cell("J4").GetString());
+            Assert.Equal("CTR-MODEL-001", invSheet.Cell("J6").GetString());
+            Assert.Equal("KHÁCH HÀNG MODEL TEST", invSheet.Cell("D4").GetString());
+            Assert.Equal("VIETNAM", invSheet.Cell("D6").GetString());
         }
     }
 }

@@ -167,4 +167,20 @@ public class TemplatesController : ControllerBase
 
         return Ok(new { message = $"Đã đặt template ID {id} làm mẫu mặc định." });
     }
+
+    /// <summary>
+    /// Tải file phôi .xlsx gốc của template về máy
+    /// </summary>
+    [HttpGet("download/{id:int}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Download(int id)
+    {
+        var result = await _templateService.GetTemplateFileAsync(id);
+        if (result == null)
+        {
+            return NotFound(new { message = $"Không tìm thấy file phôi cho template ID {id}." });
+        }
+
+        return File(result.Value.Bytes, result.Value.ContentType, result.Value.FileName);
+    }
 }

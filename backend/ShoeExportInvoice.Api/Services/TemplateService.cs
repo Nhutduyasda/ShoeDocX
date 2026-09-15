@@ -190,6 +190,35 @@ public class TemplateService : ITemplateService
         return true;
     }
 
+    public async Task<(byte[] Bytes, string ContentType, string FileName)?> GetTemplateFileAsync(int id)
+    {
+        var template = await _context.CompanyTemplates.FindAsync(id);
+        if (template == null) return null;
+
+        var candidates = new[]
+        {
+            template.TemplateFilePath,
+            Path.Combine(_environment.ContentRootPath, template.TemplateFilePath),
+            Path.Combine(AppContext.BaseDirectory, template.TemplateFilePath),
+            Path.Combine(Directory.GetCurrentDirectory(), template.TemplateFilePath),
+            Path.Combine(Directory.GetCurrentDirectory(), "backend", "ShoeExportInvoice.Api", template.TemplateFilePath),
+            Path.Combine(_environment.ContentRootPath, "Templates", Path.GetFileName(template.TemplateFilePath)),
+            Path.Combine(AppContext.BaseDirectory, "Templates", "Shipment_Template.xlsx"),
+            Path.Combine(Directory.GetCurrentDirectory(), "Templates", "Shipment_Template.xlsx"),
+            Path.Combine(Directory.GetCurrentDirectory(), "backend", "ShoeExportInvoice.Api", "Templates", "Shipment_Template.xlsx")
+        };
+
+        string? foundPath = candidates.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p) && File.Exists(p));
+        if (foundPath == null) return null;
+
+        var bytes = await File.ReadAllBytesAsync(foundPath);
+        var fileName = !string.IsNullOrWhiteSpace(template.TemplateFileName)
+            ? template.TemplateFileName
+            : Path.GetFileName(foundPath);
+
+        return (bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+
     private static void ValidateConfigJson(string configJson)
     {
         if (string.IsNullOrWhiteSpace(configJson))

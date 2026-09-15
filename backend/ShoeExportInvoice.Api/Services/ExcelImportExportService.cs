@@ -8,6 +8,8 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
+using System.Text.Json;
+using ShoeExportInvoice.Api.Models.Templates;
 
 namespace ShoeExportInvoice.Api.Services;
 
@@ -16,12 +18,23 @@ public class ExcelImportExportService : IExcelImportExportService
     private readonly AppDbContext _context;
     private readonly ILogger<ExcelImportExportService> _logger;
     private readonly XnkOptions _options;
+    private readonly ITemplateService? _templateService;
 
-    public ExcelImportExportService(AppDbContext context, ILogger<ExcelImportExportService> logger, Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null)
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    public ExcelImportExportService(
+        AppDbContext context,
+        ILogger<ExcelImportExportService> logger,
+        Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null,
+        ITemplateService? templateService = null)
     {
         _context = context;
         _logger = logger;
         _options = options?.Value ?? new XnkOptions();
+        _templateService = templateService;
     }
 
     /// <summary>
@@ -68,6 +81,88 @@ public class ExcelImportExportService : IExcelImportExportService
         throw new FileNotFoundException("Không tìm thấy file mẫu tại Templates/Shipment_Template.xlsx");
     }
 
+    private async Task<(string FilePath, DocumentTemplateConfig Config)> ResolveTemplateAsync(int? templateId)
+    {
+        CompanyTemplateDto? template = null;
+        if (_templateService != null)
+        {
+            try
+            {
+                if (templateId.HasValue && templateId.Value > 0)
+                {
+                    template = await _templateService.GetTemplateByIdAsync(templateId.Value) 
+                               ?? await _templateService.GetDefaultTemplateAsync();
+                }
+                else
+                {
+                    template = await _templateService.GetDefaultTemplateAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Không thể nạp template từ ITemplateService, fallback về cấu hình mặc định.");
+            }
+        }
+
+        string filePath;
+        DocumentTemplateConfig config;
+
+        if (template != null)
+        {
+            filePath = ResolveTemplateFilePath(template.TemplateFilePath);
+            config = template.Config ?? (string.IsNullOrWhiteSpace(template.ConfigJson)
+                ? new DocumentTemplateConfig()
+                : JsonSerializer.Deserialize<DocumentTemplateConfig>(template.ConfigJson, JsonOptions) ?? new DocumentTemplateConfig());
+        }
+        else
+        {
+            filePath = GetTemplatePath();
+            config = new DocumentTemplateConfig();
+        }
+
+        return (filePath, config);
+    }
+
+    private string ResolveTemplateFilePath(string? customPath)
+    {
+        if (!string.IsNullOrWhiteSpace(customPath))
+        {
+            var candidates = new[]
+            {
+                customPath,
+                Path.Combine(AppContext.BaseDirectory, customPath),
+                Path.Combine(Directory.GetCurrentDirectory(), customPath),
+                Path.Combine(Directory.GetCurrentDirectory(), "backend", "ShoeExportInvoice.Api", customPath),
+                Path.Combine(AppContext.BaseDirectory, "Templates", Path.GetFileName(customPath)),
+                Path.Combine(Directory.GetCurrentDirectory(), "Templates", Path.GetFileName(customPath))
+            };
+
+            foreach (var cand in candidates)
+            {
+                if (!string.IsNullOrWhiteSpace(cand) && File.Exists(cand))
+                {
+                    return cand;
+                }
+            }
+        }
+
+        return GetTemplatePath();
+    }
+
+    private static void SetCellSafe(IXLWorksheet ws, string? cellAddress, string? value, bool isFormula = false)
+    {
+        if (!string.IsNullOrWhiteSpace(cellAddress) && value != null)
+        {
+            try
+            {
+                var cell = ws.Cell(cellAddress.Trim());
+                if (isFormula) cell.FormulaA1 = value;
+                else cell.SetValue(value);
+            }
+            catch { }
+        }
+    }
+
     /// <summary>
     /// Xuất hóa đơn Commercial Invoice và Packing List trực tiếp từ file mẫu Shipment_Template.xlsx
     /// Tuyệt đối KHÔNG tạo new XLWorkbook(), giữ nguyên 100% format, header, footer, style và formulas.
@@ -95,8 +190,8 @@ public class ExcelImportExportService : IExcelImportExportService
 
     public async Task<byte[]> ExportShipmentToExcelAsync(ShipmentExportModel model)
     {
-        var templatePath = GetTemplatePath();
-        _logger.LogInformation("Mở trực tiếp file mẫu xuất hóa đơn: {TemplatePath}", templatePath);
+        var (templatePath, config) = await ResolveTemplateAsync(model.TemplateId);
+        _logger.LogInformation("Mở file mẫu xuất hóa đơn: {TemplatePath} (Mẫu: {TemplateName})", templatePath, config.TemplateName);
 
         using var cleanTemplate = OpenStampFreeTemplate(templatePath);
         using var workbook = new XLWorkbook(cleanTemplate);
@@ -111,37 +206,46 @@ public class ExcelImportExportService : IExcelImportExportService
             }
         }
 
-        var invSheet = workbook.Worksheet("INV") 
-            ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("INV"))
-            ?? throw new InvalidOperationException("Không tìm thấy sheet 'INV' trong file mẫu.");
+        var invSheetName = !string.IsNullOrWhiteSpace(config.InvSheet.SheetName) ? config.InvSheet.SheetName : "INV";
+        var pklSheetName = !string.IsNullOrWhiteSpace(config.PklSheet.SheetName) ? config.PklSheet.SheetName : "PKL";
 
-        var pklSheet = workbook.Worksheet("PKL") 
+        var invSheet = workbook.Worksheet(invSheetName) 
+            ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains(invSheetName.ToUpper()))
+            ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("INV"))
+            ?? throw new InvalidOperationException($"Không tìm thấy sheet '{invSheetName}' trong file mẫu.");
+
+        var pklSheet = workbook.Worksheet(pklSheetName) 
+            ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains(pklSheetName.ToUpper()))
             ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("PKL"))
-            ?? throw new InvalidOperationException("Không tìm thấy sheet 'PKL' trong file mẫu.");
+            ?? throw new InvalidOperationException($"Không tìm thấy sheet '{pklSheetName}' trong file mẫu.");
 
         // ==========================================
         // 1. CẬP NHẬT HEADER INV
-        // Ô J4 (Invoice No), J5 (Date), J6 (Hợp đồng)
         // ==========================================
-        invSheet.Cell("J4").SetValue(model.InvoiceNo);
-        invSheet.Cell("J5").SetValue(model.InvoiceDate.ToString("MMM dd,yyyy", CultureInfo.InvariantCulture).ToUpper());
-        invSheet.Cell("J6").SetValue(model.ContractNo);
+        var invHeader = config.InvSheet.Header ?? new InvHeaderCells();
+        SetCellSafe(invSheet, invHeader.InvoiceNoCell, model.InvoiceNo);
+        SetCellSafe(invSheet, invHeader.DateCell, model.InvoiceDate.ToString("MMM dd,yyyy", CultureInfo.InvariantCulture).ToUpper());
+        SetCellSafe(invSheet, invHeader.ContractNoCell, model.ContractNo);
 
         if (!string.IsNullOrWhiteSpace(model.CustomerName))
         {
-            invSheet.Cell("D4").SetValue(model.CustomerName);
+            SetCellSafe(invSheet, invHeader.BuyerNameCell, model.CustomerName);
         }
         if (!string.IsNullOrWhiteSpace(model.Address))
         {
-            invSheet.Cell("D5").SetValue(model.Address);
+            SetCellSafe(invSheet, invHeader.BuyerAddressCell, model.Address);
         }
         if (!string.IsNullOrWhiteSpace(model.DeliveryTerms))
         {
-            invSheet.Cell("J7").SetValue(model.DeliveryTerms);
+            SetCellSafe(invSheet, invHeader.DeliveryTermsCell, model.DeliveryTerms);
         }
         if (!string.IsNullOrWhiteSpace(model.PaymentTerms))
         {
-            invSheet.Cell("J8").SetValue(model.PaymentTerms);
+            SetCellSafe(invSheet, invHeader.PaymentTermsCell, model.PaymentTerms);
+        }
+        if (!string.IsNullOrWhiteSpace(invHeader.DestinationCell))
+        {
+            SetCellSafe(invSheet, invHeader.DestinationCell, "VIETNAM");
         }
 
         // Cập nhật Header PKL (H4 và H5 trong mẫu tự động liên kết INV!J4, INV!J5)
@@ -154,10 +258,10 @@ public class ExcelImportExportService : IExcelImportExportService
         int itemCount = items.Count;
 
         // ==========================================
-        // 2. ĐIỀN DỮ LIỆU SHEET INV (bắt đầu từ dòng 13)
-        // Mẫu gốc có 29 dòng dữ liệu (từ 13 đến 41), dòng 42 là TỔNG CỘNG
+        // 2. ĐIỀN DỮ LIỆU SHEET INV (dựa theo config)
         // ==========================================
-        const int invStartRow = 13;
+        var invTable = config.InvSheet.Table ?? new InvTableColumns();
+        int invStartRow = invTable.StartRow > 0 ? invTable.StartRow : 13;
         const int invDefaultTemplateRows = 29; // 13 đến 41
 
         if (itemCount > invDefaultTemplateRows)
@@ -192,39 +296,22 @@ public class ExcelImportExportService : IExcelImportExportService
             int row = invStartRow + i;
             var item = items[i];
 
-            // B: Công thức STT theo mẫu
-            invSheet.Cell(row, 2).FormulaA1 = $"IF(C{row}=\"\",\"\",SUBTOTAL(103,$C$13:C{row}))";
+            invSheet.Cell($"{invTable.SttCol}{row}").FormulaA1 = $"IF({invTable.ItemCodeCol}{row}=\"\",\"\",SUBTOTAL(103,${invTable.ItemCodeCol}${invStartRow}:{invTable.ItemCodeCol}{row}))";
 
-            // C: Mã hàng (Mã hình thể + PO Suffix nếu có)
             var itemCode = !string.IsNullOrWhiteSpace(item.FullItemCode)
                 ? item.FullItemCode
                 : (!string.IsNullOrWhiteSpace(model.PoSuffix) ? $"{item.StyleCode} {model.PoSuffix}" : item.StyleCode);
-            invSheet.Cell(row, 3).SetValue(itemCode);
+            invSheet.Cell($"{invTable.ItemCodeCol}{row}").SetValue(itemCode);
+            invSheet.Cell($"{invTable.DescriptionCol}{row}").SetValue(CleanDescriptionForInvAndPkl(item.Description));
+            invSheet.Cell($"{invTable.QuantityCol}{row}").SetValue(item.Quantity);
+            invSheet.Cell($"{invTable.UnitCol}{row}").SetValue(!string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "đôi");
+            invSheet.Cell($"{invTable.CmtUnitPriceCol}{row}").SetValue(item.UnitPriceCMT);
+            invSheet.Cell($"{invTable.DapUnitPriceCol}{row}").SetValue(item.UnitPriceDAP);
+            invSheet.Cell($"{invTable.CmtAmountCol}{row}").FormulaA1 = $"{invTable.CmtUnitPriceCol}{row}*{invTable.QuantityCol}{row}";
+            invSheet.Cell($"{invTable.DapAmountCol}{row}").FormulaA1 = $"{invTable.DapUnitPriceCol}{row}*{invTable.QuantityCol}{row}";
 
-            // D: Mô tả hàng hóa
-            invSheet.Cell(row, 4).SetValue(CleanDescriptionForInvAndPkl(item.Description));
-
-            // E: Số lượng
-            invSheet.Cell(row, 5).SetValue(item.Quantity);
-
-            // F: ĐVT
-            invSheet.Cell(row, 6).SetValue(!string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "đôi");
-
-            // G: Đơn giá CMT
-            invSheet.Cell(row, 7).SetValue(item.UnitPriceCMT);
-
-            // H: Đơn giá DAP
-            invSheet.Cell(row, 8).SetValue(item.UnitPriceDAP);
-
-            // I: Thành tiền CMT = G * E
-            invSheet.Cell(row, 9).FormulaA1 = $"G{row}*E{row}";
-
-            // J: Thành tiền DAP = H * E
-            invSheet.Cell(row, 10).FormulaA1 = $"H{row}*E{row}";
-
-            // K: Số thùng carton = E / PairPerCarton
             int pairCtn = item.PairPerCarton > 0 ? item.PairPerCarton : 12;
-            invSheet.Cell(row, 11).FormulaA1 = $"E{row}/{pairCtn}";
+            invSheet.Cell(row, 11).FormulaA1 = $"{invTable.QuantityCol}{row}/{pairCtn}";
         }
 
         // Cập nhật công thức dòng TỔNG CỘNG INV
@@ -234,21 +321,30 @@ public class ExcelImportExportService : IExcelImportExportService
             int invTotalRow = invLastDataRow + 1;
 
             invSheet.Cell(invTotalRow, 2).SetValue("TỔNG CỘNG:");
-            invSheet.Cell(invTotalRow, 5).FormulaA1 = $"SUM(E13:E{invLastDataRow})";
-            invSheet.Cell(invTotalRow, 9).FormulaA1 = $"SUM(I13:I{invLastDataRow})";
-            invSheet.Cell(invTotalRow, 10).FormulaA1 = $"SUM(J13:J{invLastDataRow})";
+            invSheet.Cell($"{invTable.QuantityCol}{invTotalRow}").FormulaA1 = $"SUM({invTable.QuantityCol}{invStartRow}:{invTable.QuantityCol}{invLastDataRow})";
+            invSheet.Cell($"{invTable.CmtAmountCol}{invTotalRow}").FormulaA1 = $"SUM({invTable.CmtAmountCol}{invStartRow}:{invTable.CmtAmountCol}{invLastDataRow})";
+            invSheet.Cell($"{invTable.DapAmountCol}{invTotalRow}").FormulaA1 = $"SUM({invTable.DapAmountCol}{invStartRow}:{invTable.DapAmountCol}{invLastDataRow})";
+
+            if (!string.IsNullOrWhiteSpace(config.InvSheet.TotalAmountCell))
+            {
+                SetCellSafe(invSheet, config.InvSheet.TotalAmountCell, $"SUM({invTable.DapAmountCol}{invStartRow}:{invTable.DapAmountCol}{invLastDataRow})", isFormula: true);
+            }
 
             // Chuyển đổi Tổng số tiền DAP sang chữ tiếng Việt
             decimal totalDapAmount = model.Items.Sum(x => x.Quantity * x.UnitPriceDAP);
             string textInWords = VietnameseNumberToWordsHelper.ToVietnameseWords(totalDapAmount);
+            if (!string.IsNullOrWhiteSpace(config.InvSheet.WordsAmountCell))
+            {
+                SetCellSafe(invSheet, config.InvSheet.WordsAmountCell, textInWords);
+            }
             UpdateWordsCellInInvSheet(invSheet, invTotalRow, textInWords);
         }
 
         // ==========================================
-        // 3. ĐIỀN DỮ LIỆU SHEET PKL (bắt đầu từ dòng 12)
-        // Mẫu gốc có 58 dòng dữ liệu (từ 12 đến 69), dòng 70 là TỔNG CỘNG
+        // 3. ĐIỀN DỮ LIỆU SHEET PKL (dựa theo config)
         // ==========================================
-        const int pklStartRow = 12;
+        var pklConfig = config.PklSheet ?? new PklSheetConfig();
+        int pklStartRow = pklConfig.StartRow > 0 ? pklConfig.StartRow : 12;
         const int pklDefaultTemplateRows = 58; // 12 đến 69
 
         if (itemCount > pklDefaultTemplateRows)
@@ -284,39 +380,21 @@ public class ExcelImportExportService : IExcelImportExportService
             var item = items[i];
             int pairCtn = item.PairPerCarton > 0 ? item.PairPerCarton : 12;
 
-            // A: Số kiện (Carton Range): IF(F<=0,"",(SUM($F$11:F_prev)+1)&"-"&SUM($F$11:F_curr))
             int prevRow = row - 1;
-            pklSheet.Cell(row, 1).FormulaA1 = $"IF(F{row}<=0,\"\",(SUM($F$11:F{prevRow})+1)&\"-\"&SUM($F$11:F{row}))";
+            pklSheet.Cell($"{pklConfig.CartonRangeCol}{row}").FormulaA1 = $"IF({pklConfig.CartonsCol}{row}<=0,\"\",(SUM(${pklConfig.CartonsCol}$11:{pklConfig.CartonsCol}{prevRow})+1)&\"-\"&SUM(${pklConfig.CartonsCol}$11:{pklConfig.CartonsCol}{row}))";
 
-            // B: Mã hàng (Full Item Code)
             var itemCode = !string.IsNullOrWhiteSpace(item.FullItemCode)
                 ? item.FullItemCode
                 : (!string.IsNullOrWhiteSpace(model.PoSuffix) ? $"{item.StyleCode} {model.PoSuffix}" : item.StyleCode);
-            pklSheet.Cell(row, 2).SetValue(itemCode);
-
-            // C: Mô tả hàng hóa
-            pklSheet.Cell(row, 3).SetValue(CleanDescriptionForInvAndPkl(item.Description));
-
-            // D: Số lượng (Quantity)
-            pklSheet.Cell(row, 4).SetValue(item.Quantity);
-
-            // E: ĐVT
-            pklSheet.Cell(row, 5).SetValue(!string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "đôi");
-
-            // F: Số kiện: =IF(D<=0,0,IF(D<PairPerCtn,1,D/PairPerCtn))
-            pklSheet.Cell(row, 6).FormulaA1 = $"IF(D{row}<=0,0,IF(D{row}<{pairCtn},1,D{row}/{pairCtn}))";
-
-            // I: Tỷ lệ thùng
-            pklSheet.Cell(row, 9).FormulaA1 = $"D{row}/{pairCtn}";
-
-            // G: N.W (KGS) = I * 3.2
-            pklSheet.Cell(row, 7).FormulaA1 = $"I{row}*3.2";
-
-            // H: G.W (KGS) = ROUNDUP(G + F * 0.1, 0)
-            pklSheet.Cell(row, 8).FormulaA1 = $"ROUNDUP(G{row}+F{row}*0.1,0)";
-
-            // J: Tham chiếu số kiện
-            pklSheet.Cell(row, 10).FormulaA1 = $"F{row}";
+            pklSheet.Cell($"{pklConfig.ItemCodeCol}{row}").SetValue(itemCode);
+            pklSheet.Cell($"{pklConfig.DescriptionCol}{row}").SetValue(CleanDescriptionForInvAndPkl(item.Description));
+            pklSheet.Cell($"{pklConfig.QuantityCol}{row}").SetValue(item.Quantity);
+            pklSheet.Cell($"{pklConfig.UnitCol}{row}").SetValue(!string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "đôi");
+            pklSheet.Cell($"{pklConfig.CartonsCol}{row}").FormulaA1 = $"IF({pklConfig.QuantityCol}{row}<=0,0,IF({pklConfig.QuantityCol}{row}<{pairCtn},1,{pklConfig.QuantityCol}{row}/{pairCtn}))";
+            pklSheet.Cell(row, 9).FormulaA1 = $"{pklConfig.QuantityCol}{row}/{pairCtn}";
+            pklSheet.Cell($"{pklConfig.NetWeightCol}{row}").FormulaA1 = $"I{row}*3.2";
+            pklSheet.Cell($"{pklConfig.GrossWeightCol}{row}").FormulaA1 = $"ROUNDUP({pklConfig.NetWeightCol}{row}+{pklConfig.CartonsCol}{row}*0.1,0)";
+            pklSheet.Cell(row, 10).FormulaA1 = $"{pklConfig.CartonsCol}{row}";
         }
 
         // Cập nhật công thức dòng TỔNG CỘNG PKL
@@ -326,10 +404,10 @@ public class ExcelImportExportService : IExcelImportExportService
             int pklTotalRow = pklLastDataRow + 1;
 
             pklSheet.Cell(pklTotalRow, 2).SetValue("TỔNG CỘNG:");
-            pklSheet.Cell(pklTotalRow, 4).FormulaA1 = $"SUM(D11:D{pklLastDataRow})";
-            pklSheet.Cell(pklTotalRow, 6).FormulaA1 = $"SUM(F11:F{pklLastDataRow})";
-            pklSheet.Cell(pklTotalRow, 7).FormulaA1 = $"SUM(G11:G{pklLastDataRow})";
-            pklSheet.Cell(pklTotalRow, 8).FormulaA1 = $"ROUNDUP(G{pklTotalRow}+F{pklTotalRow}*0.1,0)";
+            pklSheet.Cell($"{pklConfig.QuantityCol}{pklTotalRow}").FormulaA1 = $"SUM({pklConfig.QuantityCol}11:{pklConfig.QuantityCol}{pklLastDataRow})";
+            pklSheet.Cell($"{pklConfig.CartonsCol}{pklTotalRow}").FormulaA1 = $"SUM({pklConfig.CartonsCol}11:{pklConfig.CartonsCol}{pklLastDataRow})";
+            pklSheet.Cell($"{pklConfig.NetWeightCol}{pklTotalRow}").FormulaA1 = $"SUM({pklConfig.NetWeightCol}11:{pklConfig.NetWeightCol}{pklLastDataRow})";
+            pklSheet.Cell($"{pklConfig.GrossWeightCol}{pklTotalRow}").FormulaA1 = $"ROUNDUP({pklConfig.NetWeightCol}{pklTotalRow}+{pklConfig.CartonsCol}{pklTotalRow}*0.1,0)";
         }
 
         // Lưu ra MemoryStream và trả về file cho người dùng
@@ -622,8 +700,8 @@ public class ExcelImportExportService : IExcelImportExportService
     /// </summary>
     public async Task<byte[]> ExportShipmentMultiSheetExcelAsync(CreateShipmentRequestDto request)
     {
-        var templatePath = GetTemplatePath();
-        _logger?.LogInformation("Mở trực tiếp file mẫu xuất hóa đơn đa sheet: {TemplatePath}", templatePath);
+        var (templatePath, config) = await ResolveTemplateAsync(request.TemplateId);
+        _logger?.LogInformation("Mở trực tiếp file mẫu xuất hóa đơn đa sheet: {TemplatePath} (Mẫu: {TemplateName})", templatePath, config.TemplateName);
 
         // Nạp thông tin sản phẩm thiếu từ Database nếu có DbContext
         Dictionary<string, ProductMaster>? dbProducts = null;
@@ -716,13 +794,18 @@ public class ExcelImportExportService : IExcelImportExportService
             }
         }
 
-        var invSheet = workbook.Worksheet("INV") 
-            ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("INV"))
-            ?? throw new InvalidOperationException("Không tìm thấy sheet 'INV' trong file mẫu.");
+        var invSheetName = !string.IsNullOrWhiteSpace(config.InvSheet.SheetName) ? config.InvSheet.SheetName : "INV";
+        var pklSheetName = !string.IsNullOrWhiteSpace(config.PklSheet.SheetName) ? config.PklSheet.SheetName : "PKL";
 
-        var pklSheet = workbook.Worksheet("PKL") 
+        var invSheet = workbook.Worksheet(invSheetName) 
+            ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains(invSheetName.ToUpper()))
+            ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("INV"))
+            ?? throw new InvalidOperationException($"Không tìm thấy sheet '{invSheetName}' trong file mẫu.");
+
+        var pklSheet = workbook.Worksheet(pklSheetName) 
+            ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains(pklSheetName.ToUpper()))
             ?? workbook.Worksheets.FirstOrDefault(w => w.Name.ToUpper().Contains("PKL"))
-            ?? throw new InvalidOperationException("Không tìm thấy sheet 'PKL' trong file mẫu.");
+            ?? throw new InvalidOperationException($"Không tìm thấy sheet '{pklSheetName}' trong file mẫu.");
 
         var sheet2 = workbook.Worksheet("Sheet2")
             ?? workbook.Worksheets.FirstOrDefault(w => w.Name.Equals("Sheet2", StringComparison.OrdinalIgnoreCase));
@@ -730,18 +813,21 @@ public class ExcelImportExportService : IExcelImportExportService
         // ==========================================
         // 1. CẬP NHẬT HEADER INV
         // ==========================================
-        invSheet.Cell("J4").SetValue(request.InvoiceNo);
-        invSheet.Cell("J5").SetValue(request.InvoiceDate.ToString("MMM dd,yyyy", CultureInfo.InvariantCulture).ToUpper());
-        invSheet.Cell("J6").SetValue(request.ContractNo);
+        var invHeader = config.InvSheet.Header ?? new InvHeaderCells();
+        SetCellSafe(invSheet, invHeader.InvoiceNoCell, request.InvoiceNo);
+        SetCellSafe(invSheet, invHeader.DateCell, request.InvoiceDate.ToString("MMM dd,yyyy", CultureInfo.InvariantCulture).ToUpper());
+        SetCellSafe(invSheet, invHeader.ContractNoCell, request.ContractNo);
 
         if (!string.IsNullOrWhiteSpace(request.CustomerName))
-            invSheet.Cell("D4").SetValue(request.CustomerName);
+            SetCellSafe(invSheet, invHeader.BuyerNameCell, request.CustomerName);
         if (!string.IsNullOrWhiteSpace(request.Address))
-            invSheet.Cell("D5").SetValue(request.Address);
+            SetCellSafe(invSheet, invHeader.BuyerAddressCell, request.Address);
         if (!string.IsNullOrWhiteSpace(request.DeliveryTerms))
-            invSheet.Cell("J7").SetValue(request.DeliveryTerms);
+            SetCellSafe(invSheet, invHeader.DeliveryTermsCell, request.DeliveryTerms);
         if (!string.IsNullOrWhiteSpace(request.PaymentTerms))
-            invSheet.Cell("J8").SetValue(request.PaymentTerms);
+            SetCellSafe(invSheet, invHeader.PaymentTermsCell, request.PaymentTerms);
+        if (!string.IsNullOrWhiteSpace(invHeader.DestinationCell))
+            SetCellSafe(invSheet, invHeader.DestinationCell, "VIETNAM");
 
         // Cập nhật Header PKL
         if (pklSheet.Cell("G6").GetString().Contains("Hợp đồng"))
@@ -750,11 +836,12 @@ public class ExcelImportExportService : IExcelImportExportService
         }
 
         // ==========================================
-        // 2. ĐIỀN DỮ LIỆU SHEET INV (từ dòng 13)
+        // 2. ĐIỀN DỮ LIỆU SHEET INV (dựa theo config)
         // ==========================================
         var items = request.Items;
         int invItemCount = items.Count;
-        const int invStartRow = 13;
+        var invTable = config.InvSheet.Table ?? new InvTableColumns();
+        int invStartRow = invTable.StartRow > 0 ? invTable.StartRow : 13;
         const int invDefaultTemplateRows = 29; // Dòng 13 đến 41
 
         if (invItemCount > invDefaultTemplateRows)
@@ -786,7 +873,7 @@ public class ExcelImportExportService : IExcelImportExportService
             int row = invStartRow + i;
             var item = items[i];
 
-            invSheet.Cell(row, 2).FormulaA1 = $"IF(C{row}=\"\",\"\",SUBTOTAL(103,$C$13:C{row}))";
+            invSheet.Cell(row, 2).FormulaA1 = $"IF({invTable.ItemCodeCol}{row}=\"\",\"\",SUBTOTAL(103,${invTable.ItemCodeCol}${invStartRow}:{invTable.ItemCodeCol}{row}))";
 
             var fullCode = !string.IsNullOrWhiteSpace(item.FullItemCode)
                 ? item.FullItemCode
@@ -794,37 +881,47 @@ public class ExcelImportExportService : IExcelImportExportService
                     ? $"{item.StyleCode}.G {request.PoSuffix}".Trim()
                     : $"{item.StyleCode} {request.PoSuffix}".Trim());
 
-            invSheet.Cell(row, 3).SetValue(fullCode);
-            invSheet.Cell(row, 4).SetValue(CleanDescriptionForInvAndPkl(item.Description));
-            invSheet.Cell(row, 5).SetValue(item.Quantity);
-            invSheet.Cell(row, 6).SetValue(!string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "đôi");
-            invSheet.Cell(row, 7).SetValue(item.UnitPriceCMT ?? 0m);
-            invSheet.Cell(row, 8).SetValue(item.UnitPriceDAP ?? 0m);
+            invSheet.Cell($"{invTable.ItemCodeCol}{row}").SetValue(fullCode);
+            invSheet.Cell($"{invTable.DescriptionCol}{row}").SetValue(CleanDescriptionForInvAndPkl(item.Description));
+            invSheet.Cell($"{invTable.QuantityCol}{row}").SetValue(item.Quantity);
+            invSheet.Cell($"{invTable.UnitCol}{row}").SetValue(!string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : "đôi");
+            invSheet.Cell($"{invTable.CmtUnitPriceCol}{row}").SetValue(item.UnitPriceCMT ?? 0m);
+            invSheet.Cell($"{invTable.DapUnitPriceCol}{row}").SetValue(item.UnitPriceDAP ?? 0m);
             int pairCtn = (item.PairPerCarton.HasValue && item.PairPerCarton.Value > 0) ? item.PairPerCarton.Value : 12;
-            invSheet.Cell(row, 9).FormulaA1 = $"G{row}*E{row}";
-            invSheet.Cell(row, 10).FormulaA1 = $"H{row}*E{row}";
-            invSheet.Cell(row, 11).FormulaA1 = $"E{row}/{pairCtn}";
+            invSheet.Cell($"{invTable.CmtAmountCol}{row}").FormulaA1 = $"{invTable.CmtUnitPriceCol}{row}*{invTable.QuantityCol}{row}";
+            invSheet.Cell($"{invTable.DapAmountCol}{row}").FormulaA1 = $"{invTable.DapUnitPriceCol}{row}*{invTable.QuantityCol}{row}";
+            invSheet.Cell(row, 11).FormulaA1 = $"{invTable.QuantityCol}{row}/{pairCtn}";
         }
 
         int invLastDataRow = invItemCount > 0 ? (invStartRow + invItemCount - 1) : invStartRow;
         int invTotalRow = invLastDataRow + 1;
         invSheet.Cell(invTotalRow, 2).SetValue("TỔNG CỘNG:");
-        invSheet.Cell(invTotalRow, 5).FormulaA1 = $"SUM(E13:E{invLastDataRow})";
-        invSheet.Cell(invTotalRow, 9).FormulaA1 = $"SUM(I13:I{invLastDataRow})";
-        invSheet.Cell(invTotalRow, 10).FormulaA1 = $"SUM(J13:J{invLastDataRow})";
+        invSheet.Cell($"{invTable.QuantityCol}{invTotalRow}").FormulaA1 = $"SUM({invTable.QuantityCol}{invStartRow}:{invTable.QuantityCol}{invLastDataRow})";
+        invSheet.Cell($"{invTable.CmtAmountCol}{invTotalRow}").FormulaA1 = $"SUM({invTable.CmtAmountCol}{invStartRow}:{invTable.CmtAmountCol}{invLastDataRow})";
+        invSheet.Cell($"{invTable.DapAmountCol}{invTotalRow}").FormulaA1 = $"SUM({invTable.DapAmountCol}{invStartRow}:{invTable.DapAmountCol}{invLastDataRow})";
+
+        if (!string.IsNullOrWhiteSpace(config.InvSheet.TotalAmountCell))
+        {
+            SetCellSafe(invSheet, config.InvSheet.TotalAmountCell, $"SUM({invTable.DapAmountCol}{invStartRow}:{invTable.DapAmountCol}{invLastDataRow})", isFormula: true);
+        }
 
         // Chuyển đổi Tổng số tiền DAP sang chữ tiếng Việt
         decimal totalDapAmount = items.Sum(x => (decimal)x.Quantity * (x.UnitPriceDAP ?? 0m));
         string textInWords = VietnameseNumberToWordsHelper.ToVietnameseWords(totalDapAmount);
+        if (!string.IsNullOrWhiteSpace(config.InvSheet.WordsAmountCell))
+        {
+            SetCellSafe(invSheet, config.InvSheet.WordsAmountCell, textInWords);
+        }
         UpdateWordsCellInInvSheet(invSheet, invTotalRow, textInWords);
 
         // ==========================================
-        // 3. ĐIỀN DỮ LIỆU SHEET PKL (từ dòng 12)
+        // 3. ĐIỀN DỮ LIỆU SHEET PKL (dựa theo config)
         // ==========================================
         var pklPreview = CalculatePklBreakdown(request);
         var pklItems = pklPreview.BreakdownItems;
         int pklCount = pklItems.Count;
-        const int pklStartRow = 12;
+        var pklConfig = config.PklSheet ?? new PklSheetConfig();
+        int pklStartRow = pklConfig.StartRow > 0 ? pklConfig.StartRow : 12;
         const int pklDefaultTemplateRows = 58; // Dòng 12 đến 69
 
         if (pklCount > pklDefaultTemplateRows)
@@ -838,7 +935,7 @@ public class ExcelImportExportService : IExcelImportExportService
             {
                 var newRow = pklSheet.Row(r);
                 newRow.Height = templateRow.Height;
-                for (int col = 1; col <= 10; col++)
+                for (int col = 1; col <= 11; col++)
                 {
                     newRow.Cell(col).Style = templateRow.Cell(col).Style;
                 }
@@ -858,25 +955,25 @@ public class ExcelImportExportService : IExcelImportExportService
             int prevRow = row - 1;
             int pairCtn = pklItem.StandardPairPerCarton > 0 ? pklItem.StandardPairPerCarton : 12;
 
-            pklSheet.Cell(row, 1).FormulaA1 = $"IF(F{row}<=0,\"\",(SUM($F$11:F{prevRow})+1)&\"-\"&SUM($F$11:F{row}))";
-            pklSheet.Cell(row, 2).SetValue(pklItem.FullItemCode);
-            pklSheet.Cell(row, 3).SetValue(CleanDescriptionForInvAndPkl(pklItem.Description));
-            pklSheet.Cell(row, 4).SetValue(pklItem.Quantity);
-            pklSheet.Cell(row, 5).SetValue("đôi");
-            pklSheet.Cell(row, 6).FormulaA1 = $"IF(D{row}<=0,0,IF(D{row}<{pairCtn},1,D{row}/{pairCtn}))";
-            pklSheet.Cell(row, 7).FormulaA1 = $"I{row}*3.2";
-            pklSheet.Cell(row, 8).FormulaA1 = $"ROUNDUP(G{row}+F{row}*0.1,0)";
-            pklSheet.Cell(row, 9).FormulaA1 = $"D{row}/{pairCtn}";
-            pklSheet.Cell(row, 10).FormulaA1 = $"F{row}";
+            pklSheet.Cell($"{pklConfig.CartonRangeCol}{row}").FormulaA1 = $"IF({pklConfig.CartonsCol}{row}<=0,\"\",(SUM(${pklConfig.CartonsCol}$11:{pklConfig.CartonsCol}{prevRow})+1)&\"-\"&SUM(${pklConfig.CartonsCol}$11:{pklConfig.CartonsCol}{row}))";
+            pklSheet.Cell($"{pklConfig.ItemCodeCol}{row}").SetValue(pklItem.FullItemCode);
+            pklSheet.Cell($"{pklConfig.DescriptionCol}{row}").SetValue(CleanDescriptionForInvAndPkl(pklItem.Description));
+            pklSheet.Cell($"{pklConfig.QuantityCol}{row}").SetValue(pklItem.Quantity);
+            pklSheet.Cell($"{pklConfig.UnitCol}{row}").SetValue("đôi");
+            pklSheet.Cell($"{pklConfig.CartonsCol}{row}").FormulaA1 = $"IF({pklConfig.QuantityCol}{row}<=0,0,IF({pklConfig.QuantityCol}{row}<{pairCtn},1,{pklConfig.QuantityCol}{row}/{pairCtn}))";
+            pklSheet.Cell(row, 9).FormulaA1 = $"{pklConfig.QuantityCol}{row}/{pairCtn}";
+            pklSheet.Cell($"{pklConfig.NetWeightCol}{row}").FormulaA1 = $"I{row}*3.2";
+            pklSheet.Cell($"{pklConfig.GrossWeightCol}{row}").FormulaA1 = $"ROUNDUP({pklConfig.NetWeightCol}{row}+{pklConfig.CartonsCol}{row}*0.1,0)";
+            pklSheet.Cell(row, 10).FormulaA1 = $"{pklConfig.CartonsCol}{row}";
         }
 
         int pklLastDataRow = pklCount > 0 ? (pklStartRow + pklCount - 1) : pklStartRow;
         int pklTotalRow = pklLastDataRow + 1;
         pklSheet.Cell(pklTotalRow, 2).SetValue("TỔNG CỘNG:");
-        pklSheet.Cell(pklTotalRow, 4).FormulaA1 = $"SUM(D11:D{pklLastDataRow})";
-        pklSheet.Cell(pklTotalRow, 6).FormulaA1 = $"SUM(F11:F{pklLastDataRow})";
-        pklSheet.Cell(pklTotalRow, 7).FormulaA1 = $"SUM(G11:G{pklLastDataRow})";
-        pklSheet.Cell(pklTotalRow, 8).FormulaA1 = $"ROUNDUP(G{pklTotalRow}+F{pklTotalRow}*0.1,0)";
+        pklSheet.Cell($"{pklConfig.QuantityCol}{pklTotalRow}").FormulaA1 = $"SUM({pklConfig.QuantityCol}11:{pklConfig.QuantityCol}{pklLastDataRow})";
+        pklSheet.Cell($"{pklConfig.CartonsCol}{pklTotalRow}").FormulaA1 = $"SUM({pklConfig.CartonsCol}11:{pklConfig.CartonsCol}{pklLastDataRow})";
+        pklSheet.Cell($"{pklConfig.NetWeightCol}{pklTotalRow}").FormulaA1 = $"SUM({pklConfig.NetWeightCol}11:{pklConfig.NetWeightCol}{pklLastDataRow})";
+        pklSheet.Cell($"{pklConfig.GrossWeightCol}{pklTotalRow}").FormulaA1 = $"ROUNDUP({pklConfig.NetWeightCol}{pklTotalRow}+{pklConfig.CartonsCol}{pklTotalRow}*0.1,0)";
 
         // ==========================================
         // 4. CẬP NHẬT SHEET2 (Master Data đúng phạm vi đối tác)

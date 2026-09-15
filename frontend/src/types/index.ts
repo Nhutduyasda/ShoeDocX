@@ -287,6 +287,7 @@ export interface CreateShipmentRequest {
   paymentTerms: string;
   startInvoiceNumber?: number;
   priority?: ExportSequencePriority;
+  templateId?: number;
   items: CreateShipmentItem[];
 }
 
@@ -778,3 +779,70 @@ export interface ValidateItemsResult {
   totalCodes: number;
   details: ItemValidationDetail[];
 }
+
+// ==========================================
+// CẤU HÌNH BIỂU MẪU XUẤT EXCEL (DOCUMENT TEMPLATE / BYOT)
+// ==========================================
+
+export interface InvHeaderCells {
+  invoiceNoCell: string;
+  dateCell: string;
+  contractNoCell: string;
+  buyerNameCell: string;
+  buyerAddressCell: string;
+  deliveryTermsCell: string;
+  paymentTermsCell: string;
+  destinationCell?: string;
+}
+
+export interface InvTableColumns {
+  startRow: number;
+  itemCodeCol: string;
+  descriptionCol: string;
+  quantityCol: string;
+  unitCol: string;
+  cmtUnitPriceCol: string;
+  dapUnitPriceCol: string;
+  cmtAmountCol: string;
+  dapAmountCol: string;
+}
+
+export interface InvSheetConfig {
+  sheetName: string;
+  header: InvHeaderCells;
+  table: InvTableColumns;
+  totalAmountCell?: string;
+  wordsAmountCell?: string;
+}
+
+export interface PklSheetConfig {
+  sheetName: string;
+  startRow: number;
+  cartonRangeCol: string;
+  itemCodeCol: string;
+  descriptionCol: string;
+  quantityCol: string;
+  unitCol: string;
+  cartonsCol: string;
+  netWeightCol: string;
+  grossWeightCol: string;
+}
+
+export interface DocumentTemplateConfig {
+  templateName: string;
+  invSheet: InvSheetConfig;
+  pklSheet: PklSheetConfig;
+}
+
+export interface CompanyTemplate {
+  id: number;
+  name: string;
+  templateFileName: string;
+  templateFilePath: string;
+  configJson: string;
+  config?: DocumentTemplateConfig;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+

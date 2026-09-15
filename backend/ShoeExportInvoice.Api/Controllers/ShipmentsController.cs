@@ -915,6 +915,7 @@ public class ShipmentsController : ControllerBase
         return new CreateShipmentRequestDto
         {
             OrderId = original.OrderId,
+            TemplateId = original.TemplateId,
             ContractFolderId = original.ContractFolderId,
             InvoiceNo = newInvoiceNo,
             InvoiceDate = original.InvoiceDate,

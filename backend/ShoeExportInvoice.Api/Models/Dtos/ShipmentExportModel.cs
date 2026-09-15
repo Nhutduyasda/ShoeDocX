@@ -2,6 +2,7 @@ namespace ShoeExportInvoice.Api.Models.Dtos;
 
 public class ShipmentExportModel
 {
+    public int? TemplateId { get; set; }
     public string InvoiceNo { get; set; } = "KMHD-NEW2026-0233";
     public DateTime InvoiceDate { get; set; } = DateTime.UtcNow;
     public string ContractNo { get; set; } = "KM-HANEW/01-2025";

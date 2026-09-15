@@ -41,6 +41,7 @@ import {
   QuestionCircleOutlined,
   ShopOutlined,
   EllipsisOutlined,
+  SettingOutlined,
   InboxOutlined,
   FileSearchOutlined,
   CloseOutlined,
@@ -51,6 +52,7 @@ import { shipmentApi, invoiceNoToFileName, extractSequenceNumber, formatInvoiceN
 import { productMasterApi } from '../api/productMasterApi';
 import { masterDataFolderApi } from '../api/masterDataFolderApi';
 import { warehouseApi } from '../api/warehouseApi';
+import { templateApi } from '../api/templateApi';
 import { hasCompletedTour, startOnboardingTour } from '../services/tourService';
 import { customsApi } from '../api/customsApi';
 import { useAuth } from '../contexts/AuthContext';
@@ -67,6 +69,7 @@ import type {
   MasterDataFolder,
   ValidateItemsResult,
   DocumentPreviewResponse,
+  CompanyTemplate,
 } from '../types';
 import { ProcessType, ShipmentStatus, ExportSequencePriority, normalizeProcessType } from '../types';
 import { PklPreviewModal } from '../components/PklPreviewModal';
@@ -78,6 +81,7 @@ import { QuickAddMasterDataModal } from '../components/QuickAddMasterDataModal';
 import { DocumentPreviewModal } from '../components/DocumentPreviewModal';
 import { SizeBreakdownModal } from '../components/SizeBreakdownModal';
 import { UnlockAuditsModal } from '../components/UnlockAuditsModal';
+import { TemplateConfigModal } from '../components/TemplateConfigModal';
 import { CustomsArchiveTreePanel, type CustomsTreeFilter } from '../components/CustomsArchiveTreePanel';
 
 export interface ShipmentPageRef {
@@ -120,6 +124,24 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [editingOrderId, setEditingOrderId] = useState<number | undefined>();
   const [readOnly, setReadOnly] = useState(false);
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
+
+  // Biểu mẫu xuất Excel (Bring Your Own Template - BYOT)
+  const [templates, setTemplates] = useState<CompanyTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [templateModalVisible, setTemplateModalVisible] = useState<boolean>(false);
+
+  const loadTemplates = async () => {
+    try {
+      const data = await templateApi.getAll();
+      setTemplates(data);
+      const defaultTpl = data.find((t) => t.isDefault) || data[0];
+      if (defaultTpl) {
+        setSelectedTemplateId((prev) => prev || defaultTpl.id);
+      }
+    } catch (err) {
+      console.error('Không thể nạp danh sách biểu mẫu xuất:', err);
+    }
+  };
 
   const selectedPartner = useMemo(() => {
     if (!selectedPartnerId) return null;
@@ -452,6 +474,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     void loadPartnerFolders();
     void loadProducts();
     void loadShipmentsHistory();
+    void loadTemplates();
     if (!hasCompletedTour()) {
       const timer = setTimeout(startOnboardingTour, 800);
       return () => clearTimeout(timer);
@@ -663,6 +686,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
       return {
         orderId: editingOrderId,
+        templateId: selectedTemplateId ?? undefined,
         contractFolderId: selectedPartnerId,
         invoiceNo: currentInvoiceNo,
         startInvoiceNumber: currentSeq,
@@ -2509,27 +2533,62 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 w-full md:w-80 shrink-0">
-                <span className="text-xs font-medium text-[#4B5563] whitespace-nowrap shrink-0">Chọn Đối tác:</span>
-                <Select
-                  disabled={readOnly}
-                  value={selectedPartnerId}
-                  onChange={handlePartnerSelect}
-                  className="w-full text-xs font-medium min-w-0"
-                  size="middle"
-                  placeholder="-- Chọn Đối tác / Khách hàng --"
-                  options={partnerFolders.map((pf) => ({
-                    value: pf.id,
-                    label: (
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-[#111827] truncate">{pf.name}</span>
-                        <span className="text-[11px] text-[#9CA3AF] font-mono ml-2 shrink-0">
-                          ({pf.defaultPairsPerCarton} đôi/thùng)
-                        </span>
-                      </div>
-                    ),
-                  }))}
-                />
+              <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 w-full md:w-auto shrink-0">
+                <div className="flex items-center gap-2 w-full md:w-72">
+                  <span className="text-xs font-medium text-[#4B5563] whitespace-nowrap shrink-0">Đối tác:</span>
+                  <Select
+                    disabled={readOnly}
+                    value={selectedPartnerId}
+                    onChange={handlePartnerSelect}
+                    className="w-full text-xs font-medium min-w-0"
+                    size="middle"
+                    placeholder="-- Chọn Đối tác --"
+                    options={partnerFolders.map((pf) => ({
+                      value: pf.id,
+                      label: (
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-[#111827] truncate">{pf.name}</span>
+                          <span className="text-[11px] text-[#9CA3AF] font-mono ml-2 shrink-0">
+                            ({pf.defaultPairsPerCarton} đôi/thùng)
+                          </span>
+                        </div>
+                      ),
+                    }))}
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5 w-full md:w-72">
+                  <span className="text-xs font-medium text-[#4B5563] whitespace-nowrap shrink-0">Biểu mẫu:</span>
+                  <Select
+                    disabled={readOnly}
+                    value={selectedTemplateId ?? undefined}
+                    onChange={(val) => setSelectedTemplateId(val)}
+                    className="w-full text-xs font-medium min-w-0"
+                    size="middle"
+                    placeholder="-- Chọn Biểu mẫu --"
+                    options={templates.map((tpl) => ({
+                      value: tpl.id,
+                      label: (
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-[#111827] truncate">{tpl.name}</span>
+                          {tpl.isDefault && (
+                            <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1 py-0 rounded border border-emerald-200 ml-1 shrink-0">
+                              Mặc định
+                            </span>
+                          )}
+                        </div>
+                      ),
+                    }))}
+                  />
+                  <Tooltip title="Quản lý & Tùy biến biểu mẫu xuất (BYOT)">
+                    <Button
+                      size="middle"
+                      icon={<SettingOutlined />}
+                      onClick={() => setTemplateModalVisible(true)}
+                      className="shrink-0 text-slate-600 hover:text-blue-600"
+                    />
+                  </Tooltip>
+                </div>
               </div>
             </div>
 
@@ -3312,6 +3371,22 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         onExportExcel={handleExportExcel}
         exporting={exporting}
         disableExport={readOnly || exporting}
+      />
+
+      {/* Modal Quản lý Biểu mẫu & Tùy biến Tọa độ (BYOT Mapper) */}
+      <TemplateConfigModal
+        visible={templateModalVisible}
+        onClose={() => setTemplateModalVisible(false)}
+        onTemplateUpdated={(updatedList, newSelectedId) => {
+          setTemplates(updatedList);
+          if (newSelectedId) {
+            setSelectedTemplateId(newSelectedId);
+          } else {
+            const def = updatedList.find((t) => t.isDefault) || updatedList[0];
+            if (def) setSelectedTemplateId(def.id);
+          }
+        }}
+        selectedTemplateId={selectedTemplateId}
       />
     </div>
   );

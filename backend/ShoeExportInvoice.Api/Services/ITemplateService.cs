@@ -11,4 +11,5 @@ public interface ITemplateService
     Task<CompanyTemplateDto> CreateTemplateAsync(IFormFile file, string name, string configJson, string? description = null, int? folderId = null);
     Task<bool> UpdateTemplateConfigAsync(int id, string configJson);
     Task<bool> SetDefaultTemplateAsync(int id);
+    Task<(byte[] Bytes, string ContentType, string FileName)?> GetTemplateFileAsync(int id);
 }

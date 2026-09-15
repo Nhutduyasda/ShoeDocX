@@ -8,6 +8,7 @@ public class CreateShipmentRequestDto
     [System.Text.Json.Serialization.JsonIgnore]
     public bool UseSavedSnapshot { get; set; }
     public int? OrderId { get; set; }
+    public int? TemplateId { get; set; }
     [Required(ErrorMessage = "Vui lòng chọn hợp đồng/danh mục áp dụng")]
     [Range(1, int.MaxValue)]
     public int? ContractFolderId { get; set; }

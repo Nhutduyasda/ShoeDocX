@@ -238,7 +238,13 @@ public class ShipmentsController : ControllerBase
                 // ===== 1 FILE DUY NHẤT =====
                 var requestedStart = request.StartInvoiceNumber ?? _sequenceService.ExtractSequenceNumber(request.InvoiceNo);
                 int seq = (await _sequenceService.ReservePartnerSequenceNumbersAsync(partnerFolder.Id, 1, requestedStart))[0];
-                string invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, seq);
+                string invoiceNo = request.InvoiceNo?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(invoiceNo)
+                    || int.TryParse(invoiceNo, out _)
+                    || _sequenceService.ExtractSequenceNumber(invoiceNo) != seq)
+                {
+                    invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, seq);
+                }
                 request.InvoiceNo = invoiceNo;
 
                 string fileName = PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, seq);

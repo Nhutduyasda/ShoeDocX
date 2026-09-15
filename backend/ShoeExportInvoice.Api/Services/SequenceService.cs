@@ -95,25 +95,48 @@ public class SequenceService : ISequenceService
             if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             command.Transaction = _context.Database.CurrentTransaction?.GetDbTransaction();
-            command.CommandText = """
-                UPDATE MasterDataFolders
-                SET CurrentSequenceNumber =
-                    (CASE WHEN CurrentSequenceNumber > $requestedStart THEN CurrentSequenceNumber ELSE $requestedStart END) + $count,
-                    UpdatedAt = $updatedAt
-                WHERE Id = $folderId
-                RETURNING CurrentSequenceNumber - $count;
-                """;
-            var requested = requestedStart.GetValueOrDefault(1);
-            command.Parameters.Add(CreateParameter(command, "$requestedStart", Math.Max(1, requested)));
-            command.Parameters.Add(CreateParameter(command, "$count", count));
-            command.Parameters.Add(CreateParameter(command, "$updatedAt", DateTime.UtcNow));
-            command.Parameters.Add(CreateParameter(command, "$folderId", folderId));
+            int first;
+            if (requestedStart.HasValue && requestedStart.Value > 0)
+            {
+                first = requestedStart.Value;
+                var nextSeq = first + count;
+                command.CommandText = """
+                    UPDATE MasterDataFolders
+                    SET CurrentSequenceNumber = CASE 
+                            WHEN CurrentSequenceNumber > $nextSeq THEN CurrentSequenceNumber 
+                            ELSE $nextSeq 
+                        END,
+                        UpdatedAt = $updatedAt
+                    WHERE Id = $folderId;
+                    """;
+                command.Parameters.Add(CreateParameter(command, "$nextSeq", nextSeq));
+                command.Parameters.Add(CreateParameter(command, "$updatedAt", DateTime.UtcNow));
+                command.Parameters.Add(CreateParameter(command, "$folderId", folderId));
 
-            var scalar = await command.ExecuteScalarAsync();
-            if (scalar == null || scalar == DBNull.Value)
-                throw new KeyNotFoundException($"Không tìm thấy thư mục đối tác #{folderId}.");
+                var rows = await command.ExecuteNonQueryAsync();
+                if (rows == 0)
+                    throw new KeyNotFoundException($"Không tìm thấy thư mục đối tác #{folderId}.");
+            }
+            else
+            {
+                command.CommandText = """
+                    UPDATE MasterDataFolders
+                    SET CurrentSequenceNumber = CurrentSequenceNumber + $count,
+                        UpdatedAt = $updatedAt
+                    WHERE Id = $folderId
+                    RETURNING CurrentSequenceNumber - $count;
+                    """;
+                command.Parameters.Add(CreateParameter(command, "$count", count));
+                command.Parameters.Add(CreateParameter(command, "$updatedAt", DateTime.UtcNow));
+                command.Parameters.Add(CreateParameter(command, "$folderId", folderId));
 
-            var first = Convert.ToInt32(scalar);
+                var scalar = await command.ExecuteScalarAsync();
+                if (scalar == null || scalar == DBNull.Value)
+                    throw new KeyNotFoundException($"Không tìm thấy thư mục đối tác #{folderId}.");
+
+                first = Convert.ToInt32(scalar);
+            }
+
             if (ownedTransaction != null) await ownedTransaction.CommitAsync();
             _context.ChangeTracker.Clear();
             return Enumerable.Range(first, count).ToArray();

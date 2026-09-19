@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import type { User, LoginRequest, Department } from '../types/auth';
 import { authApi } from '../api/authApi';
 import { message } from 'antd';
+import { resetUnauthorizedHandling } from '../api/client';
 
 interface AuthContextType {
   user: User | null;
@@ -31,11 +32,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  const logout = useCallback(() => {
-    authApi.logout();
+  const clearLocalSession = useCallback(() => {
     setToken(null);
     setUser(null);
+    localStorage.removeItem('auth_user');
   }, []);
+
+  const logout = useCallback(() => {
+    void authApi.logout();
+    clearLocalSession();
+  }, [clearLocalSession]);
 
   // Fetch current user on mount if token exists
   useEffect(() => {
@@ -46,9 +52,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setToken('cookie-session');
         localStorage.setItem('auth_user', JSON.stringify(me));
       } catch {
-        setUser(null);
-        setToken(null);
-        localStorage.removeItem('auth_user');
+        clearLocalSession();
       }
       setLoading(false);
     };
@@ -56,16 +60,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
 
     const handleUnauthorized = () => {
-      logout();
-      message.warning('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+      clearLocalSession();
+      message.warning({
+        key: 'auth-session-expired',
+        content: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
+      });
     };
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);
     return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
-  }, [logout]);
+  }, [clearLocalSession]);
 
   const login = async (data: LoginRequest) => {
     const res = await authApi.login(data);
+    resetUnauthorizedHandling();
     setToken(res.token);
     setUser(res.user);
     localStorage.setItem('auth_user', JSON.stringify(res.user));

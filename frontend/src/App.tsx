@@ -7,6 +7,10 @@ import { ProductMasterPage } from './pages/ProductMasterPage';
 import { ShipmentPage, type ShipmentPageRef } from './pages/ShipmentPage';
 import { CustomsSettlementPage } from './pages/CustomsSettlementPage';
 import { WarehousePage } from './pages/WarehousePage';
+import { BomCalculatorPage } from './pages/BomCalculatorPage';
+import { MaterialManagementPage } from './pages/MaterialManagementPage';
+import { BomManagementPage } from './pages/BomManagementPage';
+import { MaterialPlanningPage } from './pages/MaterialPlanningPage';
 import { LoginPage } from './pages/LoginPage';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { getAllowedTabsForUser, getDefaultTabForUser } from './types/auth';
@@ -80,6 +84,14 @@ const MainApp: React.FC = () => {
       )}
 
       {currentTab === 'warehouse' && <WarehousePage />}
+
+      {currentTab === 'bom' && <BomCalculatorPage />}
+
+      {currentTab === 'materials' && <MaterialManagementPage />}
+
+      {currentTab === 'bom-master' && <BomManagementPage />}
+
+      {currentTab === 'material-planning' && <MaterialPlanningPage />}
 
       {currentTab === 'products' && <ProductMasterPage />}
 

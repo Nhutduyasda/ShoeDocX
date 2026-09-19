@@ -8,7 +8,7 @@ export interface User {
   departmentName: string;
 }
 
-export type NavTabKey = 'overview' | 'warehouse' | 'shipment' | 'ocr' | 'history' | 'settlement' | 'products';
+export type NavTabKey = 'overview' | 'warehouse' | 'bom' | 'material-planning' | 'materials' | 'bom-master' | 'shipment' | 'ocr' | 'history' | 'settlement' | 'products';
 
 export const isKhoUser = (user?: User | null): boolean => {
   if (!user) return false;
@@ -46,10 +46,10 @@ export const canUnlockClearedShipment = (user?: User | null): boolean => {
 export const getAllowedTabsForUser = (user?: User | null): NavTabKey[] => {
   if (!user) return ['shipment'];
   if (isAdminUser(user)) {
-    return ['overview', 'warehouse', 'shipment', 'ocr', 'history', 'settlement', 'products'];
+    return ['overview', 'warehouse', 'bom', 'material-planning', 'materials', 'bom-master', 'shipment', 'ocr', 'history', 'settlement', 'products'];
   }
   if (isKhoUser(user)) {
-    return ['warehouse', 'products'];
+    return ['warehouse', 'bom', 'material-planning', 'materials', 'bom-master', 'products'];
   }
   if (isXnkUser(user)) {
     return ['shipment', 'history', 'ocr', 'products'];

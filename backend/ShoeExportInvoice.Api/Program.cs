@@ -168,6 +168,7 @@ builder.Services.AddScoped<ICustomsSettlementService, CustomsSettlementService>(
 builder.Services.AddScoped<IBusinessAuditService, BusinessAuditService>();
 builder.Services.AddScoped<ITemplateService, TemplateService>();
 builder.Services.AddScoped<ITemplateAiParserService, TemplateAiParserService>();
+builder.Services.AddScoped<IBomCalculationService, BomCalculationService>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentTenantService, CurrentTenantService>();
 

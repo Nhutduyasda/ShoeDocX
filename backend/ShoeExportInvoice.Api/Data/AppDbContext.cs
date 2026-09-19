@@ -32,6 +32,15 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<BusinessAuditLog> BusinessAuditLogs => Set<BusinessAuditLog>();
     public DbSet<RevokedJwt> RevokedJwts => Set<RevokedJwt>();
     public DbSet<CompanyTemplate> CompanyTemplates => Set<CompanyTemplate>();
+    public DbSet<Material> Materials => Set<Material>();
+    public DbSet<BomMaster> BomMasters => Set<BomMaster>();
+    public DbSet<BomItem> BomItems => Set<BomItem>();
+    public DbSet<ProductionOrder> ProductionOrders => Set<ProductionOrder>();
+    public DbSet<OrderSizeRun> OrderSizeRuns => Set<OrderSizeRun>();
+    public DbSet<MaterialRequirementPlan> MaterialRequirementPlans => Set<MaterialRequirementPlan>();
+    public DbSet<MaterialRequirementPlanItem> MaterialRequirementPlanItems => Set<MaterialRequirementPlanItem>();
+    public DbSet<MaterialRequirementPlanSize> MaterialRequirementPlanSizes => Set<MaterialRequirementPlanSize>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -193,6 +202,107 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(e => e.TaxCode).HasMaxLength(50);
         });
 
+        // BOM and material calculator configuration
+        modelBuilder.Entity<Material>(entity =>
+        {
+            entity.Property(e => e.MaterialCode).UseCollation("NOCASE");
+            entity.Property(e => e.CurrentStock).HasPrecision(18, 4);
+            entity.Property(e => e.CurrentStock).IsConcurrencyToken();
+            entity.HasIndex(e => new { e.TenantId, e.MaterialCode }).IsUnique();
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_Materials_CurrentStock_NonNegative", "CurrentStock >= 0");
+                t.HasCheckConstraint("CK_Materials_MaterialType", "MaterialType IN (0, 1)");
+            });
+        });
+
+        modelBuilder.Entity<BomMaster>(entity =>
+        {
+            entity.Property(e => e.StyleCode).UseCollation("NOCASE");
+            entity.Property(e => e.Version).UseCollation("NOCASE");
+            entity.Property(e => e.ProcessType).HasDefaultValue(ProcessType.Standard);
+            entity.HasIndex(e => new { e.TenantId, e.StyleCode, e.ProcessType, e.Version }).IsUnique();
+            entity.HasIndex(e => new { e.TenantId, e.StyleCode, e.CreatedAt });
+            entity.HasMany(e => e.Items)
+                  .WithOne(e => e.BomMaster)
+                  .HasForeignKey(e => e.BomMasterId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.ToTable(t => t.HasCheckConstraint("CK_BomMasters_ProcessType", "ProcessType IN (1, 2)"));
+        });
+
+        modelBuilder.Entity<BomItem>(entity =>
+        {
+            entity.Property(e => e.NetConsumption).HasPrecision(18, 4);
+            entity.Property(e => e.WastageRatePercent).HasPrecision(18, 4);
+            entity.HasIndex(e => new { e.BomMasterId, e.MaterialId }).IsUnique();
+            entity.HasOne(e => e.Material)
+                  .WithMany(e => e.BomItems)
+                  .HasForeignKey(e => e.MaterialId)
+                  .OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_BomItems_NetConsumption_NonNegative", "NetConsumption >= 0");
+                t.HasCheckConstraint("CK_BomItems_WastageRate", "WastageRatePercent BETWEEN 0 AND 100");
+            });
+        });
+
+        modelBuilder.Entity<ProductionOrder>(entity =>
+        {
+            entity.Property(e => e.OrderNo).UseCollation("NOCASE");
+            entity.Property(e => e.StyleCode).UseCollation("NOCASE");
+            entity.Property(e => e.ProcessType).HasDefaultValue(ProcessType.Standard);
+            entity.HasIndex(e => new { e.TenantId, e.OrderNo }).IsUnique();
+            entity.HasIndex(e => new { e.TenantId, e.StyleCode });
+            entity.Property(e => e.Status).IsConcurrencyToken();
+            entity.HasMany(e => e.SizeRuns)
+                  .WithOne(e => e.ProductionOrder)
+                  .HasForeignKey(e => e.ProductionOrderId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_ProductionOrders_TotalQuantity_NonNegative", "TotalQuantity >= 0");
+                t.HasCheckConstraint("CK_ProductionOrders_ProcessType", "ProcessType IN (1, 2)");
+                t.HasCheckConstraint("CK_ProductionOrders_Status", "Status IN (0, 1, 2, 3, 4)");
+            });
+        });
+
+        modelBuilder.Entity<OrderSizeRun>(entity =>
+        {
+            entity.Property(e => e.SizeName).UseCollation("NOCASE");
+            entity.HasIndex(e => new { e.ProductionOrderId, e.SizeName }).IsUnique();
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_OrderSizeRuns_Quantity_Positive", "Quantity > 0"));
+        });
+
+        modelBuilder.Entity<MaterialRequirementPlan>(entity =>
+        {
+            entity.HasIndex(e => e.ProductionOrderId).IsUnique();
+            entity.Property(e => e.Version).IsConcurrencyToken();
+            entity.HasOne(e => e.ProductionOrder).WithOne(e => e.MaterialRequirementPlan)
+                .HasForeignKey<MaterialRequirementPlan>(e => e.ProductionOrderId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(e => e.Items).WithOne(e => e.Plan)
+                .HasForeignKey(e => e.MaterialRequirementPlanId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MaterialRequirementPlanItem>(entity =>
+        {
+            entity.HasIndex(e => new { e.MaterialRequirementPlanId, e.MaterialId }).IsUnique();
+            entity.HasOne(e => e.Material).WithMany().HasForeignKey(e => e.MaterialId).OnDelete(DeleteBehavior.Restrict);
+            entity.Property(e => e.NetConsumption).HasPrecision(18, 4);
+            entity.Property(e => e.WastageRatePercent).HasPrecision(18, 4);
+            entity.Property(e => e.RequiredQuantity).HasPrecision(18, 4);
+            entity.Property(e => e.StockAtCalculation).HasPrecision(18, 4);
+            entity.HasMany(e => e.SizeBreakdown).WithOne(e => e.PlanItem)
+                .HasForeignKey(e => e.MaterialRequirementPlanItemId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MaterialRequirementPlanSize>(entity =>
+        {
+            entity.HasIndex(e => new { e.MaterialRequirementPlanItemId, e.SizeName }).IsUnique();
+            entity.Property(e => e.SizeName).UseCollation("NOCASE");
+            entity.Property(e => e.RequiredQuantity).HasPrecision(18, 4);
+        });
+
         // Global Query Filters for Multi-Tenancy
         modelBuilder.Entity<CompanyTemplate>()
             .HasQueryFilter(t => t.IsDefault || t.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && t.TenantId == null));
@@ -205,6 +315,28 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
         modelBuilder.Entity<ShipmentOrder>()
             .HasQueryFilter(s => s.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && s.TenantId == null));
+
+        modelBuilder.Entity<Material>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && e.TenantId == null));
+
+        modelBuilder.Entity<BomMaster>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && e.TenantId == null));
+
+        modelBuilder.Entity<BomItem>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && e.TenantId == null));
+
+        modelBuilder.Entity<ProductionOrder>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && e.TenantId == null));
+
+        modelBuilder.Entity<OrderSizeRun>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && e.TenantId == null));
+
+        modelBuilder.Entity<MaterialRequirementPlan>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && e.TenantId == null));
+        modelBuilder.Entity<MaterialRequirementPlanItem>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && e.TenantId == null));
+        modelBuilder.Entity<MaterialRequirementPlanSize>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId || (CurrentTenantId == DefaultTenantId && e.TenantId == null));
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)

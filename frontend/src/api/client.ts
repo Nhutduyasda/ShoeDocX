@@ -2,6 +2,11 @@ import axios from 'axios';
 import { message } from 'antd';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+let unauthorizedEventDispatched = false;
+
+export const resetUnauthorizedHandling = () => {
+  unauthorizedEventDispatched = false;
+};
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -16,9 +21,17 @@ export const apiClient = axios.create({
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status;
+    const requestUrl = String(error.config?.url ?? '');
+    const isSilentAuthRequest = requestUrl.includes('/auth/me') || requestUrl.includes('/auth/logout');
+    const isLoginRequest = requestUrl.includes('/auth/login');
+
+    if (status === 401 && !isSilentAuthRequest && !isLoginRequest) {
       localStorage.removeItem('auth_user');
-      window.dispatchEvent(new Event('auth:unauthorized'));
+      if (!unauthorizedEventDispatched) {
+        unauthorizedEventDispatched = true;
+        window.dispatchEvent(new Event('auth:unauthorized'));
+      }
     }
 
     const errorMsg =
@@ -28,7 +41,9 @@ apiClient.interceptors.response.use(
       'Đã xảy ra lỗi khi kết nối máy chủ';
     
     // In file download or special status codes, caller might handle it
-    if (error.config?.responseType !== 'blob') {
+    if (status !== 401 && error.config?.responseType !== 'blob') {
+      message.error(errorMsg);
+    } else if (isLoginRequest && error.config?.responseType !== 'blob') {
       message.error(errorMsg);
     }
     return Promise.reject(error);

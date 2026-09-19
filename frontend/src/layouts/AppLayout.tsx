@@ -16,6 +16,10 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   LogoutOutlined,
+  CalculatorOutlined,
+  AppstoreOutlined,
+  ApartmentOutlined,
+  ExportOutlined,
 } from '@ant-design/icons';
 import { CheatsheetModal } from '../components/CheatsheetModal';
 import { startOnboardingTour } from '../services/tourService';
@@ -93,10 +97,23 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
               icon: <FileTextOutlined className="text-base" />,
             },
             {
+              key: 'bom',
+              label: 'Bóc tách BOM theo size',
+              icon: <CalculatorOutlined className="text-base" />,
+            },
+            { key: 'material-planning', label: 'Duyệt & Xuất kho NPL', icon: <ExportOutlined className="text-base" /> },
+            {
               key: 'products',
               label: 'Tra cứu mã giày & Quy cách',
               icon: <DatabaseOutlined className="text-base" />,
             },
+          ],
+        },
+        {
+          title: 'MASTER DATA',
+          items: [
+            { key: 'materials', label: 'Danh mục Vật tư', icon: <AppstoreOutlined className="text-base" /> },
+            { key: 'bom-master', label: 'Định mức Kỹ thuật', icon: <ApartmentOutlined className="text-base" /> },
           ],
         },
       ];
@@ -189,6 +206,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             label: 'Giám sát xuất kho (Fast-Grid)',
             icon: <RocketOutlined className="text-base" />,
           },
+          {
+            key: 'bom',
+            label: 'BOM & Định mức vật tư',
+            icon: <CalculatorOutlined className="text-base" />,
+          },
+          { key: 'material-planning', label: 'Kế hoạch & Xuất kho NPL', icon: <ExportOutlined className="text-base" /> },
         ],
       },
       {
@@ -226,6 +249,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       {
         title: 'HỆ THỐNG',
         items: [
+          { key: 'materials', label: 'Danh mục Vật tư', icon: <AppstoreOutlined className="text-base" /> },
+          { key: 'bom-master', label: 'Định mức Kỹ thuật', icon: <ApartmentOutlined className="text-base" /> },
           {
             key: 'products',
             label: 'Master Data & Cấu hình',
@@ -247,6 +272,26 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         return [
           { title: <span className="text-slate-400">Kho & Giao nhận</span> },
           { title: <span className="text-slate-700 font-medium">Lưới xuất kho thành phẩm (Fast-Grid / 成品鞋出货交接)</span> },
+        ];
+      case 'bom':
+        return [
+          { title: <span className="text-slate-400">Kho & Sản xuất</span> },
+          { title: <span className="text-slate-700 font-medium">BOM & Bóc tách vật tư theo size</span> },
+        ];
+      case 'materials':
+        return [
+          { title: <span className="text-slate-400">Master Data</span> },
+          { title: <span className="text-slate-700 font-medium">Danh mục Vật tư</span> },
+        ];
+      case 'material-planning':
+        return [
+          { title: <span className="text-slate-400">Kho & Sản xuất</span> },
+          { title: <span className="text-slate-700 font-medium">Kế hoạch & Xuất kho NPL</span> },
+        ];
+      case 'bom-master':
+        return [
+          { title: <span className="text-slate-400">Master Data</span> },
+          { title: <span className="text-slate-700 font-medium">Định mức Kỹ thuật</span> },
         ];
       case 'shipment':
         return [

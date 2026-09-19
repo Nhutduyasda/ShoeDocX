@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ShoeExportInvoice.Api.Data;
 
@@ -10,9 +11,11 @@ using ShoeExportInvoice.Api.Data;
 namespace ShoeExportInvoice.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260919064318_AddBomProcessType")]
+    partial class AddBomProcessType
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
@@ -632,7 +635,6 @@ namespace ShoeExportInvoice.Api.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<decimal>("CurrentStock")
-                        .IsConcurrencyToken()
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18, 4)");
 
@@ -669,139 +671,6 @@ namespace ShoeExportInvoice.Api.Migrations
 
                             t.HasCheckConstraint("CK_Materials_MaterialType", "MaterialType IN (0, 1)");
                         });
-                });
-
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlan", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("ApprovedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("BomMasterId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("BomVersion")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CalculatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("IssuedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("ProductionOrderId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<Guid?>("TenantId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("Version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProductionOrderId")
-                        .IsUnique();
-
-                    b.ToTable("MaterialRequirementPlans");
-                });
-
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlanItem", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("MaterialCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("MaterialId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("MaterialName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("MaterialRequirementPlanId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("MaterialType")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<decimal>("NetConsumption")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<decimal>("RequiredQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<decimal>("StockAtCalculation")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<Guid?>("TenantId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Unit")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("WastageRatePercent")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MaterialId");
-
-                    b.HasIndex("MaterialRequirementPlanId", "MaterialId")
-                        .IsUnique();
-
-                    b.ToTable("MaterialRequirementPlanItems");
-                });
-
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlanSize", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("MaterialRequirementPlanItemId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("OrderQuantity")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<decimal>("RequiredQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<string>("SizeName")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("TEXT")
-                        .UseCollation("NOCASE");
-
-                    b.Property<Guid?>("TenantId")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MaterialRequirementPlanItemId", "SizeName")
-                        .IsUnique();
-
-                    b.ToTable("MaterialRequirementPlanSizes");
                 });
 
             modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.OrderSizeRun", b =>
@@ -921,15 +790,6 @@ namespace ShoeExportInvoice.Api.Migrations
                         .HasColumnType("TEXT")
                         .UseCollation("NOCASE");
 
-                    b.Property<int>("ProcessType")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(1);
-
-                    b.Property<int>("Status")
-                        .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("StyleCode")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -951,10 +811,6 @@ namespace ShoeExportInvoice.Api.Migrations
 
                     b.ToTable("ProductionOrders", t =>
                         {
-                            t.HasCheckConstraint("CK_ProductionOrders_ProcessType", "ProcessType IN (1, 2)");
-
-                            t.HasCheckConstraint("CK_ProductionOrders_Status", "Status IN (0, 1, 2, 3, 4)");
-
                             t.HasCheckConstraint("CK_ProductionOrders_TotalQuantity_NonNegative", "TotalQuantity >= 0");
                         });
                 });
@@ -1466,47 +1322,6 @@ namespace ShoeExportInvoice.Api.Migrations
                     b.Navigation("Parent");
                 });
 
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlan", b =>
-                {
-                    b.HasOne("ShoeExportInvoice.Api.Models.Entities.ProductionOrder", "ProductionOrder")
-                        .WithOne("MaterialRequirementPlan")
-                        .HasForeignKey("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlan", "ProductionOrderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ProductionOrder");
-                });
-
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlanItem", b =>
-                {
-                    b.HasOne("ShoeExportInvoice.Api.Models.Entities.Material", "Material")
-                        .WithMany()
-                        .HasForeignKey("MaterialId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlan", "Plan")
-                        .WithMany("Items")
-                        .HasForeignKey("MaterialRequirementPlanId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Material");
-
-                    b.Navigation("Plan");
-                });
-
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlanSize", b =>
-                {
-                    b.HasOne("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlanItem", "PlanItem")
-                        .WithMany("SizeBreakdown")
-                        .HasForeignKey("MaterialRequirementPlanItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("PlanItem");
-                });
-
             modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.OrderSizeRun", b =>
                 {
                     b.HasOne("ShoeExportInvoice.Api.Models.Entities.ProductionOrder", "ProductionOrder")
@@ -1608,20 +1423,8 @@ namespace ShoeExportInvoice.Api.Migrations
                     b.Navigation("BomItems");
                 });
 
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlan", b =>
-                {
-                    b.Navigation("Items");
-                });
-
-            modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.MaterialRequirementPlanItem", b =>
-                {
-                    b.Navigation("SizeBreakdown");
-                });
-
             modelBuilder.Entity("ShoeExportInvoice.Api.Models.Entities.ProductionOrder", b =>
                 {
-                    b.Navigation("MaterialRequirementPlan");
-
                     b.Navigation("SizeRuns");
                 });
 

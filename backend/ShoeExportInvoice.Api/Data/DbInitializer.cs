@@ -8,6 +8,24 @@ public static class DbInitializer
 {
     public static async Task InitializeAsync(AppDbContext context, ILogger logger)
     {
+        if (!context.Database.IsSqlServer())
+        {
+            // SQLite remains available only for isolated tests. Production uses SQL Server.
+            await context.Database.EnsureCreatedAsync();
+            await EnsureDefaultTenantWorkspaceAsync(context, logger);
+            await EnsureDefaultCompanyTemplateAsync(context, logger);
+            return;
+        }
+
+        if (context.Database.IsSqlServer())
+        {
+            await context.Database.MigrateAsync();
+            await EnsureDefaultTenantWorkspaceAsync(context, logger);
+            await EnsureDefaultCompanyTemplateAsync(context, logger);
+            return;
+        }
+
+        // Legacy SQLite upgrade path retained for test/transition tooling only.
         const string baseline = "20260910074757_AddCustomsSettlementTables";
         var applied = (await context.Database.GetAppliedMigrationsAsync()).ToList();
         if (!applied.Contains(baseline))

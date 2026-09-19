@@ -18,8 +18,14 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.20" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <!-- Historical SQLite migrations are retained for reference but are not compiled.
+       SQL Server uses the clean provider-specific migration set below. -->
+  <ItemGroup>
+    <Compile Remove="Migrations\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>

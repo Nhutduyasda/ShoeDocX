@@ -58,9 +58,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         // ProductMaster configuration
         modelBuilder.Entity<ProductMaster>(entity =>
         {
-            entity.Property(e => e.StyleCode).UseCollation("NOCASE");
             entity.HasIndex(e => new { e.FolderId, e.StyleCode }).IsUnique();
-            entity.HasIndex(e => e.StyleCode).IsUnique().HasFilter("\"FolderId\" IS NULL");
+            entity.HasIndex(e => e.StyleCode).IsUnique().HasFilter("[FolderId] IS NULL");
             entity.Property(e => e.UnitPriceCMT).HasPrecision(18, 4);
             entity.Property(e => e.UnitPriceDAP).HasPrecision(18, 4);
             entity.HasOne(e => e.Folder)
@@ -82,7 +81,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.HasIndex(e => new { e.ContractFolderId, e.Status, e.CustomsDeclarationType, e.ClearanceDate });
             entity.Property(e => e.IsLocked).IsConcurrencyToken();
             entity.Property(e => e.Status).IsConcurrencyToken();
-            entity.HasIndex(e => e.DeclarationNo).IsUnique().HasFilter("\"DeclarationNo\" IS NOT NULL AND \"DeclarationNo\" <> ''");
+            entity.HasIndex(e => e.DeclarationNo).IsUnique().HasFilter("[DeclarationNo] IS NOT NULL AND [DeclarationNo] <> ''");
             entity.Property(e => e.CustomsGrossWeight).HasPrecision(18, 4);
             entity.Property(e => e.CustomsTotalDap).HasPrecision(18, 4);
             entity.Property(e => e.CustomsTotalCmt).HasPrecision(18, 4);
@@ -170,7 +169,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                   .OnDelete(DeleteBehavior.Restrict);
             entity.Property(e => e.Status).IsConcurrencyToken();
             entity.Property(e => e.Version).IsConcurrencyToken();
-            entity.HasIndex(e => e.ShipmentOrderId).IsUnique().HasFilter("\"ShipmentOrderId\" IS NOT NULL");
+            entity.HasIndex(e => e.ShipmentOrderId).IsUnique().HasFilter("[ShipmentOrderId] IS NOT NULL");
             entity.HasMany(e => e.Items)
                   .WithOne(e => e.WarehouseBatch)
                   .HasForeignKey(e => e.WarehouseBatchId)
@@ -205,7 +204,6 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         // BOM and material calculator configuration
         modelBuilder.Entity<Material>(entity =>
         {
-            entity.Property(e => e.MaterialCode).UseCollation("NOCASE");
             entity.Property(e => e.CurrentStock).HasPrecision(18, 4);
             entity.Property(e => e.CurrentStock).IsConcurrencyToken();
             entity.HasIndex(e => new { e.TenantId, e.MaterialCode }).IsUnique();
@@ -218,8 +216,6 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
         modelBuilder.Entity<BomMaster>(entity =>
         {
-            entity.Property(e => e.StyleCode).UseCollation("NOCASE");
-            entity.Property(e => e.Version).UseCollation("NOCASE");
             entity.Property(e => e.ProcessType).HasDefaultValue(ProcessType.Standard);
             entity.HasIndex(e => new { e.TenantId, e.StyleCode, e.ProcessType, e.Version }).IsUnique();
             entity.HasIndex(e => new { e.TenantId, e.StyleCode, e.CreatedAt });
@@ -248,8 +244,6 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
         modelBuilder.Entity<ProductionOrder>(entity =>
         {
-            entity.Property(e => e.OrderNo).UseCollation("NOCASE");
-            entity.Property(e => e.StyleCode).UseCollation("NOCASE");
             entity.Property(e => e.ProcessType).HasDefaultValue(ProcessType.Standard);
             entity.HasIndex(e => new { e.TenantId, e.OrderNo }).IsUnique();
             entity.HasIndex(e => new { e.TenantId, e.StyleCode });
@@ -268,7 +262,6 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
         modelBuilder.Entity<OrderSizeRun>(entity =>
         {
-            entity.Property(e => e.SizeName).UseCollation("NOCASE");
             entity.HasIndex(e => new { e.ProductionOrderId, e.SizeName }).IsUnique();
             entity.ToTable(t => t.HasCheckConstraint(
                 "CK_OrderSizeRuns_Quantity_Positive", "Quantity > 0"));
@@ -299,7 +292,6 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<MaterialRequirementPlanSize>(entity =>
         {
             entity.HasIndex(e => new { e.MaterialRequirementPlanItemId, e.SizeName }).IsUnique();
-            entity.Property(e => e.SizeName).UseCollation("NOCASE");
             entity.Property(e => e.RequiredQuantity).HasPrecision(18, 4);
         });
 

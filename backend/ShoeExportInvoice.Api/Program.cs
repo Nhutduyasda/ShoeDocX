@@ -28,7 +28,7 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 
-// Database Context (SQLite)
+// Database Context (SQL Server)
 builder.Services.AddOptions<DatabaseOptions>().BindConfiguration("ConnectionStrings").ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddOptions<XnkOptions>().BindConfiguration("Xnk").ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddOptions<OcrOptions>().BindConfiguration("OpenAI")
@@ -38,26 +38,9 @@ var databaseOptions = builder.Configuration.GetSection("ConnectionStrings").Get<
     ?? throw new InvalidOperationException("Thiếu cấu hình ConnectionStrings.");
 var connectionString = databaseOptions.DefaultConnection;
 
-// Ensure SQLite directory exists if a file path is specified (e.g. /app/data/shoe_export.db)
-try
-{
-    var csb = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(connectionString);
-    if (!string.IsNullOrWhiteSpace(csb.DataSource))
-    {
-        var dbDir = Path.GetDirectoryName(csb.DataSource);
-        if (!string.IsNullOrWhiteSpace(dbDir) && !Directory.Exists(dbDir))
-        {
-            Directory.CreateDirectory(dbDir);
-        }
-    }
-}
-catch
-{
-    // Ignore parsing issues and let EF Core handle it
-}
-
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(connectionString));
+    options.UseSqlServer(connectionString, sql =>
+        sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(5), null)));
 
 // ASP.NET Core Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>

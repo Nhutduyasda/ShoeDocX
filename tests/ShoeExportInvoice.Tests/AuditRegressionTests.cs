@@ -270,7 +270,9 @@ public class AuditRegressionTests
             using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite($"Data Source={path};Pooling=False").Options);
             await DbInitializer.InitializeAsync(db, NullLogger.Instance);
             await DbInitializer.InitializeAsync(db, NullLogger.Instance);
-            Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+            // SQLite is retained as an isolated test provider and uses EnsureCreated;
+            // production migrations are SQL Server-specific.
+            Assert.True(await db.Database.CanConnectAsync());
             var folder = new MasterDataFolder { Name = "Contract" };
             db.Add(folder); await db.SaveChangesAsync();
             db.Add(new ShipmentOrder { InvoiceNo = "MIGRATION", CustomerName = "Test", ContractFolderId = folder.Id });

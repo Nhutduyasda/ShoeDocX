@@ -9,8 +9,8 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<App
     public AppDbContext CreateDbContext(string[] args)
     {
         var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
-            ?? "Data Source=shoe_export.db";
+            ?? "Server=localhost;Database=ShoeExportInvoice;Trusted_Connection=True;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5";
         return new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connectionString).Options);
+            .UseSqlServer(connectionString).Options);
     }
 }

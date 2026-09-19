@@ -11,7 +11,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:5270
-      - ConnectionStrings__DefaultConnection=Data Source=/app/data/shoe_export.db
+      - ConnectionStrings__DefaultConnection=${SQLSERVER_CONNECTION_STRING:?SQLSERVER_CONNECTION_STRING must be configured}
       - OpenAI__ApiKey=${OPENAI_API_KEY:-}
       - Xnk__CustomsStoragePath=/app/data/customs
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -21,7 +21,7 @@ services:
       - BootstrapAdmin__Password=${BOOTSTRAP_ADMIN_PASSWORD:-}
       - BootstrapAdmin__FullName=${BOOTSTRAP_ADMIN_FULL_NAME:-System Administrator}
     volumes:
-      # Lưu trữ cơ sở dữ liệu SQLite bền vững ra thư mục data ở máy host
+      # Lưu trữ file nghiệp vụ/đính kèm; database nằm trên SQL Server
       - ./data:/app/data
       # Mount thư mục Templates từ máy host để có thể cập nhật mẫu Excel trực tiếp
       - ./Templates:/app/Templates

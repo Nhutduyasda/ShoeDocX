@@ -74,23 +74,30 @@ public class OcrExtractionService : IOcrExtractionService
 
         var url = _options.Endpoint;
 
-        var prompt = @"Bạn là trợ lý bóc tách bảng số liệu kiểm kho từ hình ảnh. Hãy đọc thật kỹ từng dòng trong bảng:
-1. Tiêu đề: Đọc chính xác dòng text màu đỏ/đen ở trên cùng của bảng (Ví dụ: ""LẦN 20 08/9 5BUY HD THÀNH HÌNH"").
+        var prompt = @"Bạn là trợ lý bóc tách bảng số liệu kiểm kho từ hình ảnh.
+Ảnh có thể chứa MỘT HOẶC NHIỀU bảng giao hàng độc lập. Trước tiên hãy phát hiện TẤT CẢ bảng. Một bảng thường có tiêu đề chứa 'LẦN ...', cột Hình thể/鞋型 và cột Số lượng đi hàng/交货数量. Các bảng có thể nằm cạnh nhau, trên/dưới nhau, hoặc cách nhau bởi khoảng trắng/cột Excel. TUYỆT ĐỐI không trộn dòng của hai bảng.
+Với từng bảng:
+1. Đọc tiêu đề riêng chính xác.
 2. Bảng dữ liệu:
    - Chỉ đọc các dòng CÓ DỮ LIỆU. Bỏ qua hoàn toàn các dòng kẻ trống.
    - Cột 1 (Hình thể/Mã giày): Giữ nguyên format mã (vd: ""42072-410"", ""42073-030""). Chỉ trích xuất mã hình thể gốc (ví dụ: 'BM5879-464'), loại bỏ các ký hiệu ghi chú đối tác hoặc phân xưởng nằm trong dấu ngoặc đơn ở đuôi như '(KM3)', '(X3)'.
    - Cột 2 (Số lượng đi hàng): Đọc đúng số nguyên tương ứng trên cùng dòng đó.
    - Cột 3 (Ghi chú/Màu sắc nếu có): Nếu có ghi chú bên cạnh (vd: ""GÒ KHÔNG MAY"") thì trích xuất, nếu không thì để chuỗi rỗng """".
-3. Tổng cộng: Đọc chính xác con số nằm trong ô màu vàng ở dòng ""TỔNG CỘNG"" cuối bảng.
+3. Tổng cộng: Đọc con số ở dòng ""TỔNG CỘNG"" của đúng bảng. Nếu không nhìn thấy hoặc không chắc chắn, trả null; không tự tính thay.
+4. sourceRegion: nếu xác định được, trả tọa độ chuẩn hóa 0..1 (x, y, width, height); nếu không thì null.
 
 Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
 {
-  ""title"": string,
-  ""reportedTotal"": number,
-  ""items"": [
-    { ""styleCode"": string, ""quantity"": number, ""note"": string }
+  ""documents"": [
+    {
+      ""title"": string,
+      ""reportedTotal"": number | null,
+      ""sourceRegion"": { ""x"": number, ""y"": number, ""width"": number, ""height"": number } | null,
+      ""items"": [ { ""styleCode"": string, ""quantity"": number, ""note"": string } ]
+    }
   ]
-}";
+}
+Không được trả một items array toàn cục.";
 
         var requestBody = new
         {
@@ -207,28 +214,40 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
         using var doc = JsonDocument.Parse(cleanJson);
         var root = doc.RootElement;
 
-        var title = root.TryGetProperty("title", out var titleProp) ? titleProp.GetString() ?? "" : "";
-        var reportedTotal = root.TryGetProperty("reportedTotal", out var repProp) && repProp.TryGetInt32(out var repVal) ? repVal : 0;
+        // Accept the legacy single-document shape only as an input compatibility adapter.
+        var documentElements = root.TryGetProperty("documents", out var docsProp) && docsProp.ValueKind == JsonValueKind.Array
+            ? docsProp.EnumerateArray().ToList()
+            : new List<JsonElement> { root };
 
-        var extractedItems = new List<ExtractedRawItem>();
-        if (root.TryGetProperty("items", out var itemsProp) && itemsProp.ValueKind == JsonValueKind.Array)
+        var rawDocuments = new List<(string Title, int? ReportedTotal, OcrSourceRegionDto? Region, List<ExtractedRawItem> Items)>();
+        foreach (var documentElement in documentElements)
         {
-            foreach (var itemElem in itemsProp.EnumerateArray())
+            var title = documentElement.TryGetProperty("title", out var titleProp) ? titleProp.GetString() ?? "" : "";
+            int? reportedTotal = documentElement.TryGetProperty("reportedTotal", out var repProp) &&
+                repProp.ValueKind == JsonValueKind.Number && repProp.TryGetInt32(out var repVal) ? repVal : null;
+            OcrSourceRegionDto? region = null;
+            if (documentElement.TryGetProperty("sourceRegion", out var regionProp) && regionProp.ValueKind == JsonValueKind.Object)
             {
-                var rawCode = itemElem.TryGetProperty("styleCode", out var sProp) ? sProp.GetString() ?? "" : "";
-                var code = NormalizeStyleCode(rawCode);
-                var qty = itemElem.TryGetProperty("quantity", out var qProp) && qProp.TryGetInt32(out var qVal) ? qVal : 0;
-                var note = itemElem.TryGetProperty("note", out var nProp) ? nProp.GetString() ?? "" : "";
-
-                if (!string.IsNullOrWhiteSpace(code) && qty > 0)
+                region = new OcrSourceRegionDto
                 {
-                    extractedItems.Add(new ExtractedRawItem(code.Trim(), qty, note.Trim()));
-                }
+                    X = ReadNullableDouble(regionProp, "x"), Y = ReadNullableDouble(regionProp, "y"),
+                    Width = ReadNullableDouble(regionProp, "width"), Height = ReadNullableDouble(regionProp, "height")
+                };
             }
+            var items = new List<ExtractedRawItem>();
+            if (documentElement.TryGetProperty("items", out var itemsProp) && itemsProp.ValueKind == JsonValueKind.Array)
+                foreach (var itemElem in itemsProp.EnumerateArray())
+                {
+                    var code = NormalizeStyleCode(itemElem.TryGetProperty("styleCode", out var s) ? s.GetString() ?? "" : "");
+                    var qty = itemElem.TryGetProperty("quantity", out var q) && q.TryGetInt32(out var qv) ? qv : 0;
+                    var note = itemElem.TryGetProperty("note", out var n) ? n.GetString() ?? "" : "";
+                    if (!string.IsNullOrWhiteSpace(code) && qty > 0) items.Add(new(code.Trim(), qty, note.Trim()));
+                }
+            rawDocuments.Add((title, reportedTotal, region, items));
         }
 
         // Tra cứu Master Data trong SQLite để làm giàu thông tin (Enrichment)
-        var lookupCodes = extractedItems.Select(x =>
+        var lookupCodes = rawDocuments.SelectMany(d => d.Items).Select(x =>
         {
             var c = x.StyleCode.ToUpperInvariant();
             if (c.EndsWith(".G")) c = c.Substring(0, c.Length - 2).Trim();
@@ -241,23 +260,26 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
             .ToListAsync(cancellationToken);
         var productMap = dbProducts.GroupBy(p => p.StyleCode.ToUpperInvariant()).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
 
-        var finalItems = new List<OcrItemDto>();
-        foreach (var raw in extractedItems)
+        var result = new OcrExtractionResponseDto();
+        foreach (var rawDocument in rawDocuments)
         {
-            var upperCode = raw.StyleCode.ToUpperInvariant();
-            var lookupCode = upperCode.EndsWith(".G") ? upperCode.Substring(0, upperCode.Length - 2).Trim() : upperCode;
+            var finalItems = new List<OcrItemDto>();
+            foreach (var raw in rawDocument.Items)
+            {
+                var upperCode = raw.StyleCode.ToUpperInvariant();
+                var lookupCode = upperCode.EndsWith(".G") ? upperCode.Substring(0, upperCode.Length - 2).Trim() : upperCode;
 
-            productMap.TryGetValue(lookupCode, out var matchedProduct);
+                productMap.TryGetValue(lookupCode, out var matchedProduct);
 
             // Kiểm tra quy trình Gò không may
-            var isGoProcess = raw.Note.Contains("GÒ", StringComparison.OrdinalIgnoreCase)
-                || raw.Note.Contains("GO", StringComparison.OrdinalIgnoreCase)
-                || upperCode.EndsWith(".G");
+                var isGoProcess = raw.Note.Contains("GÒ", StringComparison.OrdinalIgnoreCase)
+                    || raw.Note.Contains("GO", StringComparison.OrdinalIgnoreCase)
+                    || upperCode.EndsWith(".G");
 
             var processType = isGoProcess ? ProcessType.GoKhongMay : ProcessType.Standard;
 
-            finalItems.Add(new OcrItemDto
-            {
+                finalItems.Add(new OcrItemDto
+                {
                 StyleCode = raw.StyleCode,
                 Quantity = raw.Quantity,
                 Note = raw.Note,
@@ -268,24 +290,22 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
                 Description = matchedProduct?.Description ?? string.Empty,
                 Unit = matchedProduct?.Unit ?? "đôi",
                 IsMatched = matchedProduct != null
+                });
+            }
+            result.Documents.Add(new OcrDetectedDocumentDto
+            {
+                Title = rawDocument.Title,
+                ReportedTotal = rawDocument.ReportedTotal,
+                CalculatedTotal = finalItems.Sum(x => x.Quantity),
+                Items = finalItems,
+                SourceRegion = rawDocument.Region
             });
         }
-
-        var calculatedTotal = finalItems.Sum(x => x.Quantity);
-        if (reportedTotal == 0)
-        {
-            reportedTotal = calculatedTotal;
-        }
-
-        return new OcrExtractionResponseDto
-        {
-            Title = title,
-            Items = finalItems,
-            ReportedTotal = reportedTotal,
-            CalculatedTotal = calculatedTotal,
-            IsTotalMatched = (calculatedTotal == reportedTotal)
-        };
+        return result;
     }
+
+    private static double? ReadNullableDouble(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var value) && value.TryGetDouble(out var number) ? number : null;
 
     public static string NormalizeStyleCode(string rawCode)
     {

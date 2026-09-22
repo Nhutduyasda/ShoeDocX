@@ -3,15 +3,24 @@ using ShoeExportInvoice.Api.Models.Entities;
 
 namespace ShoeExportInvoice.Api.Models.Dtos;
 
+public class BatchOcrImageResultDto
+{
+    public string ClientFileId { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public bool IsSuccess { get; set; } = true;
+    public string? ErrorMessage { get; set; }
+    public List<OcrDetectedDocumentDto> Documents { get; set; } = new();
+}
+
 public class BatchOcrScanResultDto
 {
     public string BatchId { get; set; } = Guid.NewGuid().ToString();
     public string FileName { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
-    public int ReportedTotal { get; set; }
+    public int? ReportedTotal { get; set; }
     public int CalculatedTotal { get; set; }
-    public bool IsMatched => ReportedTotal > 0 && ReportedTotal == CalculatedTotal;
-    public int Discrepancy => CalculatedTotal - ReportedTotal;
+    public bool IsMatched => ReportedTotal.HasValue && ReportedTotal == CalculatedTotal;
+    public int? Discrepancy => ReportedTotal.HasValue ? CalculatedTotal - ReportedTotal.Value : null;
     public List<OcrItemDto> Items { get; set; } = new();
     public bool HasStandardItems { get; set; }
     public bool HasGoItems { get; set; }

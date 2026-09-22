@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using ShoeExportInvoice.Api.Models.Entities;
 
 namespace ShoeExportInvoice.Api.Models.Dtos;
@@ -16,16 +17,41 @@ public class OcrItemDto
     public bool IsMatched { get; set; }
 }
 
-public class OcrExtractionResponseDto
+public class OcrSourceRegionDto
 {
+    public double? X { get; set; }
+    public double? Y { get; set; }
+    public double? Width { get; set; }
+    public double? Height { get; set; }
+}
+
+public class OcrDetectedDocumentDto
+{
+    public string DocumentId { get; set; } = Guid.NewGuid().ToString();
     public string Title { get; set; } = string.Empty;
     public List<OcrItemDto> Items { get; set; } = new();
-    public int ReportedTotal { get; set; }
+    public int? ReportedTotal { get; set; }
     public int CalculatedTotal { get; set; }
-    public bool IsTotalMatched { get; set; }
+    public bool HasReportedTotal => ReportedTotal.HasValue;
+    public bool IsTotalMatched => ReportedTotal.HasValue && ReportedTotal.Value == CalculatedTotal;
+    public int? Discrepancy => ReportedTotal.HasValue ? CalculatedTotal - ReportedTotal.Value : null;
+    public OcrSourceRegionDto? SourceRegion { get; set; }
+    public bool HasStandardItems => Items.Any(i => i.ProcessType == ProcessType.Standard);
+    public bool HasGoItems => Items.Any(i => i.ProcessType == ProcessType.GoKhongMay);
+}
+
+public class OcrExtractionResponseDto
+{
+    public List<OcrDetectedDocumentDto> Documents { get; set; } = new();
     public bool IsSimulation { get; set; }
-    public string? RawJsonResponse { get; set; }
+    [JsonIgnore] public string? RawJsonResponse { get; set; }
     public string? Message { get; set; }
+
+    [JsonIgnore] public string Title => Documents.FirstOrDefault()?.Title ?? string.Empty;
+    [JsonIgnore] public List<OcrItemDto> Items => Documents.FirstOrDefault()?.Items ?? new();
+    [JsonIgnore] public int? ReportedTotal => Documents.FirstOrDefault()?.ReportedTotal;
+    [JsonIgnore] public int CalculatedTotal => Documents.FirstOrDefault()?.CalculatedTotal ?? 0;
+    [JsonIgnore] public bool IsTotalMatched => Documents.FirstOrDefault()?.IsTotalMatched ?? false;
 }
 
 public class OcrSettingsOptions

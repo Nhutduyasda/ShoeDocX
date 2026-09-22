@@ -418,12 +418,29 @@ export interface OcrItem {
   isMatched: boolean;
 }
 
-export interface OcrExtractionResponse {
+export interface OcrSourceRegion {
+  x?: number | null;
+  y?: number | null;
+  width?: number | null;
+  height?: number | null;
+}
+
+export interface OcrDetectedDocument {
+  documentId: string;
   title: string;
   items: OcrItem[];
-  reportedTotal: number;
+  reportedTotal: number | null;
   calculatedTotal: number;
+  hasReportedTotal: boolean;
   isTotalMatched: boolean;
+  discrepancy?: number | null;
+  sourceRegion?: OcrSourceRegion | null;
+  hasStandardItems: boolean;
+  hasGoItems: boolean;
+}
+
+export interface OcrExtractionResponse {
+  documents: OcrDetectedDocument[];
   isSimulation: boolean;
   rawJsonResponse?: string;
   message?: string;
@@ -718,19 +735,12 @@ export interface AnalyticsExportStats {
 // BATCH OCR TYPES
 // ==========================================
 
-export interface BatchOcrScanResult {
-  batchId: string;
+export interface BatchOcrImageResult {
+  clientFileId: string;
   fileName: string;
-  title: string;
-  reportedTotal: number;
-  calculatedTotal: number;
-  isMatched: boolean;
-  discrepancy: number;
-  items: OcrItem[];
-  hasStandardItems: boolean;
-  hasGoItems: boolean;
   isSuccess: boolean;
   errorMessage?: string;
+  documents: OcrDetectedDocument[];
 }
 
 export interface BatchScanItemExport {

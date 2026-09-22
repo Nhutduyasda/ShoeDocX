@@ -211,4 +211,48 @@ public class OcrExtractionTests
         Assert.Equal(10.5m, item2.UnitPriceDAP);
         Assert.Equal("Giày thể thao nam YL", item2.Description);
     }
+
+    [Fact]
+    public async Task ParseAndEnrichOcrResultAsync_ShouldKeepMultipleDocumentsSeparate_AndNotInventTotal()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        using var context = new AppDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+        var service = new OcrExtractionService(new HttpClient(), context, new ConfigurationBuilder().Build(), NullLogger<OcrExtractionService>.Instance);
+
+        var json = @"{
+          ""documents"": [
+            { ""title"": ""LẦN 19"", ""reportedTotal"": 11748, ""sourceRegion"": { ""x"": 0.01, ""y"": 0.05, ""width"": 0.46, ""height"": 0.9 },
+              ""items"": [
+                { ""styleCode"": ""41898-2LI"", ""quantity"": 84, ""note"": """" },
+                { ""styleCode"": ""42072-410"", ""quantity"": 5316, ""note"": """" },
+                { ""styleCode"": ""40700-060"", ""quantity"": 612, ""note"": """" },
+                { ""styleCode"": ""42073-030"", ""quantity"": 2880, ""note"": """" },
+                { ""styleCode"": ""42072-030"", ""quantity"": 2856, ""note"": """" }
+              ] },
+            { ""title"": ""LẦN 20"", ""reportedTotal"": null,
+              ""items"": [
+                { ""styleCode"": ""42072-410"", ""quantity"": 1704, ""note"": """" },
+                { ""styleCode"": ""42073-030"", ""quantity"": 288, ""note"": """" },
+                { ""styleCode"": ""42072-030.G"", ""quantity"": 5550, ""note"": """" }
+              ] }
+          ]
+        }";
+
+        var result = await service.ParseAndEnrichOcrResultAsync(json, default);
+
+        Assert.Equal(2, result.Documents.Count);
+        Assert.Equal(11748, result.Documents[0].CalculatedTotal);
+        Assert.True(result.Documents[0].IsTotalMatched);
+        Assert.Equal(7542, result.Documents[1].CalculatedTotal);
+        Assert.Null(result.Documents[1].ReportedTotal);
+        Assert.False(result.Documents[1].HasReportedTotal);
+        Assert.False(result.Documents[1].IsTotalMatched);
+        Assert.Equal(5316, Assert.Single(result.Documents[0].Items.Where(i => i.StyleCode == "42072-410")).Quantity);
+        Assert.Equal(1704, Assert.Single(result.Documents[1].Items.Where(i => i.StyleCode == "42072-410")).Quantity);
+        Assert.Equal(ProcessType.GoKhongMay, result.Documents[1].Items.Last().ProcessType);
+        Assert.Equal(0.46, result.Documents[0].SourceRegion?.Width);
+    }
 }

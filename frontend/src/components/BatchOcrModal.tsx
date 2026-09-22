@@ -28,7 +28,8 @@ import {
 } from '@ant-design/icons';
 import { ocrApi } from '../api/ocrApi';
 import type {
-  BatchOcrScanResult,
+  BatchOcrImageResult,
+  OcrDetectedDocument,
   BatchOcrConfirmRequest,
   BatchScanItemExport,
   OcrItem,
@@ -54,7 +55,7 @@ interface ImageQueueItem {
   previewUrl: string;
   status: 'pending' | 'processing' | 'done' | 'error';
   errorMessage?: string;
-  result?: BatchOcrScanResult;
+  result?: BatchOcrImageResult;
 }
 
 export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
@@ -72,9 +73,10 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
 
   // Edit Card Modal state
   const [editingCard, setEditingCard] = useState<ImageQueueItem | null>(null);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState<string>('');
   const [editItems, setEditItems] = useState<OcrItem[]>([]);
-  const [editReportedTotal, setEditReportedTotal] = useState<number>(0);
+  const [editReportedTotal, setEditReportedTotal] = useState<number | null>(null);
 
   // General export settings
   const [contractNo, setContractNo] = useState<string>('KM-HANEW/01-2025');
@@ -126,7 +128,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
     }
 
     const newQueueItems: ImageQueueItem[] = validFiles.map((file) => ({
-      id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       file,
       previewUrl: URL.createObjectURL(file),
       status: 'pending',
@@ -229,41 +231,29 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
     );
 
     try {
-      const filesToExtract = pendingItems.map((item) => item.file);
-      const scanResults = await ocrApi.batchExtract(filesToExtract);
+      const scanResults = await ocrApi.batchExtract(pendingItems.map(item => ({ clientFileId: item.id, file: item.file })));
 
       // Match each result back to imageQueue item by fileName or position
       setImageQueue((prev) =>
         prev.map((item) => {
           if (item.status !== 'processing') return item;
 
-          const matchedRes = scanResults.find(
-            (r) => r.fileName === item.file.name
-          ) || scanResults[0];
+          const matchedRes = scanResults.find((r) => r.clientFileId === item.id);
 
           if (matchedRes && matchedRes.isSuccess) {
-            const normalizedItems = (matchedRes.items || []).map((it) => ({
-              ...it,
-              processType: normalizeProcessType(it.processType),
-            }));
-            const hasStandard = normalizedItems.some((i) => normalizeProcessType(i.processType) === ProcessType.Standard);
-            const hasGo = normalizedItems.some((i) => normalizeProcessType(i.processType) === ProcessType.GoKhongMay);
-
             return {
               ...item,
               status: 'done',
               result: {
                 ...matchedRes,
-                items: normalizedItems,
-                hasStandardItems: hasStandard,
-                hasGoItems: hasGo,
+                documents: matchedRes.documents.map(d => ({ ...d, items: d.items.map(it => ({ ...it, processType: normalizeProcessType(it.processType) })) })),
               },
             };
           } else {
             return {
               ...item,
               status: 'error',
-              errorMessage: matchedRes?.errorMessage || 'Lỗi bóc tách ảnh.',
+              errorMessage: matchedRes?.errorMessage || 'Không tìm thấy kết quả OCR tương ứng với ảnh nguồn.',
               result: matchedRes,
             };
           }
@@ -286,12 +276,12 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   };
 
   // Open Edit Card Modal
-  const handleOpenEditCard = (item: ImageQueueItem) => {
-    if (!item.result) return;
+  const handleOpenEditCard = (item: ImageQueueItem, document: OcrDetectedDocument) => {
     setEditingCard(item);
-    setEditTitle(item.result.title);
-    setEditReportedTotal(item.result.reportedTotal);
-    setEditItems([...item.result.items]);
+    setEditingDocumentId(document.documentId);
+    setEditTitle(document.title);
+    setEditReportedTotal(document.reportedTotal);
+    setEditItems([...document.items]);
   };
 
   // Save changes from Edit Card Modal
@@ -304,20 +294,21 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       styleCode: normalizeOcrStyleCode(i.styleCode),
     }));
     const newCalculatedTotal = cleanedItems.reduce((acc, i) => acc + (i.quantity || 0), 0);
-    const updatedResult: BatchOcrScanResult = {
-      ...editingCard.result,
-      title: editTitle.trim() || editingCard.result.title,
+    const updatedDocument: OcrDetectedDocument = {
+      ...editingCard.result.documents.find(d => d.documentId === editingDocumentId)!,
+      title: editTitle.trim() || 'Đợt hàng',
       reportedTotal: editReportedTotal,
       calculatedTotal: newCalculatedTotal,
-      isMatched: editReportedTotal > 0 && editReportedTotal === newCalculatedTotal,
-      discrepancy: newCalculatedTotal - editReportedTotal,
+      hasReportedTotal: editReportedTotal !== null,
+      isTotalMatched: editReportedTotal !== null && editReportedTotal === newCalculatedTotal,
+      discrepancy: editReportedTotal === null ? null : newCalculatedTotal - editReportedTotal,
       items: cleanedItems,
       hasStandardItems: cleanedItems.some((i) => normalizeProcessType(i.processType) === ProcessType.Standard),
       hasGoItems: cleanedItems.some((i) => normalizeProcessType(i.processType) === ProcessType.GoKhongMay),
     };
 
     setImageQueue((prev) =>
-      prev.map((item) => (item.id === editingCard.id ? { ...item, result: updatedResult } : item))
+      prev.map((item) => item.id === editingCard.id && item.result ? { ...item, result: { ...item.result, documents: item.result.documents.map(d => d.documentId === editingDocumentId ? updatedDocument : d) } } : item)
     );
 
     setEditingCard(null);
@@ -326,7 +317,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
 
   // Handle export all completed batches to single ZIP
   const handleExportZip = async () => {
-    const doneItems = imageQueue.filter((item) => item.status === 'done' && item.result && item.result.items.length > 0);
+    const doneItems = imageQueue.filter((item) => item.status === 'done' && item.result && item.result.documents.some(d => d.items.length > 0));
 
     if (doneItems.length === 0) {
       message.warning('Chưa có đợt nào hoàn thành bóc tách hợp lệ để xuất Excel.');
@@ -336,9 +327,8 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
     try {
       setIsExporting(true);
 
-      const batchesPayload: BatchScanItemExport[] = doneItems.map((dItem) => {
-        const res = dItem.result!;
-        const shipmentItems: CreateShipmentItem[] = res.items.map((i) => ({
+      const batchesPayload: BatchScanItemExport[] = doneItems.flatMap((dItem) => dItem.result!.documents.filter(d => d.items.length).map(doc => {
+        const shipmentItems: CreateShipmentItem[] = doc.items.map((i) => ({
           styleCode: i.styleCode,
           description: i.description,
           quantity: i.quantity,
@@ -350,11 +340,11 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
         }));
 
         return {
-          batchId: res.batchId,
-          title: res.title,
+          batchId: doc.documentId,
+          title: doc.title,
           items: shipmentItems,
         };
-      });
+      }));
 
       const requestPayload: BatchOcrConfirmRequest = {
         contractFolderId,
@@ -376,7 +366,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      message.success(`Đã xuất thành công gói ZIP chứa ${doneItems.length} đợt giao hàng.`);
+      message.success(`Đã xuất thành công gói ZIP chứa ${batchesPayload.length} đợt giao hàng.`);
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -393,8 +383,9 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const totalPending = imageQueue.filter((i) => i.status === 'pending').length;
 
   const totalPairs = imageQueue.reduce((acc, item) => {
-    return acc + (item.result ? item.result.calculatedTotal : 0);
+    return acc + (item.result ? item.result.documents.reduce((sum, d) => sum + d.items.reduce((s, i) => s + i.quantity, 0), 0) : 0);
   }, 0);
+  const totalDocuments = imageQueue.reduce((acc, item) => acc + (item.result?.documents.length || 0), 0);
 
   return (
     <Modal
@@ -497,6 +488,10 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                 {totalPairs.toLocaleString()} đôi
               </span>
             </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500">Đợt hàng:</span>
+              <span className="font-mono font-semibold text-violet-600">{totalDocuments}</span>
+            </div>
           </div>
         </div>
 
@@ -524,7 +519,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {imageQueue.map((item, idx) => {
                 const res = item.result;
-                const isMatched = res?.isMatched ?? false;
+                const isMatched = Boolean(res?.documents.length) && res!.documents.every(d => d.isTotalMatched);
 
                 return (
                   <Card
@@ -542,7 +537,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                     title={
                       <div className="flex items-center justify-between text-xs py-1">
                         <span className="font-semibold text-slate-800 truncate max-w-[200px]">
-                          #{idx + 1}. {res?.title || item.file.name}
+                          #{idx + 1}. {item.file.name}
                         </span>
                         <Button
                           type="text"
@@ -578,35 +573,14 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                       <div className="flex-1 min-w-0 flex flex-col justify-between">
                         {item.status === 'done' && res && (
                           <div className="space-y-1">
-                            {/* Reconciliation Badge */}
-                            <div>
-                              {isMatched ? (
-                                <Tag className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[11px] m-0 inline-flex items-center gap-1">
-                                  <CheckCircleOutlined /> Khớp 100% ({res.reportedTotal} đôi)
-                                </Tag>
-                              ) : (
-                                <Tag className="bg-rose-50 text-rose-700 border-rose-200 text-[11px] m-0 inline-flex items-center gap-1">
-                                  <ExclamationCircleOutlined /> Lệch {res.discrepancy > 0 ? `+${res.discrepancy}` : res.discrepancy} đôi (Ghi {res.reportedTotal} - Tính {res.calculatedTotal})
-                                </Tag>
-                              )}
-                            </div>
-
-                            {/* Item types */}
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              <span className="text-[11px] text-slate-500 font-mono">
-                                {res.items.length} dòng
-                              </span>
-                              {res.hasStandardItems && (
-                                <Tag className="text-[10px] m-0 px-1 py-0 bg-blue-50 text-blue-700 border-blue-200">
-                                  Thành hình
-                                </Tag>
-                              )}
-                              {res.hasGoItems && (
-                                <Tag className="text-[10px] m-0 px-1 py-0 bg-amber-50 text-amber-700 border-amber-200">
-                                  Gò
-                                </Tag>
-                              )}
-                            </div>
+                            <div className="font-semibold text-xs text-violet-700">Đã phát hiện {res.documents.length} đợt</div>
+                            {res.documents.map(doc => <div key={doc.documentId} className="border-t border-slate-100 pt-1 mt-1">
+                              <div className="flex justify-between gap-2"><span className="truncate text-xs">{doc.title || 'Không tiêu đề'}</span><span className="font-mono text-xs">{doc.items.reduce((s, i) => s + i.quantity, 0).toLocaleString()} đôi</span></div>
+                              <div className="flex justify-between items-center">
+                                {doc.reportedTotal == null ? <Tag color="warning" className="text-[10px] m-0"><ExclamationCircleOutlined /> Chưa thể đối chiếu</Tag> : doc.isTotalMatched ? <Tag color="success" className="text-[10px] m-0"><CheckCircleOutlined /> Khớp</Tag> : <Tag color="error" className="text-[10px] m-0">Lệch {doc.discrepancy}</Tag>}
+                                <Button size="small" type="link" icon={<EditOutlined />} onClick={() => handleOpenEditCard(item, doc)} className="text-xs p-0 h-auto">Sửa</Button>
+                              </div>
+                            </div>)}
                           </div>
                         )}
 
@@ -629,20 +603,6 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                           </div>
                         )}
 
-                        {/* Card Quick Action */}
-                        {item.status === 'done' && res && (
-                          <div className="mt-2 text-right">
-                            <Button
-                              size="small"
-                              type="link"
-                              icon={<EditOutlined />}
-                              onClick={() => handleOpenEditCard(item)}
-                              className="text-xs p-0 text-blue-600 hover:text-blue-700 h-auto"
-                            >
-                              Sửa nhanh
-                            </Button>
-                          </div>
-                        )}
                       </div>
                     </div>
                   </Card>
@@ -742,7 +702,8 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
               </span>
               <InputNumber
                 value={editReportedTotal}
-                onChange={(v) => setEditReportedTotal(v || 0)}
+                placeholder="Không nhận diện được"
+                onChange={(v) => setEditReportedTotal(v)}
                 className="w-full text-xs font-mono"
               />
             </div>
@@ -871,7 +832,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
               ]}
               summary={() => {
                 const totalCalculated = editItems.reduce((acc, i) => acc + (i.quantity || 0), 0);
-                const diff = totalCalculated - editReportedTotal;
+                const diff = editReportedTotal === null ? null : totalCalculated - editReportedTotal;
                 return (
                   <Table.Summary.Row className="bg-slate-50 font-semibold text-xs">
                     <Table.Summary.Cell index={0} colSpan={3} align="center">
@@ -881,8 +842,8 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                       <span className="font-mono text-blue-600">{totalCalculated} đôi</span>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={4} colSpan={2}>
-                      <span className={diff === 0 ? 'text-emerald-600' : 'text-rose-600'}>
-                        {diff === 0 ? '✓ Khớp tổng phiếu kho' : `⚠ Lệch ${diff > 0 ? `+${diff}` : diff} đôi`}
+                      <span className={diff === 0 ? 'text-emerald-600' : 'text-amber-600'}>
+                        {diff === null ? '⚠ Chưa thể đối chiếu tổng' : diff === 0 ? '✓ Khớp tổng phiếu kho' : `⚠ Lệch ${diff > 0 ? `+${diff}` : diff} đôi`}
                       </span>
                     </Table.Summary.Cell>
                   </Table.Summary.Row>

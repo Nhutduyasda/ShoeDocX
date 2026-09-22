@@ -1,7 +1,7 @@
 import { apiClient } from './client';
 import type {
   OcrExtractionResponse,
-  BatchOcrScanResult,
+  BatchOcrImageResult,
   BatchOcrConfirmRequest,
 } from '../types';
 
@@ -21,14 +21,15 @@ export const ocrApi = {
   },
 
   // Gửi nhiều ảnh phiếu kho để nhận diện OCR hàng loạt (Batch Upload)
-  batchExtract: async (files: (File | Blob)[]): Promise<BatchOcrScanResult[]> => {
+  batchExtract: async (entries: { clientFileId: string; file: File | Blob }[]): Promise<BatchOcrImageResult[]> => {
     const formData = new FormData();
-    files.forEach((file, index) => {
+    entries.forEach(({ clientFileId, file }, index) => {
       const fileName = file instanceof File ? file.name : `receipt_${index + 1}.jpg`;
       formData.append('files', file, fileName);
+      formData.append('clientFileIds', clientFileId);
     });
 
-    const response = await apiClient.post<BatchOcrScanResult[]>('/ocr/batch-extract', formData, {
+    const response = await apiClient.post<BatchOcrImageResult[]>('/ocr/batch-extract', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

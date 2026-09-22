@@ -109,8 +109,9 @@ public class OcrController : ControllerBase
     /// </summary>
     [HttpPost("batch-extract")]
     [Consumes("multipart/form-data")]
-    public async Task<ActionResult<List<BatchOcrScanResultDto>>> BatchExtract(
+    public async Task<ActionResult<List<BatchOcrImageResultDto>>> BatchExtract(
         [FromForm] List<IFormFile> files,
+        [FromForm] List<string> clientFileIds,
         CancellationToken cancellationToken)
     {
         if (files == null || files.Count == 0)
@@ -124,23 +125,19 @@ public class OcrController : ControllerBase
         if (files.Sum(f => f.Length) > MaxBatchBytes)
             return BadRequest(new { message = "Tổng dung lượng lô ảnh vượt quá giới hạn 100MB." });
 
-        // Tải danh mục ProductMaster vào bộ nhớ để đối chiếu giá và thông số đóng thùng
-        var masterRows = await _context.ProductMasters
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
-        var productMasters = masterRows.GroupBy(p => p.StyleCode.Trim().ToUpperInvariant()).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
+        if (clientFileIds == null || clientFileIds.Count != files.Count || clientFileIds.Any(string.IsNullOrWhiteSpace))
+            return BadRequest(new { message = "Mỗi ảnh phải có một clientFileId hợp lệ." });
 
-        var results = new List<BatchOcrScanResultDto>();
+        var results = new List<BatchOcrImageResultDto>();
         var semaphore = new SemaphoreSlim(1, 1); // Scoped EF context must not be used concurrently.
 
-        var tasks = files.Select(async file =>
+        var tasks = files.Select(async (file, index) =>
         {
             await semaphore.WaitAsync(cancellationToken);
-            var batchResult = new BatchOcrScanResultDto
+            var batchResult = new BatchOcrImageResultDto
             {
-                BatchId = Guid.NewGuid().ToString(),
-                FileName = file.FileName,
-                Title = Path.GetFileNameWithoutExtension(file.FileName)
+                ClientFileId = clientFileIds[index],
+                FileName = file.FileName
             };
 
             try
@@ -169,41 +166,7 @@ public class OcrController : ControllerBase
                 using var stream = file.OpenReadStream();
                 var ocrRes = await _ocrService.ExtractFromImageAsync(stream, mimeType, cancellationToken);
 
-                batchResult.Title = !string.IsNullOrWhiteSpace(ocrRes.Title) ? ocrRes.Title : batchResult.Title;
-                batchResult.ReportedTotal = ocrRes.ReportedTotal;
-
-                // Chuẩn hóa và làm giàu dữ liệu từ Master Data
-                var enrichedItems = new List<OcrItemDto>();
-                foreach (var item in ocrRes.Items)
-                {
-                    string normalizedStyleCode = OcrExtractionService.NormalizeStyleCode(item.StyleCode);
-                    string cleanCode = normalizedStyleCode.Trim().ToUpperInvariant();
-                    if (cleanCode.EndsWith(".G"))
-                    {
-                        cleanCode = cleanCode[..^2].Trim();
-                    }
-
-                    productMasters.TryGetValue(cleanCode, out var pm);
-
-                    enrichedItems.Add(new OcrItemDto
-                    {
-                        StyleCode = normalizedStyleCode,
-                        Quantity = item.Quantity,
-                        Note = item.Note ?? string.Empty,
-                        ProcessType = item.ProcessType,
-                        UnitPriceCMT = item.UnitPriceCMT > 0 ? item.UnitPriceCMT : (item.ProcessType == ProcessType.GoKhongMay ? (pm?.UnitPriceCMT_Go ?? pm?.UnitPriceCMT ?? 0) : (pm?.UnitPriceCMT ?? 0)),
-                        UnitPriceDAP = item.UnitPriceDAP > 0 ? item.UnitPriceDAP : (item.ProcessType == ProcessType.GoKhongMay ? (pm?.UnitPriceDAP_Go ?? pm?.UnitPriceDAP ?? 0) : (pm?.UnitPriceDAP ?? 0)),
-                        PairPerCarton = (pm?.PairPerCarton > 0) ? pm.PairPerCarton : (item.PairPerCarton > 0 ? item.PairPerCarton : 12),
-                        Description = !string.IsNullOrWhiteSpace(item.Description) ? item.Description : (pm?.Description ?? string.Empty),
-                        Unit = !string.IsNullOrWhiteSpace(pm?.Unit) ? pm.Unit : "đôi",
-                        IsMatched = pm != null || item.IsMatched
-                    });
-                }
-
-                batchResult.Items = enrichedItems;
-                batchResult.CalculatedTotal = enrichedItems.Sum(i => i.Quantity);
-                batchResult.HasStandardItems = enrichedItems.Any(i => i.ProcessType == ProcessType.Standard);
-                batchResult.HasGoItems = enrichedItems.Any(i => i.ProcessType == ProcessType.GoKhongMay);
+                batchResult.Documents = ocrRes.Documents;
                 batchResult.IsSuccess = true;
             }
             catch (Exception ex)

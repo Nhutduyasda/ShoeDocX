@@ -155,6 +155,55 @@ public sealed class ShipmentDispatchTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task OcrMerge_TotalMismatch_Should_BlockExport()
+    {
+        var folder = await SeedFolderAsync("A");
+        var first = OcrDocument("L19", ("A", 100, ProcessType.Standard)); first.ReportedTotal = 99; first.CalculatedTotal = 100;
+        var second = OcrDocument("L20", ("A", 50, ProcessType.Standard)); second.ReportedTotal = 50; second.CalculatedTotal = 50;
+        var request = new MergeShipmentRequestDto { ContractFolderId = folder.Id, SourceDocuments = [first, second] };
+
+        var preview = await _service.PreviewMergeAsync(request, default);
+
+        Assert.False(preview.IsExportable);
+        Assert.Contains(preview.BlockingErrors, error => error.Code == "OCR_TOTAL_MISMATCH");
+        var exception = await Assert.ThrowsAsync<DispatchBusinessException>(() => _service.ExportMergeAsync(request, default));
+        Assert.Equal("OCR_DOCUMENT_INVALID", exception.Code);
+        Assert.Empty(await _db.ShipmentOrders.ToListAsync());
+    }
+
+    [Fact]
+    public async Task OcrMerge_Export_ShouldPersistOrder_WhenCmtPriceIsNull()
+    {
+        var folder = await SeedFolderAsync("A");
+        var first = OcrDocument("L19", ("A", 100, ProcessType.Standard)); first.ReportedTotal = first.CalculatedTotal = 100;
+        var second = OcrDocument("L20", ("A", 50, ProcessType.Standard)); second.ReportedTotal = second.CalculatedTotal = 50;
+
+        var file = await _service.ExportMergeAsync(new() { ContractFolderId = folder.Id, SourceDocuments = [first, second] }, default);
+
+        Assert.NotEmpty(file.Content);
+        var order = await _db.ShipmentOrders.Include(o => o.Items).SingleAsync();
+        Assert.Equal(150, order.Items.Single().Quantity);
+        Assert.Equal(0, order.Items.Single().UnitPriceCMT);
+        Assert.Single(await _db.BusinessAuditLogs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task PartnerSequence_ShouldSkipExistingInvoice_WhenFolderSequenceHasDrifted()
+    {
+        var folder = await SeedFolderAsync("A");
+        folder.CurrentSequenceNumber = 233;
+        folder.InvoiceNoPattern = "KMHD-NEW2026-{SEQ:4}";
+        _db.ShipmentOrders.Add(new ShipmentOrder { ContractFolderId = folder.Id, InvoiceNo = "KMHD-NEW2026-0233", CustomerName = "Existing" });
+        await _db.SaveChangesAsync();
+        var sequence = new SequenceService(_db, NullLogger<SequenceService>.Instance);
+
+        var reserved = await sequence.ReservePartnerSequenceNumbersAsync(folder.Id);
+
+        Assert.Equal(234, reserved.Single());
+        Assert.Equal(235, (await _db.MasterDataFolders.FindAsync(folder.Id))!.CurrentSequenceNumber);
+    }
+
+    [Fact]
     public async Task Split_Should_Fail_When_Quantities_Do_Not_Match_Original()
     {
         var id = await SeedBatchAsync(("A", 11816, ProcessType.Standard));
@@ -281,6 +330,7 @@ public sealed class ShipmentDispatchTests : IAsyncLifetime
         Title = id,
         SourceFileName = "source.png",
         ClientFileId = "client-1",
+        CalculatedTotal = items.Sum(item => item.qty),
         Items = items.Select(item => new CreateShipmentItemDto { StyleCode = item.code, Quantity = item.qty, ProcessType = item.process }).ToList()
     };
 

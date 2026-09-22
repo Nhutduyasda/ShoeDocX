@@ -7,6 +7,7 @@ export interface DispatchSourceDocument {
 }
 export interface OcrDispatchSourcePayload {
   documentId: string; title: string; items: CreateShipmentItem[]; sourceFileName?: string; clientFileId?: string;
+  reportedTotal?: number | null; calculatedTotal: number;
 }
 export interface ConsolidatedDispatchSource {
   sourceType: 'merged-ocr-documents'; sourceDocumentIds: string[]; sourceTitles: string[];
@@ -31,7 +32,10 @@ export interface MergeShipmentRequest {
   invoiceDate: string; templateId?: number;
 }
 export interface MergeShipmentPreviewResponse {
+  isExportable: boolean; generatedDocumentCount: number; sourceItemCount: number; mergedItemCount: number; consolidatedItemCount: number;
   totalQuantity: number; totalCartons: number; mergedItems: CreateShipmentItem[];
-  pklBreakdown: PklBreakdownItem[]; warnings: DispatchValidationMessage[];
+  pklBreakdown: PklBreakdownItem[]; warnings: DispatchValidationMessage[]; blockingErrors: DispatchValidationMessage[];
+  processGroups: { processType: ProcessType; itemCount: number; totalQuantity: number }[];
 }
 export interface DownloadResult { blob: Blob; fileName: string; contentType: string }
+export interface ApiDownloadError { code?: string; message: string; title?: string; detail?: string; traceId?: string; validationErrors: string[] }

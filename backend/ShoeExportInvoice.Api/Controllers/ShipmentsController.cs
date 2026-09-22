@@ -44,7 +44,8 @@ public class ShipmentsController : ControllerBase
     {
         if (_dispatch == null) return StatusCode(500, new { message = "Dispatch service chưa được cấu hình." });
         try { return Ok(await _dispatch.PreviewMergeAsync(request, cancellationToken)); }
-        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (DispatchBusinessException ex) { return DispatchProblem(ex, StatusCodes.Status400BadRequest); }
+        catch (InvalidOperationException ex) { return DispatchProblem(new DispatchBusinessException("DISPATCH_VALIDATION_FAILED", ex.Message), StatusCodes.Status400BadRequest); }
     }
 
     [HttpPost("merge-export")]
@@ -53,7 +54,11 @@ public class ShipmentsController : ControllerBase
     {
         if (_dispatch == null) return StatusCode(500, new { message = "Dispatch service chưa được cấu hình." });
         try { var file = await _dispatch.ExportMergeAsync(request, cancellationToken); return File(file.Content, file.ContentType, file.FileName); }
-        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (DispatchBusinessException ex) { return DispatchProblem(ex, StatusCodes.Status400BadRequest); }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("InvoiceNo", StringComparison.OrdinalIgnoreCase) == true)
+        { return DispatchProblem(new DispatchBusinessException("INVOICE_NUMBER_CONFLICT", "Số hóa đơn vừa cấp đã tồn tại."), StatusCodes.Status409Conflict); }
+        catch (InvalidOperationException ex) { return DispatchProblem(new DispatchBusinessException("EXPORT_TEMPLATE_FAILURE", ex.Message), StatusCodes.Status400BadRequest); }
+        catch (Exception ex) { _logger.LogError(ex, "Merge export failed, trace {TraceId}", HttpContext.TraceIdentifier); return DispatchProblem(new DispatchBusinessException("EXPORT_TEMPLATE_FAILURE", "Không thể tạo file Invoice."), StatusCodes.Status500InternalServerError); }
     }
 
     [HttpPost("split-validate")]
@@ -71,7 +76,15 @@ public class ShipmentsController : ControllerBase
         if (_dispatch == null) return StatusCode(500, new { message = "Dispatch service chưa được cấu hình." });
         try { var file = await _dispatch.ExportSplitZipAsync(request, cancellationToken); return File(file.Content, file.ContentType, file.FileName); }
         catch (DispatchValidationException ex) { return BadRequest(ex.Result); }
-        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+        catch (DispatchBusinessException ex) { return DispatchProblem(ex, StatusCodes.Status400BadRequest); }
+        catch (InvalidOperationException ex) { return DispatchProblem(new DispatchBusinessException("EXPORT_TEMPLATE_FAILURE", ex.Message), StatusCodes.Status400BadRequest); }
+    }
+
+    private ObjectResult DispatchProblem(DispatchBusinessException exception, int status)
+    {
+        var body = new { code = exception.Code, message = exception.Message, title = "Không thể xử lý chứng từ", detail = exception.Message,
+            traceId = HttpContext.TraceIdentifier, details = exception.Details };
+        return StatusCode(status, body);
     }
 
     /// <summary>

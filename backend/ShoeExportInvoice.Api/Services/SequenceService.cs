@@ -156,6 +156,25 @@ public class SequenceService : ISequenceService
                 first = Convert.ToInt32(scalar);
             }
 
+            // Heal sequence drift deterministically while the serializable transaction/row lock is held.
+            // This can happen after data migration or a manual sequence correction.
+            var pattern = await _context.MasterDataFolders.AsNoTracking()
+                .Where(folder => folder.Id == folderId)
+                .Select(folder => folder.InvoiceNoPattern)
+                .SingleAsync();
+            while (await HasInvoiceConflictAsync(pattern, first, count)) first++;
+            await using (var alignCommand = connection.CreateCommand())
+            {
+                alignCommand.Transaction = _context.Database.CurrentTransaction?.GetDbTransaction();
+                alignCommand.CommandText = isSqlServer
+                    ? "UPDATE MasterDataFolders SET CurrentSequenceNumber = CASE WHEN CurrentSequenceNumber > @nextSeq THEN CurrentSequenceNumber ELSE @nextSeq END, UpdatedAt = @updatedAt WHERE Id = @folderId;"
+                    : "UPDATE MasterDataFolders SET CurrentSequenceNumber = CASE WHEN CurrentSequenceNumber > $nextSeq THEN CurrentSequenceNumber ELSE $nextSeq END, UpdatedAt = $updatedAt WHERE Id = $folderId;";
+                alignCommand.Parameters.Add(CreateParameter(alignCommand, nextParameter, first + count));
+                alignCommand.Parameters.Add(CreateParameter(alignCommand, updatedParameter, DateTime.UtcNow));
+                alignCommand.Parameters.Add(CreateParameter(alignCommand, folderParameter, folderId));
+                await alignCommand.ExecuteNonQueryAsync();
+            }
+
             if (ownedTransaction != null) await ownedTransaction.CommitAsync();
             _context.ChangeTracker.Clear();
             return Enumerable.Range(first, count).ToArray();
@@ -164,6 +183,13 @@ public class SequenceService : ISequenceService
         {
             _sequenceLock.Release();
         }
+    }
+
+    private async Task<bool> HasInvoiceConflictAsync(string pattern, int first, int count)
+    {
+        var invoiceNumbers = Enumerable.Range(first, count)
+            .Select(number => PartnerDocumentPatternFormatter.InvoiceNo(pattern, number)).ToList();
+        return await _context.ShipmentOrders.AsNoTracking().AnyAsync(order => invoiceNumbers.Contains(order.InvoiceNo));
     }
 
     private static System.Data.Common.DbParameter CreateParameter(System.Data.Common.DbCommand command, string name, object value)

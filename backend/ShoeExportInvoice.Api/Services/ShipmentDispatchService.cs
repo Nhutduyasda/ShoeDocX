@@ -41,7 +41,8 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
     private async Task<MergeShipmentPreviewResponseDto> BuildMergePreviewAsync(IEnumerable<CreateShipmentItemDto> sourceItems,
         MasterDataFolder folder, MergeShipmentRequestDto request, CancellationToken cancellationToken)
     {
-        var items = sourceItems
+        var sourceList = sourceItems.ToList();
+        var items = sourceList
             .GroupBy(i => new ItemKey(NormalizeStyle(i.StyleCode), i.ProcessType))
             .Select(g => new CreateShipmentItemDto { StyleCode = g.Key.StyleCode, ProcessType = g.Key.ProcessType, Quantity = g.Sum(x => x.Quantity) })
             .OrderBy(i => i.StyleCode).ThenBy(i => i.ProcessType).ToList();
@@ -50,12 +51,18 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
         var pkl = _excel.CalculatePklBreakdown(shipment);
         var result = new MergeShipmentPreviewResponseDto
         {
+            SourceItemCount = sourceList.Count,
             TotalQuantity = items.Sum(i => i.Quantity),
             TotalCartons = pkl.TotalCartons,
             MergedItems = items,
             PklBreakdown = pkl.BreakdownItems,
-            Warnings = items.Where(i => i.Quantity % i.PairPerCarton!.Value != 0).Select(OddCartonWarning).ToList()
+            Warnings = items.Where(i => i.Quantity % i.PairPerCarton!.Value != 0).Select(OddCartonWarning).ToList(),
+            ProcessGroups = items.GroupBy(i => i.ProcessType).Select(g => new ProcessGroupPreviewDto
+                { ProcessType = g.Key, ItemCount = g.Count(), TotalQuantity = g.Sum(i => i.Quantity) }).ToList()
         };
+        result.GeneratedDocumentCount = result.ProcessGroups.Count;
+        result.BlockingErrors = ReconciliationErrors(request.SourceDocuments);
+        result.IsExportable = result.BlockingErrors.Count == 0;
         _logger.LogInformation("Dispatch Merge Completed preview, quantity {Quantity}", result.TotalQuantity);
         return result;
     }
@@ -136,6 +143,8 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
     public async Task<ExportFileResult> ExportMergeAsync(MergeShipmentRequestDto request, CancellationToken cancellationToken)
     {
         var preview = await PreviewMergeAsync(request, cancellationToken);
+        if (!preview.IsExportable)
+            throw new DispatchBusinessException("OCR_DOCUMENT_INVALID", "Dữ liệu OCR chưa đối soát khớp tổng trên phiếu.", preview.BlockingErrors);
         var isOcr = request.SourceDocuments.Count > 0;
         var batches = new List<WarehouseBatch>();
         MasterDataFolder folder;
@@ -152,6 +161,8 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
             for (var i = 0; i < physicalGroups.Count; i++)
             {
                 var invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(folder.InvoiceNoPattern, numbers[i]);
+                if (await _db.ShipmentOrders.AnyAsync(o => o.InvoiceNo == invoiceNo, cancellationToken))
+                    throw new DispatchBusinessException("INVOICE_NUMBER_CONFLICT", $"Số hóa đơn {invoiceNo} đã tồn tại.");
                 var dto = BuildBaseRequest(folder, request.TemplateId, request.InvoiceDate, request.PoSuffix, invoiceNo, physicalGroups[i].ToList());
                 await ApplyMasterDataAsync(dto, cancellationToken);
                 var content = await _excel.ExportShipmentMultiSheetExcelAsync(dto);
@@ -168,10 +179,10 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
                 ? new ExportFileResult(files[0].Content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", files[0].Name)
                 : new ExportFileResult(BuildZip(files), "application/zip", $"Bao_Cao_Gom_Dot_{request.InvoiceDate:yyyyMMdd}_{numbers[0]}_to_{numbers[^1]}.zip");
         }
-        catch
+        catch (Exception ex)
         {
             await transaction.RollbackAsync(cancellationToken);
-            _logger.LogError("Dispatch Export Failed for merge batches {BatchIds}", request.SourceBatchIds);
+            _logger.LogError(ex, "Dispatch Export Failed for merge sources {Sources}", isOcr ? request.SourceDocuments.Select(d => d.DocumentId) : request.SourceBatchIds.Select(x => x.ToString()));
             throw;
         }
     }
@@ -202,7 +213,9 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
             var orders = new List<ShipmentOrder>();
             for (var i = 0; i < groups.Count; i++)
             {
-                var invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(folder.InvoiceNoPattern, numbers[i]);
+            var invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(folder.InvoiceNoPattern, numbers[i]);
+                if (await _db.ShipmentOrders.AnyAsync(o => o.InvoiceNo == invoiceNo, cancellationToken))
+                    throw new DispatchBusinessException("INVOICE_NUMBER_CONFLICT", $"Số hóa đơn {invoiceNo} đã tồn tại.");
                 var dto = BuildBaseRequest(folder, request.TemplateId, request.InvoiceDate, request.PoSuffix, invoiceNo, groups[i].Items.Select(CloneItem).ToList());
                 await ApplyMasterDataAsync(dto, cancellationToken);
                 files.Add((PartnerDocumentPatternFormatter.FileName(folder.FileNamePattern, numbers[i]), await _excel.ExportShipmentMultiSheetExcelAsync(dto)));
@@ -249,12 +262,12 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
             .Where(d => !string.IsNullOrWhiteSpace(d.DocumentId))
             .GroupBy(d => d.DocumentId, StringComparer.Ordinal)
             .Select(g => g.First()).ToList();
-        if (documents.Count < 2) throw new InvalidOperationException("Phải chọn ít nhất 2 OCR document để gom.");
+        if (documents.Count < 2) throw new DispatchBusinessException("OCR_DOCUMENT_INVALID", "Phải chọn ít nhất 2 OCR document để gom.");
         if (documents.Any(d => d.Items.Count == 0 || d.Items.Any(i => i.Quantity <= 0 || string.IsNullOrWhiteSpace(NormalizeStyle(i.StyleCode)) || !Enum.IsDefined(i.ProcessType))))
-            throw new InvalidOperationException("Một hoặc nhiều OCR document không có mặt hàng hợp lệ.");
-        var folderId = request.ContractFolderId ?? throw new InvalidOperationException("Phải chọn hợp đồng trước khi gom OCR document.");
+            throw new DispatchBusinessException("OCR_DOCUMENT_INVALID", "Một hoặc nhiều OCR document không có mặt hàng hợp lệ.");
+        var folderId = request.ContractFolderId ?? throw new DispatchBusinessException("OCR_CONTRACT_REQUIRED", "Phải chọn hợp đồng trước khi gom OCR document.");
         var folder = await _db.MasterDataFolders.SingleOrDefaultAsync(f => f.Id == folderId, ct)
-            ?? throw new InvalidOperationException("Hợp đồng không tồn tại.");
+            ?? throw new DispatchBusinessException("OCR_CONTRACT_REQUIRED", "Hợp đồng không tồn tại.");
         await ValidateTemplateAsync(request.TemplateId, folderId, ct);
         return (documents, folder);
     }
@@ -283,7 +296,7 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
         var products = await _db.ProductMasters.AsNoTracking().Where(p => p.FolderId == request.ContractFolderId && codes.Contains(p.StyleCode)).ToListAsync(ct);
         var map = products.ToDictionary(p => p.StyleCode.Trim().ToUpperInvariant());
         var missing = codes.Where(c => !map.ContainsKey(c)).ToList();
-        if (missing.Count > 0) throw new InvalidOperationException($"Các mã không thuộc hợp đồng đã chọn: [{string.Join(", ", missing)}]");
+        if (missing.Count > 0) throw new DispatchBusinessException("PRODUCT_NOT_IN_CONTRACT", $"Các mã không thuộc hợp đồng đã chọn: [{string.Join(", ", missing)}]");
         foreach (var item in request.Items)
         {
             item.StyleCode = NormalizeStyle(item.StyleCode);
@@ -294,7 +307,10 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
             item.PairPerCarton = product.PairPerCarton;
             item.UnitPriceCMT = go && product.UnitPriceCMT_Go.GetValueOrDefault() > 0 ? product.UnitPriceCMT_Go : product.UnitPriceCMT;
             item.UnitPriceDAP = go && product.UnitPriceDAP_Go.GetValueOrDefault() > 0 ? product.UnitPriceDAP_Go : product.UnitPriceDAP;
-            if (item.UnitPriceDAP <= 0) throw new InvalidOperationException($"Mã {item.StyleCode} chưa có đơn giá hợp lệ.");
+            if (item.PairPerCarton.GetValueOrDefault() <= 0) throw new DispatchBusinessException("INVALID_PACKING", $"Mã {item.StyleCode} chưa có quy cách đôi/thùng hợp lệ.");
+            if (item.UnitPriceDAP.GetValueOrDefault() <= 0) throw new DispatchBusinessException("INVALID_UNIT_PRICE", $"Mã {item.StyleCode} chưa có đơn giá DAP hợp lệ.");
+            if (item.UnitPriceCMT.GetValueOrDefault() < 0) throw new DispatchBusinessException("INVALID_UNIT_PRICE", $"Mã {item.StyleCode} có đơn giá CMT không hợp lệ.");
+            item.UnitPriceCMT ??= 0;
             item.FullItemCode = go ? $"{item.StyleCode}.G {request.PoSuffix}".Trim() : $"{item.StyleCode} {request.PoSuffix}".Trim();
         }
     }
@@ -303,7 +319,7 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
     {
         if (!templateId.HasValue) return;
         if (!await _db.CompanyTemplates.AnyAsync(t => t.Id == templateId && (t.FolderId == null || t.FolderId == folderId), ct))
-            throw new InvalidOperationException("Template không tồn tại hoặc không thuộc hợp đồng đã chọn.");
+            throw new DispatchBusinessException("TEMPLATE_INVALID", "Template không tồn tại hoặc không thuộc hợp đồng đã chọn.");
     }
 
     private static CreateShipmentRequestDto BuildBaseRequest(MasterDataFolder folder, int? templateId, DateTime date, string? poSuffix, string? invoiceNo, List<CreateShipmentItemDto> items) => new()
@@ -333,6 +349,14 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
             Action = action, ResourceType = "ShipmentDispatch", ResourceId = string.Join(",", sources), TraceId = context?.TraceIdentifier,
             NewStateJson = JsonSerializer.Serialize(new { SourceIds = sources, InvoiceNos = orders.Select(o => o.InvoiceNo), Quantity = quantity }) });
     }
+
+    private static List<DispatchValidationMessageDto> ReconciliationErrors(IEnumerable<OcrDispatchSourceDocumentDto> documents) => documents
+        .Where(d => d.ReportedTotal.HasValue && d.ReportedTotal.Value != d.CalculatedTotal)
+        .Select(d => new DispatchValidationMessageDto
+        {
+            Code = "OCR_TOTAL_MISMATCH",
+            Message = $"{d.Title}: tổng trên phiếu {d.ReportedTotal:N0} đôi, tổng các dòng OCR {d.CalculatedTotal:N0} đôi, chênh lệch {d.CalculatedTotal - d.ReportedTotal:N0} đôi."
+        }).ToList();
 
     private static byte[] BuildZip(IEnumerable<(string Name, byte[] Content)> files)
     {

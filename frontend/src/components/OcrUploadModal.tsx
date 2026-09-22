@@ -9,7 +9,7 @@ import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
 import { OriginalImagePreview } from './OriginalImagePreview';
 import { SplitMatrixModal } from '../features/shipment-dispatch/components/SplitMatrixModal';
 import type { ConsolidatedDispatchSource, DispatchSourceDocument, MergeShipmentPreviewResponse, OcrDispatchSourcePayload } from '../features/shipment-dispatch/types/shipmentDispatch';
-import { shipmentDispatchApi, triggerDownload } from '../features/shipment-dispatch/api/shipmentDispatchApi';
+import { parseDownloadError, shipmentDispatchApi, triggerDownload } from '../features/shipment-dispatch/api/shipmentDispatchApi';
 
 interface Props {
   visible: boolean; onClose: () => void; products: ProductMaster[]; selectedPartnerId?: number | null;
@@ -34,7 +34,11 @@ export const OcrUploadModal: React.FC<Props> = ({ visible, onClose, products, se
   const [isPreviewingMerge, setIsPreviewingMerge] = useState(false);
   const [isExportingMerge, setIsExportingMerge] = useState(false);
   const [isExportingSeparate, setIsExportingSeparate] = useState(false);
+  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<{ message: string; traceId?: string } | null>(null);
+  const [exportSuccess, setExportSuccess] = useState<{ fileName: string; count: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
   const productMap = useMemo(() => new Map(products.filter(p => !selectedPartnerId || !p.folderId || p.folderId === selectedPartnerId)
     .map(p => [p.styleCode.trim().toUpperCase(), p])), [products, selectedPartnerId]);
 
@@ -55,6 +59,7 @@ export const OcrUploadModal: React.FC<Props> = ({ visible, onClose, products, se
       const response = await ocrApi.extractFromImage(image);
       const next = response.documents.map(d => ({ ...d, items: d.items.map(enrich), calculatedTotal: d.items.reduce((s, i) => s + i.quantity, 0) }));
       setDocuments(next);
+      setActiveDocumentId(next[0]?.documentId ?? null);
       setSelectedDocumentIds(next.map(document => document.documentId));
       setMergePreview(null);
       message.success(`Đã phát hiện ${next.length} đợt hàng trong ảnh.`);
@@ -101,30 +106,35 @@ export const OcrUploadModal: React.FC<Props> = ({ visible, onClose, products, se
 
   const selectedDocuments = documents.filter(document => selectedDocumentIds.includes(document.documentId) && !processedDocumentIds.has(document.documentId));
   const selectedTotal = selectedDocuments.reduce((sum, document) => sum + document.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0);
-  const sourcePayloads = (): OcrDispatchSourcePayload[] => selectedDocuments.map(document => ({ documentId: document.documentId, title: document.title, sourceFileName: file?.name, items: toDispatchSource(document).items }));
+  const sourcePayloads = (): OcrDispatchSourcePayload[] => selectedDocuments.map(document => ({ documentId: document.documentId, title: document.title, sourceFileName: file?.name,
+    reportedTotal: document.reportedTotal, calculatedTotal: document.items.reduce((sum, item) => sum + item.quantity, 0), items: toDispatchSource(document).items }));
   const mergeRequest = () => ({ sourceDocuments: sourcePayloads(), contractFolderId: selectedPartnerId ?? undefined, templateId: templateId ?? undefined, poSuffix, invoiceDate: invoiceDate || new Date().toISOString().slice(0, 10) });
   const toggleSelection = (id: string, checked: boolean) => { setSelectedDocumentIds(current => checked ? [...new Set([...current, id])] : current.filter(value => value !== id)); setMergePreview(null); };
-  const previewMerge = async () => { if (selectedDocuments.length < 2) return; setIsPreviewingMerge(true); try { setMergePreview(await shipmentDispatchApi.previewMerge(mergeRequest())); } catch (error: any) { message.error(error.response?.data?.message || 'Không thể xem trước kết quả gom.'); } finally { setIsPreviewingMerge(false); } };
+  const previewMerge = async () => { if (selectedDocuments.length < 2) return; setIsPreviewingMerge(true); setExportError(null); try { setMergePreview(await shipmentDispatchApi.previewMerge(mergeRequest())); setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0); } catch (error: unknown) { const parsed = await parseDownloadError(error); setExportError({ message: parsed.message, traceId: parsed.traceId }); } finally { setIsPreviewingMerge(false); } };
   const consolidatedSource = (): ConsolidatedDispatchSource | null => mergePreview ? ({ sourceType: 'merged-ocr-documents', sourceDocumentIds: selectedDocuments.map(d => d.documentId), sourceTitles: selectedDocuments.map(d => d.title), sourceDocuments: sourcePayloads(), title: selectedDocuments.map(d => d.title).join(' + '), items: mergePreview.mergedItems, totalQuantity: mergePreview.totalQuantity, totalCartons: mergePreview.totalCartons }) : null;
-  const exportMerge = async () => { if (!mergePreview || isExportingMerge) return; setIsExportingMerge(true); try { const result = await shipmentDispatchApi.exportMerge(mergeRequest()); triggerDownload(result); setProcessedDocumentIds(current => new Set([...current, ...selectedDocuments.map(d => d.documentId)])); message.success('Đã xuất 1 Invoice từ nguồn gom.'); onDispatchExported?.(); } catch { message.error('Không thể xuất Invoice gom. Kết quả OCR vẫn được giữ nguyên.'); } finally { setIsExportingMerge(false); } };
+  const exportMerge = async () => { if (!mergePreview?.isExportable || isExportingMerge) return; setIsExportingMerge(true); setExportError(null); try { const result = await shipmentDispatchApi.exportMerge(mergeRequest()); triggerDownload(result); setProcessedDocumentIds(current => new Set([...current, ...selectedDocuments.map(d => d.documentId)])); setExportSuccess({ fileName: result.fileName, count: mergePreview.generatedDocumentCount }); onDispatchExported?.(); } catch (error: unknown) { const parsed = await parseDownloadError(error); setExportError({ message: [parsed.message, ...parsed.validationErrors].filter(Boolean).join(' '), traceId: parsed.traceId }); } finally { setIsExportingMerge(false); } };
   const exportSeparate = async () => { if (!selectedDocuments.length) return; setIsExportingSeparate(true); try { const batches = selectedDocuments.map(document => ({ batchId: document.documentId, title: document.title, items: toDispatchSource(document).items })); const blob = await ocrApi.batchExportZip({ contractFolderId: selectedPartnerId, poSuffix, invoiceDate, batches }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `OCR-Separate-${invoiceDate || new Date().toISOString().slice(0, 10)}.zip`; anchor.click(); URL.revokeObjectURL(url); setProcessedDocumentIds(current => new Set([...current, ...selectedDocuments.map(d => d.documentId)])); message.success(`Đã xuất riêng ${batches.length} đợt.`); onDispatchExported?.(); } catch { message.error('Không thể xuất riêng các đợt đã chọn.'); } finally { setIsExportingSeparate(false); } };
 
-  return <Modal title="OCR phiếu kho — phát hiện nhiều đợt" open={visible} onCancel={onClose} width={1080} footer={<Button onClick={onClose}>Đóng</Button>}>
+  const activeDocument = documents.find(document => document.documentId === activeDocumentId) ?? documents[0];
+
+  return <Modal title="OCR phiếu kho — đối soát và xuất chứng từ" open={visible} onCancel={onClose} width="95vw" style={{ maxWidth: 1600 }} footer={<Button onClick={onClose}>Đóng</Button>}>
     <input ref={inputRef} hidden type="file" accept="image/*" onChange={e => e.target.files?.[0] && selectFile(e.target.files[0])} />
-    <div className="space-y-4">
-      <div onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) selectFile(e.dataTransfer.files[0]); }} onDragOver={e => e.preventDefault()}>
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[43%_57%]">
+      <div className="lg:sticky lg:top-0 lg:self-start" onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) selectFile(e.dataTransfer.files[0]); }} onDragOver={e => e.preventDefault()}>
+        <div className="mb-2 font-semibold text-slate-800">ẢNH PHIẾU KHO GỐC</div>
         {preview ? <>
-          <OriginalImagePreview src={preview} alt="Ảnh phiếu kho gốc" />
+          <OriginalImagePreview src={preview} alt="Ảnh phiếu kho gốc" sourceRegion={activeDocument?.sourceRegion} maxHeightClassName="max-h-[70vh]" />
           <Space className="mt-2">
             <Button onClick={() => inputRef.current?.click()}>Chọn ảnh khác</Button>
             {file && <Button type="link" icon={<ReloadOutlined />} onClick={() => processImage(file)}>Quét lại ảnh gốc</Button>}
+            <Button onClick={() => setActiveDocumentId(null)}>Xem toàn ảnh</Button>
           </Space>
         </> : <div onClick={() => inputRef.current?.click()} className="border-2 border-dashed rounded-lg min-h-64 flex items-center justify-center cursor-pointer bg-slate-50">
           <Space direction="vertical" align="center"><InboxOutlined className="text-3xl" /><span>Chọn, kéo thả hoặc dán ảnh</span></Space>
         </div>}
       </div>
-      <div><Radio.Group value={applyMode} onChange={e => setApplyMode(e.target.value)}><Radio value="replace">Thay thế</Radio><Radio value="append">Nối thêm</Radio></Radio.Group></div>
-      <div className="max-h-[620px] overflow-y-auto space-y-3">
+      <div className="max-h-[76vh] overflow-y-auto space-y-3 pr-2">
+        <div className="flex items-center justify-between"><div className="font-semibold text-slate-800">DỮ LIỆU OCR</div><Radio.Group value={applyMode} onChange={e => setApplyMode(e.target.value)}><Radio value="replace">Thay thế</Radio><Radio value="append">Nối thêm</Radio></Radio.Group></div>
         {loading ? <div className="py-24 text-center"><Spin tip="Đang phát hiện các bảng..." /></div> : documents.length ? <>
           <Alert type="info" showIcon message={`Đã phát hiện ${documents.length} đợt hàng`} />
           <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
@@ -133,21 +143,25 @@ export const OcrUploadModal: React.FC<Props> = ({ visible, onClose, products, se
               <Button disabled={selectedDocuments.length !== 1} onClick={() => selectedDocuments[0] && apply(selectedDocuments[0])}>Áp dụng 1 INV</Button>
               <Button icon={<NodeIndexOutlined />} disabled={selectedDocuments.length !== 1} onClick={() => selectedDocuments[0] && setSplitSource(toDispatchSource(selectedDocuments[0]))}>Tách document đã chọn</Button>
               <Button icon={<FileZipOutlined />} loading={isExportingSeparate} disabled={!selectedDocuments.length} onClick={exportSeparate}>Xuất riêng từng đợt</Button>
-              <Button type="primary" icon={<EyeOutlined />} loading={isPreviewingMerge} disabled={selectedDocuments.length < 2} onClick={previewMerge}>Gom {selectedDocuments.length} đợt đã chọn</Button>
+              <Button type="primary" icon={<EyeOutlined />} loading={isPreviewingMerge} disabled={selectedDocuments.length < 2} onClick={previewMerge}>Xem kết quả gom</Button>
             </Space>
             {selectedDocuments.length < 2 && <div className="text-xs text-slate-500">Cần chọn ít nhất 2 đợt để gom.</div>}
           </div>
-          {documents.map((doc, index) => { const total = doc.items.reduce((s, i) => s + (i.quantity || 0), 0); const diff = doc.reportedTotal == null ? null : total - doc.reportedTotal; const processed = processedDocumentIds.has(doc.documentId); return <Card key={doc.documentId} title={<Space><Checkbox checked={selectedDocumentIds.includes(doc.documentId)} disabled={processed} onChange={event => toggleSelection(doc.documentId, event.target.checked)} /><Input value={doc.title} onChange={e => updateDocument(doc.documentId, d => ({ ...d, title: e.target.value }))} /></Space>}>
+          {documents.map((doc, index) => { const total = doc.items.reduce((s, i) => s + (i.quantity || 0), 0); const diff = doc.reportedTotal == null ? null : total - doc.reportedTotal; const processed = processedDocumentIds.has(doc.documentId); return <Card key={doc.documentId} size="small" className={activeDocument?.documentId === doc.documentId ? 'border-blue-400' : ''} onClick={() => setActiveDocumentId(doc.documentId)} title={<Space wrap><Checkbox checked={selectedDocumentIds.includes(doc.documentId)} disabled={processed} onClick={e => e.stopPropagation()} onChange={event => toggleSelection(doc.documentId, event.target.checked)} /><Input value={doc.title} onClick={e => e.stopPropagation()} onChange={e => updateDocument(doc.documentId, d => ({ ...d, title: e.target.value }))} /><Tag color={diff === 0 ? 'green' : diff == null ? 'default' : 'red'}>{diff === 0 ? 'Khớp' : diff == null ? 'Chưa xác định' : 'Lệch'}</Tag></Space>}>
             <div className="mb-2 flex gap-3 text-sm"><b>Đợt {index + 1}</b><span>{doc.items.length} mã</span><span>{total.toLocaleString()} đôi</span>{processed && <Tag color="green">Đã xử lý</Tag>}</div>
-            {doc.reportedTotal == null ? <Alert type="warning" showIcon message="Chưa thể đối chiếu tổng" description={`Không nhận diện được tổng trên phiếu. Tổng dòng hàng: ${total.toLocaleString()} đôi. Vui lòng kiểm tra các dòng hàng.`} /> : diff === 0 ? <Alert type="success" showIcon message={`Khớp — ${total.toLocaleString()} đôi`} /> : <Alert type="warning" showIcon message={`Lệch ${(diff ?? 0) > 0 ? '+' : ''}${(diff ?? 0).toLocaleString()} đôi`} description={`Tổng trên phiếu: ${doc.reportedTotal.toLocaleString()} · Tổng nhận diện: ${total.toLocaleString()}`} />}
+            {doc.reportedTotal == null ? <Alert type="warning" showIcon message="Chưa thể đối chiếu tổng" description={`Không nhận diện được tổng trên phiếu. Tổng dòng hàng: ${total.toLocaleString()} đôi.`} /> : diff === 0 ? <Alert type="success" showIcon message={`Khớp — ${total.toLocaleString()} đôi`} /> : <Alert type="error" showIcon message={`${doc.title} chưa thể xuất`} description={`Tổng trên phiếu: ${doc.reportedTotal.toLocaleString()} · Tổng các dòng OCR: ${total.toLocaleString()} · Còn lệch: ${Number(diff) > 0 ? '+' : ''}${Number(diff).toLocaleString()} đôi`} />}
             <Table className="mt-3" size="small" pagination={false} rowKey={(_r, i) => `${doc.documentId}-${i}`} dataSource={doc.items} columns={columns(doc)} />
           </Card>; })}
-          {mergePreview && <Card title="KẾT QUẢ SAU KHI GOM" className="border-emerald-200">
-            <Alert type="success" showIcon message={`${selectedDocuments.map(d => d.title).join(' + ')} · ${mergePreview.mergedItems.length} mã · ${mergePreview.totalQuantity.toLocaleString()} đôi`} description="Số liệu do backend tính. Thay đổi lựa chọn hoặc chỉnh document sẽ hủy preview." />
+          {exportError && <Alert type="error" showIcon message="Không thể xuất INV" description={<div><div>{exportError.message}</div>{exportError.traceId && <div className="mt-1 text-xs">Mã theo dõi: <code>{exportError.traceId}</code> <Button size="small" type="link" onClick={() => navigator.clipboard.writeText(exportError.traceId!)}>Sao chép</Button></div>}</div>} />}
+          {exportSuccess && <Alert type="success" showIcon message="Đã xuất hóa đơn thành công" description={`${exportSuccess.count} chứng từ · File ${exportSuccess.fileName} · Nguồn ${selectedDocuments.map(d => d.title).join(', ')}`} />}
+          {mergePreview && <div ref={resultRef}><Card title="BƯỚC 2 — KẾT QUẢ GOM" className="border-emerald-200">
+            <Alert type={mergePreview.isExportable ? 'success' : 'error'} showIcon message={`Đã gom thử ${selectedDocuments.length} đợt · ${mergePreview.mergedItems.length} mã · ${mergePreview.totalQuantity.toLocaleString()} đôi`} description={`Dữ liệu CHƯA được xuất thành Invoice. ${mergePreview.generatedDocumentCount > 1 ? `Kết quả gồm ${mergePreview.generatedDocumentCount} nhóm công đoạn và sẽ tạo ${mergePreview.generatedDocumentCount} Invoice.` : 'Kết quả sẽ tạo 1 Invoice.'}`} />
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-4"><div>Nguồn: <b>{selectedDocuments.length} đợt</b></div><div>Mã trước gom: <b>{mergePreview.sourceItemCount}</b></div><div>Mã sau gom: <b>{mergePreview.mergedItemCount}</b></div><div>Được cộng dồn: <b>{mergePreview.consolidatedItemCount}</b></div></div>
+            {mergePreview.blockingErrors.map(error => <Alert key={error.code + error.message} className="mt-2" type="error" showIcon message={error.message} />)}
             {selectedTotal !== mergePreview.totalQuantity && <Alert className="mt-2" type="error" showIcon message={`Tổng local ${selectedTotal.toLocaleString()} khác backend ${mergePreview.totalQuantity.toLocaleString()}. Export đang bị khóa.`} />}
             <Table className="mt-3" size="small" pagination={false} rowKey={row => `${row.styleCode}-${row.processType}`} dataSource={mergePreview.mergedItems} columns={[{ title: 'Mã hình thể', dataIndex: 'styleCode' }, { title: 'Công đoạn', dataIndex: 'processType', render: value => value === ProcessType.GoKhongMay ? 'Gò không may' : 'Thành hình' }, { title: 'SL sau gom', dataIndex: 'quantity', align: 'right', render: value => value.toLocaleString() }, { title: 'Carton', dataIndex: 'pairPerCarton', align: 'right' }, { title: 'CMT', dataIndex: 'unitPriceCMT', align: 'right' }, { title: 'DAP', dataIndex: 'unitPriceDAP', align: 'right' }]} />
-            <Space className="mt-3" wrap><Button onClick={() => setMergePreview(null)}>Quay lại chọn đợt</Button><Button type="primary" loading={isExportingMerge} disabled={selectedTotal !== mergePreview.totalQuantity} onClick={exportMerge}>Xuất 1 INV</Button><Button icon={<NodeIndexOutlined />} disabled={selectedTotal !== mergePreview.totalQuantity} onClick={() => { const source = consolidatedSource(); if (source) setConsolidatedSplitSource(source); }}>Tách thành nhiều INV</Button></Space>
-          </Card>}
+            <Space className="mt-3" wrap><Button onClick={() => setMergePreview(null)}>Quay lại chỉnh dữ liệu</Button><Button type="primary" loading={isExportingMerge} disabled={!mergePreview.isExportable || selectedTotal !== mergePreview.totalQuantity} onClick={exportMerge}>Xuất {mergePreview.generatedDocumentCount} INV</Button><Button icon={<NodeIndexOutlined />} disabled={!mergePreview.isExportable || selectedTotal !== mergePreview.totalQuantity} onClick={() => { const source = consolidatedSource(); if (source) setConsolidatedSplitSource(source); }}>Tách thành nhiều INV</Button></Space>
+          </Card></div>}
         </> : <Alert message="Chưa có kết quả OCR" description="Chọn một ảnh để bắt đầu." />}
       </div>
     </div>

@@ -15,11 +15,25 @@ public sealed class MergeShipmentRequestDto
 
 public sealed class MergeShipmentPreviewResponseDto
 {
+    public bool IsExportable { get; set; }
+    public int GeneratedDocumentCount { get; set; }
+    public int SourceItemCount { get; set; }
+    public int MergedItemCount => MergedItems.Count;
+    public int ConsolidatedItemCount => Math.Max(0, SourceItemCount - MergedItems.Count);
     public int TotalQuantity { get; set; }
     public int TotalCartons { get; set; }
     public List<CreateShipmentItemDto> MergedItems { get; set; } = [];
     public List<PklBreakdownItemDto> PklBreakdown { get; set; } = [];
     public List<DispatchValidationMessageDto> Warnings { get; set; } = [];
+    public List<DispatchValidationMessageDto> BlockingErrors { get; set; } = [];
+    public List<ProcessGroupPreviewDto> ProcessGroups { get; set; } = [];
+}
+
+public sealed class ProcessGroupPreviewDto
+{
+    public ProcessType ProcessType { get; set; }
+    public int ItemCount { get; set; }
+    public int TotalQuantity { get; set; }
 }
 
 public sealed class SplitShipmentRequestDto
@@ -48,6 +62,8 @@ public sealed class OcrDispatchSourceDocumentDto
     public string Title { get; set; } = string.Empty;
     public string? ClientFileId { get; set; }
     public string? SourceFileName { get; set; }
+    public int? ReportedTotal { get; set; }
+    public int CalculatedTotal { get; set; }
     public List<CreateShipmentItemDto> Items { get; set; } = [];
 }
 
@@ -86,3 +102,10 @@ public sealed class ValidateSplitResultDto
 }
 
 public sealed record ExportFileResult(byte[] Content, string ContentType, string FileName);
+
+public sealed class DispatchBusinessException(string code, string message, IReadOnlyList<DispatchValidationMessageDto>? details = null)
+    : InvalidOperationException(message)
+{
+    public string Code { get; } = code;
+    public IReadOnlyList<DispatchValidationMessageDto> Details { get; } = details ?? [];
+}

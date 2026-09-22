@@ -44,7 +44,7 @@ import type {
 import { ProcessType, ExportSequencePriority, normalizeProcessType } from '../types';
 import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
 import { OriginalImagePreview } from './OriginalImagePreview';
-import { shipmentDispatchApi, triggerDownload } from '../features/shipment-dispatch/api/shipmentDispatchApi';
+import { parseDownloadError, shipmentDispatchApi, triggerDownload } from '../features/shipment-dispatch/api/shipmentDispatchApi';
 import type { ConsolidatedDispatchSource, MergeShipmentPreviewResponse, OcrDispatchSourcePayload } from '../features/shipment-dispatch/types/shipmentDispatch';
 import { SplitMatrixModal } from '../features/shipment-dispatch/components/SplitMatrixModal';
 
@@ -414,12 +414,13 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   };
   const sourcePayloads = (): OcrDispatchSourcePayload[] => selectedDocuments.map(({ document, image }) => ({
     documentId: document.documentId, title: document.title, sourceFileName: image.file.name, clientFileId: image.id,
+    reportedTotal: document.reportedTotal, calculatedTotal: document.items.reduce((sum, item) => sum + item.quantity, 0),
     items: document.items.map(item => ({ styleCode: item.styleCode, quantity: item.quantity, processType: normalizeProcessType(item.processType), unitPriceCMT: item.unitPriceCMT, unitPriceDAP: item.unitPriceDAP, unit: item.unit, pairPerCarton: item.pairPerCarton, description: item.description })),
   }));
   const mergeRequest = () => ({ sourceDocuments: sourcePayloads(), contractFolderId: contractFolderId ?? undefined, poSuffix: profile?.poSuffix || poSuffix.trim(), invoiceDate: new Date().toISOString().slice(0, 10) });
   const buildConsolidatedSource = (): ConsolidatedDispatchSource | null => mergePreview ? ({ sourceType: 'merged-ocr-documents', sourceDocumentIds: selectedDocuments.map(x => x.document.documentId), sourceTitles: selectedDocuments.map(x => x.document.title), sourceDocuments: sourcePayloads(), title: selectedDocuments.map(x => x.document.title).join(' + '), items: mergePreview.mergedItems, totalQuantity: mergePreview.totalQuantity, totalCartons: mergePreview.totalCartons }) : null;
   const previewSelectedMerge = async () => { if (selectedDocuments.length < 2) return; setIsPreviewingMerge(true); try { setMergePreview(await shipmentDispatchApi.previewMerge(mergeRequest())); } catch (error: any) { setMergePreview(null); message.error(error.response?.data?.message || 'Không thể xem trước kết quả gom.'); } finally { setIsPreviewingMerge(false); } };
-  const exportSelectedMerge = async () => { if (!mergePreview) return; setIsExportingMerge(true); try { const result = await shipmentDispatchApi.exportMerge(mergeRequest()); triggerDownload(result); const ids = selectedDocuments.map(x => x.document.documentId); setProcessedDocumentIds(current => new Set([...current, ...ids])); setSelectedDocumentIds(new Set()); setMergePreview(null); message.success('Đã xuất Invoice gom thành công.'); onSuccess(); } catch (error: any) { const data = error.response?.data; let detail = data?.message; if (data instanceof Blob) { try { detail = JSON.parse(await data.text()).message; } catch { /* keep fallback */ } } message.error(detail || 'Không thể xuất Invoice gom. Lựa chọn vẫn được giữ nguyên.'); } finally { setIsExportingMerge(false); } };
+  const exportSelectedMerge = async () => { if (!mergePreview?.isExportable) return; setIsExportingMerge(true); try { const result = await shipmentDispatchApi.exportMerge(mergeRequest()); triggerDownload(result); const ids = selectedDocuments.map(x => x.document.documentId); setProcessedDocumentIds(current => new Set([...current, ...ids])); setSelectedDocumentIds(new Set()); setMergePreview(null); message.success('Đã xuất Invoice gom thành công.'); onSuccess(); } catch (error: unknown) { const parsed = await parseDownloadError(error); message.error(`${parsed.message}${parsed.traceId ? ` (Mã theo dõi: ${parsed.traceId})` : ''}`); } finally { setIsExportingMerge(false); } };
 
   return (
     <Modal

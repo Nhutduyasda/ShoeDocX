@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { warehouseApi } from '../../../api/warehouseApi';
 import type { WarehouseBatch, WarehouseBatchItem } from '../../../types/warehouse';
 import type { ProcessType } from '../../../types';
-import { shipmentDispatchApi, readBlobValidation, triggerDownload } from '../api/shipmentDispatchApi';
+import { parseDownloadError, shipmentDispatchApi, readBlobValidation, triggerDownload } from '../api/shipmentDispatchApi';
 import type { ConsolidatedDispatchSource, DispatchSourceDocument, SubInvoiceAllocation, ValidateSplitResult } from '../types/shipmentDispatch';
 import { balanceQuantity, itemKey, normalizeStyle } from '../utils/splitAllocation';
 import { DispatchSafetyBar } from './DispatchSafetyBar';
@@ -70,13 +70,13 @@ export function SplitMatrixModal({ open, sourceBatchId, sourceDocument, consolid
 
   const changeCount = (count: number | null) => { const safe = Math.min(10, Math.max(2, Number(count ?? 2))); setInvoiceCount(safe); const next: Record<string, number[]> = {}; sourceItems.forEach((item) => { next[itemKey(item.styleCode, item.processType)] = balanceQuantity(item.quantity, safe); }); setAllocations(next); invalidate(); };
   const changeCell = (key: string, index: number, value: number) => { setAllocations((current) => ({ ...current, [key]: current[key].map((entry, i) => i === index ? Math.max(0, Math.trunc(value)) : entry) })); invalidate(); };
-  const sourcePayload = sourceDocument ? { documentId: sourceDocument.documentId, title: sourceDocument.title, items: sourceDocument.items, sourceFileName: sourceDocument.sourceFileName, clientFileId: sourceDocument.clientFileId } : undefined;
+  const sourcePayload = sourceDocument ? { documentId: sourceDocument.documentId, title: sourceDocument.title, items: sourceDocument.items, sourceFileName: sourceDocument.sourceFileName, clientFileId: sourceDocument.clientFileId, reportedTotal: sourceDocument.reportedTotal, calculatedTotal: sourceDocument.calculatedTotal } : undefined;
   const hasSource = Boolean(batch || sourceDocument || consolidatedSource);
   const validate = async () => { if (!hasSource || !clientValid) return; setValidating(true); try { const result = await shipmentDispatchApi.validateSplit({ sourceBatchId: batch?.id, sourceDocument: sourcePayload, sourceDocuments: consolidatedSource?.sourceDocuments, subInvoices }); setServerValidation(result); setDirty(false); if (result.isValid) message.success('Backend đã xác nhận phân bổ hợp lệ.'); } finally { setValidating(false); } };
   const exportZip = async () => { if (!hasSource || dirty || !serverValidation?.isValid) return; setExporting(true); try {
     const result = await shipmentDispatchApi.exportSplitZip({ sourceBatchId: batch?.id, sourceDocument: sourcePayload, sourceDocuments: consolidatedSource?.sourceDocuments, contractFolderId: contractFolderId ?? batch?.contractFolderId ?? undefined, templateId: templateId ?? undefined, poSuffix, invoiceDate, subInvoices });
     triggerDownload(result); message.success('Đã tải bộ chứng từ tách hóa đơn thành công.'); onExported(); onClose();
-  } catch (error) { const validation = await readBlobValidation(error); if (validation) { setServerValidation(validation); setDirty(false); } message.error(validation ? 'Dữ liệu nguồn đã thay đổi hoặc không còn hợp lệ. Vui lòng kiểm tra lại.' : 'Không thể tạo bộ chứng từ. Phân bổ của bạn vẫn được giữ nguyên.'); } finally { setExporting(false); } };
+  } catch (error) { const validation = await readBlobValidation(error); if (validation) { setServerValidation(validation); setDirty(false); } const parsed = await parseDownloadError(error); message.error(validation ? 'Dữ liệu nguồn đã thay đổi hoặc không còn hợp lệ. Vui lòng kiểm tra lại.' : `${parsed.message}${parsed.traceId ? ` (Mã theo dõi: ${parsed.traceId})` : ''}`); } finally { setExporting(false); } };
 
   return <Modal title="Tách đợt hàng thành nhiều hóa đơn" open={open} onCancel={exporting ? undefined : onClose} footer={null} width="94vw" style={{ maxWidth: 1500, top: 24 }} destroyOnHidden maskClosable={!exporting}>
     {loading || !hasSource ? <Skeleton active /> : <div className="space-y-4">

@@ -75,4 +75,5 @@ public class ShipmentOrder : ITenantEntity
     public ShipmentStatus Status { get; set; } = ShipmentStatus.Exported; // Trạng thái đơn hàng
 
     public ICollection<ShipmentOrderItem> Items { get; set; } = new List<ShipmentOrderItem>();
+    public ICollection<ShipmentSourceBatch> SourceBatches { get; set; } = new List<ShipmentSourceBatch>();
 }

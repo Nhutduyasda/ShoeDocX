@@ -146,6 +146,7 @@ builder.Services.AddScoped<IMasterDataFolderService, MasterDataFolderService>();
 builder.Services.AddScoped<IExcelImportExportService, ExcelImportExportService>();
 builder.Services.AddScoped<IOcrExtractionService, OcrExtractionService>();
 builder.Services.AddScoped<ISequenceService, SequenceService>();
+builder.Services.AddScoped<IShipmentDispatchService, ShipmentDispatchService>();
 builder.Services.AddScoped<ICustomsDeclarationService, CustomsDeclarationService>();
 builder.Services.AddScoped<ICustomsSettlementService, CustomsSettlementService>();
 builder.Services.AddScoped<IBusinessAuditService, BusinessAuditService>();
@@ -247,6 +248,8 @@ using (var scope = app.Services.CreateScope())
             var fullName = builder.Configuration["BootstrapAdmin:FullName"];
             await DbInitializer.SeedBootstrapAdminAsync(userManager, logger, username, password, fullName);
         }
+        if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("DevelopmentUsers:Enabled"))
+            await DbInitializer.SeedDevelopmentUsersAsync(userManager, logger);
         logger.LogInformation("Database initialized and verified successfully.");
     }
     catch (Exception ex)

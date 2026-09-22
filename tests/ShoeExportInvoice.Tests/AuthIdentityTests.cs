@@ -97,6 +97,47 @@ public class AuthIdentityTests
     }
 
     [Fact]
+    public async Task DevelopmentUsers_ShouldCreateAndRepairEveryRoleAccount()
+    {
+        var (context, userManager, _) = CreateTestDependencies();
+        try
+        {
+            await CreateUserAsync(userManager, "xnk", "Wrong@Test123", Department.Kho);
+            var broken = await userManager.FindByNameAsync("xnk");
+            broken!.IsActive = false;
+            broken.LockoutEnd = DateTimeOffset.UtcNow.AddDays(1);
+            await userManager.UpdateAsync(broken);
+
+            await DbInitializer.SeedDevelopmentUsersAsync(userManager, NullLogger.Instance);
+
+            var expected = new Dictionary<string, (string Password, Department Department)>
+            {
+                ["admin"] = ("@Admin1234", Department.Admin),
+                ["xnk"] = ("@Xnk123456", Department.Xnk),
+                ["kho"] = ("@Kho123456", Department.Kho),
+                ["ketoan"] = ("@KeToan123", Department.KeToan),
+                ["xnkmanager"] = ("@XnkManager123", Department.XnkManager)
+            };
+
+            Assert.Equal(expected.Count, await context.Users.CountAsync());
+            foreach (var (username, account) in expected)
+            {
+                var user = await userManager.FindByNameAsync(username);
+                Assert.NotNull(user);
+                Assert.True(user.IsActive);
+                Assert.Equal(account.Department, user.Department);
+                Assert.False(await userManager.IsLockedOutAsync(user));
+                Assert.True(await userManager.CheckPasswordAsync(user, account.Password));
+            }
+        }
+        finally
+        {
+            await context.Database.EnsureDeletedAsync();
+            await context.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task Login_WithValidCredentials_ReturnsJwtTokenAndDepartmentClaims()
     {
         var (context, userManager, config) = CreateTestDependencies();

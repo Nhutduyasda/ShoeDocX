@@ -46,6 +46,8 @@ import {
   FileSearchOutlined,
   CloseOutlined,
   DownOutlined,
+  ApartmentOutlined,
+  NodeIndexOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { shipmentApi, invoiceNoToFileName, extractSequenceNumber, formatInvoiceNo, formatPartnerFileName } from '../api/shipmentApi';
@@ -83,6 +85,8 @@ import { SizeBreakdownModal } from '../components/SizeBreakdownModal';
 import { UnlockAuditsModal } from '../components/UnlockAuditsModal';
 import { TemplateConfigModal } from '../components/TemplateConfigModal';
 import { CustomsArchiveTreePanel, type CustomsTreeFilter } from '../components/CustomsArchiveTreePanel';
+import { SplitMatrixModal } from '../features/shipment-dispatch/components/SplitMatrixModal';
+import { MergeShipmentModal } from '../features/shipment-dispatch/components/MergeShipmentModal';
 
 export interface ShipmentPageRef {
   loadHistoricalOrder: (id: number) => void;
@@ -116,6 +120,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [warehouseBatches, setWarehouseBatches] = useState<WarehouseBatchSummary[]>([]);
   const [loadingWarehouseBatches, setLoadingWarehouseBatches] = useState<boolean>(false);
   const [activeWarehouseBatchId, setActiveWarehouseBatchId] = useState<number | null>(null);
+  const [splitMatrixVisible, setSplitMatrixVisible] = useState(false);
+  const [mergeShipmentVisible, setMergeShipmentVisible] = useState(false);
 
   const [products, setProducts] = useState<ProductMaster[]>([]);
 
@@ -2705,6 +2711,16 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             </Form>
           </div>
 
+          {activeWarehouseBatchId && totalQuantity >= 5000 && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-blue-900">Đợt hàng có số lượng lớn ({totalQuantity.toLocaleString()} đôi)</div>
+                <div className="text-xs text-blue-700 mt-0.5">Bạn có thể cân nhắc tách thành nhiều hóa đơn. Đây chỉ là gợi ý thao tác, không phải quy tắc bắt buộc.</div>
+              </div>
+              <Button type="primary" icon={<NodeIndexOutlined />} onClick={() => setSplitMatrixVisible(true)}>Tách ngay</Button>
+            </div>
+          )}
+
           {/* Section 2: Đối soát & Tổng hợp Số liệu (Reconciliation Summary) */}
           <div id="tour-reconciliation-bar" className="bg-white border border-[#E5E7EB] rounded-lg p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 xl:gap-0 xl:divide-x divide-[#E5E7EB]">
@@ -2790,6 +2806,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                   className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] hover:text-[#111827] bg-white hover:bg-[#F9FAFB] font-medium shadow-xs"
                 >
                   Tiếp nhận từ Kho
+                </Button>
+                <Tooltip title={activeWarehouseBatchId ? 'Phân bổ đợt đang tiếp nhận thành 2–10 hóa đơn' : 'Hãy tiếp nhận một đợt hàng từ Kho trước'}>
+                  <Button icon={<NodeIndexOutlined />} disabled={readOnly || !activeWarehouseBatchId || items.length === 0} onClick={() => setSplitMatrixVisible(true)} className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] bg-white font-medium">
+                    Tách Hóa Đơn
+                  </Button>
+                </Tooltip>
+                <Button icon={<ApartmentOutlined />} disabled={readOnly} onClick={() => setMergeShipmentVisible(true)} className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] bg-white font-medium">
+                  Gom Đợt Hàng
                 </Button>
                 <Tooltip title="Hỗ trợ dán trực tiếp danh sách mã và số lượng copy từ bảng tính Excel.">
                   <Button
@@ -3286,6 +3310,35 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           </div>
         </div>
       </Modal>
+
+      <SplitMatrixModal
+        open={splitMatrixVisible}
+        sourceBatchId={activeWarehouseBatchId}
+        contractFolderId={selectedPartnerId}
+        templateId={selectedTemplateId}
+        poSuffix={form.getFieldValue('poSuffix') || ''}
+        invoiceDate={dayjs(form.getFieldValue('invoiceDate') || undefined).format('YYYY-MM-DD')}
+        onClose={() => setSplitMatrixVisible(false)}
+        onExported={() => {
+          setActiveWarehouseBatchId(null);
+          setItems([]);
+          void loadPendingWarehouseBatches();
+          void loadShipmentsHistory();
+        }}
+      />
+
+      <MergeShipmentModal
+        open={mergeShipmentVisible}
+        contractFolderId={selectedPartnerId}
+        templateId={selectedTemplateId}
+        poSuffix={form.getFieldValue('poSuffix') || ''}
+        invoiceDate={dayjs(form.getFieldValue('invoiceDate') || undefined).format('YYYY-MM-DD')}
+        onClose={() => setMergeShipmentVisible(false)}
+        onExported={() => {
+          void loadPendingWarehouseBatches();
+          void loadShipmentsHistory();
+        }}
+      />
 
       {/* Modal Tiếp nhận Lô hàng từ Kho */}
       <Modal

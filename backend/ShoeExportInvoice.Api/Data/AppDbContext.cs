@@ -27,6 +27,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<CustomsSettlementPeriod> CustomsSettlementPeriods => Set<CustomsSettlementPeriod>();
     public DbSet<CustomsSettlementItem> CustomsSettlementItems => Set<CustomsSettlementItem>();
     public DbSet<WarehouseBatch> WarehouseBatches => Set<WarehouseBatch>();
+    public DbSet<ShipmentSourceBatch> ShipmentSourceBatches => Set<ShipmentSourceBatch>();
     public DbSet<WarehouseBatchItem> WarehouseBatchItems => Set<WarehouseBatchItem>();
     public DbSet<ShipmentUnlockAudit> ShipmentUnlockAudits => Set<ShipmentUnlockAudit>();
     public DbSet<BusinessAuditLog> BusinessAuditLogs => Set<BusinessAuditLog>();
@@ -181,6 +182,16 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         {
             entity.HasIndex(e => new { e.WarehouseBatchId, e.StyleCode });
             entity.ToTable(t => t.HasCheckConstraint("CK_WarehouseBatchItems_Quantity_Positive", "Quantity > 0"));
+        });
+
+        modelBuilder.Entity<ShipmentSourceBatch>(entity =>
+        {
+            entity.HasKey(e => new { e.ShipmentOrderId, e.SourceBatchId });
+            entity.HasIndex(e => new { e.SourceBatchId, e.RelationType });
+            entity.HasOne(e => e.ShipmentOrder).WithMany(e => e.SourceBatches)
+                .HasForeignKey(e => e.ShipmentOrderId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.SourceBatch).WithMany()
+                .HasForeignKey(e => e.SourceBatchId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // CompanyTemplate configuration

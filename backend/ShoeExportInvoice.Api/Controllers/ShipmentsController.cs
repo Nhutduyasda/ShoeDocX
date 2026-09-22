@@ -20,19 +20,58 @@ public class ShipmentsController : ControllerBase
     private readonly ISequenceService _sequenceService;
     private readonly ILogger<ShipmentsController> _logger;
     private readonly IBusinessAuditService? _audit;
+    private readonly IShipmentDispatchService? _dispatch;
 
     public ShipmentsController(
         AppDbContext context,
         IExcelImportExportService excelService,
         ISequenceService sequenceService,
         ILogger<ShipmentsController> logger,
-        IBusinessAuditService? audit = null)
+        IBusinessAuditService? audit = null,
+        IShipmentDispatchService? dispatch = null)
     {
         _context = context;
         _excelService = excelService;
         _sequenceService = sequenceService;
         _logger = logger;
         _audit = audit;
+        _dispatch = dispatch;
+    }
+
+    [HttpPost("merge-preview")]
+    [Authorize(Roles = "Admin,Xnk")]
+    public async Task<ActionResult<MergeShipmentPreviewResponseDto>> MergePreview([FromBody] MergeShipmentRequestDto request, CancellationToken cancellationToken)
+    {
+        if (_dispatch == null) return StatusCode(500, new { message = "Dispatch service chưa được cấu hình." });
+        try { return Ok(await _dispatch.PreviewMergeAsync(request, cancellationToken)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpPost("merge-export")]
+    [Authorize(Roles = "Admin,Xnk")]
+    public async Task<IActionResult> MergeExport([FromBody] MergeShipmentRequestDto request, CancellationToken cancellationToken)
+    {
+        if (_dispatch == null) return StatusCode(500, new { message = "Dispatch service chưa được cấu hình." });
+        try { var file = await _dispatch.ExportMergeAsync(request, cancellationToken); return File(file.Content, file.ContentType, file.FileName); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpPost("split-validate")]
+    [Authorize(Roles = "Admin,Xnk")]
+    public async Task<ActionResult<ValidateSplitResultDto>> SplitValidate([FromBody] ValidateSplitRequestDto request, CancellationToken cancellationToken)
+    {
+        if (_dispatch == null) return StatusCode(500, new { message = "Dispatch service chưa được cấu hình." });
+        return Ok(await _dispatch.ValidateSplitAsync(request, cancellationToken));
+    }
+
+    [HttpPost("split-export-zip")]
+    [Authorize(Roles = "Admin,Xnk")]
+    public async Task<IActionResult> SplitExportZip([FromBody] SplitShipmentRequestDto request, CancellationToken cancellationToken)
+    {
+        if (_dispatch == null) return StatusCode(500, new { message = "Dispatch service chưa được cấu hình." });
+        try { var file = await _dispatch.ExportSplitZipAsync(request, cancellationToken); return File(file.Content, file.ContentType, file.FileName); }
+        catch (DispatchValidationException ex) { return BadRequest(ex.Result); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
     /// <summary>

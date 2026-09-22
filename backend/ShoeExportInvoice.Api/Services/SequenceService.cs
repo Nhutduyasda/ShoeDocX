@@ -95,12 +95,25 @@ public class SequenceService : ISequenceService
             if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             command.Transaction = _context.Database.CurrentTransaction?.GetDbTransaction();
+            var isSqlServer = _context.Database.IsSqlServer();
+            var countParameter = isSqlServer ? "@count" : "$count";
+            var nextParameter = isSqlServer ? "@nextSeq" : "$nextSeq";
+            var updatedParameter = isSqlServer ? "@updatedAt" : "$updatedAt";
+            var folderParameter = isSqlServer ? "@folderId" : "$folderId";
             int first;
             if (requestedStart.HasValue && requestedStart.Value > 0)
             {
                 first = requestedStart.Value;
                 var nextSeq = first + count;
-                command.CommandText = """
+                command.CommandText = isSqlServer ? """
+                    UPDATE MasterDataFolders WITH (UPDLOCK, ROWLOCK)
+                    SET CurrentSequenceNumber = CASE
+                            WHEN CurrentSequenceNumber > @nextSeq THEN CurrentSequenceNumber
+                            ELSE @nextSeq
+                        END,
+                        UpdatedAt = @updatedAt
+                    WHERE Id = @folderId;
+                    """ : """
                     UPDATE MasterDataFolders
                     SET CurrentSequenceNumber = CASE 
                             WHEN CurrentSequenceNumber > $nextSeq THEN CurrentSequenceNumber 
@@ -109,9 +122,9 @@ public class SequenceService : ISequenceService
                         UpdatedAt = $updatedAt
                     WHERE Id = $folderId;
                     """;
-                command.Parameters.Add(CreateParameter(command, "$nextSeq", nextSeq));
-                command.Parameters.Add(CreateParameter(command, "$updatedAt", DateTime.UtcNow));
-                command.Parameters.Add(CreateParameter(command, "$folderId", folderId));
+                command.Parameters.Add(CreateParameter(command, nextParameter, nextSeq));
+                command.Parameters.Add(CreateParameter(command, updatedParameter, DateTime.UtcNow));
+                command.Parameters.Add(CreateParameter(command, folderParameter, folderId));
 
                 var rows = await command.ExecuteNonQueryAsync();
                 if (rows == 0)
@@ -119,16 +132,22 @@ public class SequenceService : ISequenceService
             }
             else
             {
-                command.CommandText = """
+                command.CommandText = isSqlServer ? """
+                    UPDATE MasterDataFolders WITH (UPDLOCK, ROWLOCK)
+                    SET CurrentSequenceNumber = CurrentSequenceNumber + @count,
+                        UpdatedAt = @updatedAt
+                    OUTPUT deleted.CurrentSequenceNumber
+                    WHERE Id = @folderId;
+                    """ : """
                     UPDATE MasterDataFolders
                     SET CurrentSequenceNumber = CurrentSequenceNumber + $count,
                         UpdatedAt = $updatedAt
                     WHERE Id = $folderId
                     RETURNING CurrentSequenceNumber - $count;
                     """;
-                command.Parameters.Add(CreateParameter(command, "$count", count));
-                command.Parameters.Add(CreateParameter(command, "$updatedAt", DateTime.UtcNow));
-                command.Parameters.Add(CreateParameter(command, "$folderId", folderId));
+                command.Parameters.Add(CreateParameter(command, countParameter, count));
+                command.Parameters.Add(CreateParameter(command, updatedParameter, DateTime.UtcNow));
+                command.Parameters.Add(CreateParameter(command, folderParameter, folderId));
 
                 var scalar = await command.ExecuteScalarAsync();
                 if (scalar == null || scalar == DBNull.Value)

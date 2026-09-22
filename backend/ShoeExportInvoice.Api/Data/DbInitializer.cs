@@ -205,4 +205,71 @@ public static class DbInitializer
             logger.LogWarning("Bootstrap administrator {Username} was created. Disable BootstrapAdmin immediately after first use.", user.UserName);
         }
     }
+
+    /// <summary>
+    /// Creates or repairs the well-known local accounts used to exercise each authorization flow.
+    /// This must only be called for an explicitly enabled development environment because it
+    /// resets passwords to public, non-production values on every startup.
+    /// </summary>
+    public static async Task SeedDevelopmentUsersAsync(
+        Microsoft.AspNetCore.Identity.UserManager<ShoeExportInvoice.Api.Models.Entities.ApplicationUser> userManager,
+        ILogger logger)
+    {
+        var accounts = new[]
+        {
+            new DevelopmentAccount("admin", "@Admin1234", "Quản trị viên", Models.Entities.Department.Admin),
+            new DevelopmentAccount("xnk", "@Xnk123456", "Nhân viên Xuất Nhập Khẩu", Models.Entities.Department.Xnk),
+            new DevelopmentAccount("kho", "@Kho123456", "Nhân viên Kho Thành Phẩm", Models.Entities.Department.Kho),
+            new DevelopmentAccount("ketoan", "@KeToan123", "Nhân viên Kế toán", Models.Entities.Department.KeToan),
+            new DevelopmentAccount("xnkmanager", "@XnkManager123", "Trưởng phòng Xuất Nhập Khẩu", Models.Entities.Department.XnkManager)
+        };
+
+        foreach (var account in accounts)
+        {
+            var user = await userManager.FindByNameAsync(account.Username);
+            if (user == null)
+            {
+                user = new Models.Entities.ApplicationUser
+                {
+                    UserName = account.Username,
+                    FullName = account.FullName,
+                    Department = account.Department,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                var createResult = await userManager.CreateAsync(user, account.Password);
+                if (!createResult.Succeeded)
+                    throw new InvalidOperationException($"Cannot create development user {account.Username}: {string.Join(", ", createResult.Errors.Select(e => e.Description))}");
+            }
+            else
+            {
+                user.FullName = account.FullName;
+                user.Department = account.Department;
+                user.IsActive = true;
+                user.LockoutEnd = null;
+                user.AccessFailedCount = 0;
+                var updateResult = await userManager.UpdateAsync(user);
+                if (!updateResult.Succeeded)
+                    throw new InvalidOperationException($"Cannot repair development user {account.Username}: {string.Join(", ", updateResult.Errors.Select(e => e.Description))}");
+
+                if (await userManager.HasPasswordAsync(user))
+                {
+                    var removeResult = await userManager.RemovePasswordAsync(user);
+                    if (!removeResult.Succeeded)
+                        throw new InvalidOperationException($"Cannot remove development password for {account.Username}: {string.Join(", ", removeResult.Errors.Select(e => e.Description))}");
+                }
+                var passwordResult = await userManager.AddPasswordAsync(user, account.Password);
+                if (!passwordResult.Succeeded)
+                    throw new InvalidOperationException($"Cannot reset development password for {account.Username}: {string.Join(", ", passwordResult.Errors.Select(e => e.Description))}");
+            }
+        }
+
+        logger.LogWarning("Development login accounts were created/repaired. Never enable these credentials in Production.");
+    }
+
+    private sealed record DevelopmentAccount(
+        string Username,
+        string Password,
+        string FullName,
+        Models.Entities.Department Department);
 }

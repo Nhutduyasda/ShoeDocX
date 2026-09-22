@@ -12,6 +12,9 @@ import {
   message,
   Popconfirm,
   Card,
+  Checkbox,
+  Radio,
+  Alert,
 } from 'antd';
 import {
   InboxOutlined,
@@ -41,6 +44,8 @@ import type {
 import { ProcessType, ExportSequencePriority, normalizeProcessType } from '../types';
 import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
 import { OriginalImagePreview } from './OriginalImagePreview';
+import { shipmentDispatchApi, triggerDownload } from '../features/shipment-dispatch/api/shipmentDispatchApi';
+import type { MergeShipmentPreviewResponse, OcrDispatchSourcePayload } from '../features/shipment-dispatch/types/shipmentDispatch';
 
 interface BatchOcrModalProps {
   contractFolderId?: number | null;
@@ -73,6 +78,12 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [viewingImage, setViewingImage] = useState<ImageQueueItem | null>(null);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
+  const [dispatchMode, setDispatchMode] = useState<'separate' | 'merge'>('separate');
+  const [mergePreview, setMergePreview] = useState<MergeShipmentPreviewResponse | null>(null);
+  const [isPreviewingMerge, setIsPreviewingMerge] = useState(false);
+  const [isExportingMerge, setIsExportingMerge] = useState(false);
+  const [processedDocumentIds, setProcessedDocumentIds] = useState<Set<string>>(new Set());
 
   // Edit Card Modal state
   const [editingCard, setEditingCard] = useState<ImageQueueItem | null>(null);
@@ -90,6 +101,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const [batchPriority, setBatchPriority] = useState<ExportSequencePriority>(
     ExportSequencePriority.StandardFirst
   );
+  useEffect(() => { setMergePreview(null); }, [contractFolderId, poSuffix]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -264,6 +276,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       );
 
       message.success('Đã hoàn thành bóc tách hàng loạt ảnh phiếu kho.');
+      setSelectedDocumentIds(new Set(scanResults.flatMap(result => result.documents.map(document => document.documentId))));
     } catch (err: any) {
       message.error(err.response?.data?.message || 'Có lỗi xảy ra trong quá trình bóc tách ảnh.');
       setImageQueue((prev) =>
@@ -314,13 +327,14 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       prev.map((item) => item.id === editingCard.id && item.result ? { ...item, result: { ...item.result, documents: item.result.documents.map(d => d.documentId === editingDocumentId ? updatedDocument : d) } } : item)
     );
 
+    setMergePreview(null);
     setEditingCard(null);
     message.success('Đã cập nhật chi tiết đợt thành công.');
   };
 
   // Handle export all completed batches to single ZIP
   const handleExportZip = async () => {
-    const doneItems = imageQueue.filter((item) => item.status === 'done' && item.result && item.result.documents.some(d => d.items.length > 0));
+    const doneItems = imageQueue.filter((item) => item.status === 'done' && item.result && item.result.documents.some(d => selectedDocumentIds.has(d.documentId) && d.items.length > 0));
 
     if (doneItems.length === 0) {
       message.warning('Chưa có đợt nào hoàn thành bóc tách hợp lệ để xuất Excel.');
@@ -330,7 +344,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
     try {
       setIsExporting(true);
 
-      const batchesPayload: BatchScanItemExport[] = doneItems.flatMap((dItem) => dItem.result!.documents.filter(d => d.items.length).map(doc => {
+      const batchesPayload: BatchScanItemExport[] = doneItems.flatMap((dItem) => dItem.result!.documents.filter(d => selectedDocumentIds.has(d.documentId) && d.items.length).map(doc => {
         const shipmentItems: CreateShipmentItem[] = doc.items.map((i) => ({
           styleCode: i.styleCode,
           description: i.description,
@@ -370,6 +384,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       document.body.removeChild(a);
 
       message.success(`Đã xuất thành công gói ZIP chứa ${batchesPayload.length} đợt giao hàng.`);
+      setProcessedDocumentIds(current => new Set([...current, ...batchesPayload.map(batch => batch.batchId)]));
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -389,6 +404,19 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
     return acc + (item.result ? item.result.documents.reduce((sum, d) => sum + d.items.reduce((s, i) => s + i.quantity, 0), 0) : 0);
   }, 0);
   const totalDocuments = imageQueue.reduce((acc, item) => acc + (item.result?.documents.length || 0), 0);
+  const detectedDocuments = React.useMemo(() => imageQueue.flatMap(image => image.result?.documents.map(document => ({ document, image })) ?? []), [imageQueue]);
+  const selectedDocuments = detectedDocuments.filter(({ document }) => selectedDocumentIds.has(document.documentId) && !processedDocumentIds.has(document.documentId));
+  const toggleDocument = (documentId: string, checked: boolean) => {
+    setSelectedDocumentIds(current => { const next = new Set(current); checked ? next.add(documentId) : next.delete(documentId); return next; });
+    setMergePreview(null);
+  };
+  const sourcePayloads = (): OcrDispatchSourcePayload[] => selectedDocuments.map(({ document, image }) => ({
+    documentId: document.documentId, title: document.title, sourceFileName: image.file.name, clientFileId: image.id,
+    items: document.items.map(item => ({ styleCode: item.styleCode, quantity: item.quantity, processType: normalizeProcessType(item.processType), unitPriceCMT: item.unitPriceCMT, unitPriceDAP: item.unitPriceDAP, unit: item.unit, pairPerCarton: item.pairPerCarton, description: item.description })),
+  }));
+  const mergeRequest = () => ({ sourceDocuments: sourcePayloads(), contractFolderId: contractFolderId ?? undefined, poSuffix: profile?.poSuffix || poSuffix.trim(), invoiceDate: new Date().toISOString().slice(0, 10) });
+  const previewSelectedMerge = async () => { if (selectedDocuments.length < 2) return; setIsPreviewingMerge(true); try { setMergePreview(await shipmentDispatchApi.previewMerge(mergeRequest())); } catch (error: any) { setMergePreview(null); message.error(error.response?.data?.message || 'Không thể xem trước kết quả gom.'); } finally { setIsPreviewingMerge(false); } };
+  const exportSelectedMerge = async () => { if (!mergePreview) return; setIsExportingMerge(true); try { const result = await shipmentDispatchApi.exportMerge(mergeRequest()); triggerDownload(result); const ids = selectedDocuments.map(x => x.document.documentId); setProcessedDocumentIds(current => new Set([...current, ...ids])); setSelectedDocumentIds(new Set()); setMergePreview(null); message.success('Đã xuất Invoice gom thành công.'); onSuccess(); } catch (error: any) { const data = error.response?.data; let detail = data?.message; if (data instanceof Blob) { try { detail = JSON.parse(await data.text()).message; } catch { /* keep fallback */ } } message.error(detail || 'Không thể xuất Invoice gom. Lựa chọn vẫn được giữ nguyên.'); } finally { setIsExportingMerge(false); } };
 
   return (
     <Modal
@@ -516,6 +544,12 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
           </div>
         )}
 
+        {detectedDocuments.length > 0 && <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><strong>Dispatch Workspace</strong><div className="text-xs text-slate-500">{totalQueued} ảnh · {totalDocuments} đợt · {totalPairs.toLocaleString()} đôi</div></div><div className="flex gap-2"><Button size="small" onClick={() => { setSelectedDocumentIds(new Set(detectedDocuments.filter(x => !processedDocumentIds.has(x.document.documentId)).map(x => x.document.documentId))); setMergePreview(null); }}>Chọn tất cả</Button><Button size="small" onClick={() => { setSelectedDocumentIds(new Set()); setMergePreview(null); }}>Bỏ chọn tất cả</Button></div></div>
+          <Radio.Group value={dispatchMode} onChange={event => { setDispatchMode(event.target.value); setMergePreview(null); }}><Radio value="separate">Xuất riêng từng đợt</Radio><Radio value="merge">Gom các đợt đã chọn thành 1 Invoice</Radio></Radio.Group>
+          {dispatchMode === 'merge' && selectedDocuments.length < 2 && <Alert type="warning" showIcon message="Cần chọn ít nhất 2 đợt để gom." />}
+        </div>}
+
         {/* Cards Grid */}
         {imageQueue.length > 0 && (
           <div className="max-h-[420px] overflow-y-auto pr-1">
@@ -579,9 +613,10 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                             <div className="font-semibold text-xs text-violet-700">Đã phát hiện {res.documents.length} đợt</div>
                             <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => setViewingImage(item)} className="text-xs p-0 h-auto">Xem toàn ảnh gốc</Button>
                             {res.documents.map(doc => <div key={doc.documentId} className="border-t border-slate-100 pt-1 mt-1">
-                              <div className="flex justify-between gap-2"><span className="truncate text-xs">{doc.title || 'Không tiêu đề'}</span><span className="font-mono text-xs">{doc.items.reduce((s, i) => s + i.quantity, 0).toLocaleString()} đôi</span></div>
+                              <Checkbox checked={selectedDocumentIds.has(doc.documentId)} disabled={processedDocumentIds.has(doc.documentId)} onChange={event => toggleDocument(doc.documentId, event.target.checked)}>{doc.title || 'Không tiêu đề'}</Checkbox>
+                              <div className="text-right font-mono text-xs">{doc.items.reduce((s, i) => s + i.quantity, 0).toLocaleString()} đôi</div>
                               <div className="flex justify-between items-center">
-                                {doc.reportedTotal == null ? <Tag color="warning" className="text-[10px] m-0"><ExclamationCircleOutlined /> Chưa thể đối chiếu</Tag> : doc.isTotalMatched ? <Tag color="success" className="text-[10px] m-0"><CheckCircleOutlined /> Khớp</Tag> : <Tag color="error" className="text-[10px] m-0">Lệch {doc.discrepancy}</Tag>}
+                                {processedDocumentIds.has(doc.documentId) ? <Tag color="green">Đã xử lý</Tag> : doc.reportedTotal == null ? <Tag color="warning" className="text-[10px] m-0"><ExclamationCircleOutlined /> Chưa thể đối chiếu</Tag> : doc.isTotalMatched ? <Tag color="success" className="text-[10px] m-0"><CheckCircleOutlined /> Khớp</Tag> : <Tag color="error" className="text-[10px] m-0">Lệch {doc.discrepancy}</Tag>}
                                 <Button size="small" type="link" icon={<EditOutlined />} onClick={() => handleOpenEditCard(item, doc)} className="text-xs p-0 h-auto">Sửa</Button>
                               </div>
                             </div>)}
@@ -665,19 +700,14 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
             <Button onClick={onClose} className="text-xs">
               Đóng
             </Button>
-            <Button
-              type="primary"
-              size="middle"
-              icon={<FileZipOutlined />}
-              onClick={handleExportZip}
-              loading={isExporting}
-              disabled={totalDone === 0}
-              className="bg-emerald-600 hover:bg-emerald-700 border-emerald-600 font-semibold text-xs px-5 shadow-sm"
-            >
-              Xác nhận & Xuất toàn bộ gói Excel (.zip)
-            </Button>
+            {dispatchMode === 'separate' ? <Button type="primary" size="middle" icon={<FileZipOutlined />} onClick={handleExportZip} loading={isExporting} disabled={selectedDocuments.length === 0}>Xuất riêng {selectedDocuments.length} đợt (.zip)</Button> : <><Button icon={<EyeOutlined />} onClick={previewSelectedMerge} loading={isPreviewingMerge} disabled={selectedDocuments.length < 2 || isExportingMerge}>Xem trước kết quả gom</Button><Button type="primary" onClick={exportSelectedMerge} loading={isExportingMerge} disabled={!mergePreview}>Xuất 1 Invoice đã gom</Button></>}
           </div>
         </div>
+        {dispatchMode === 'merge' && mergePreview && <div className="rounded-lg border border-emerald-200 p-3 space-y-2">
+          <Alert type="success" showIcon message={`Backend đã gom ${selectedDocuments.length} đợt · ${mergePreview.totalQuantity.toLocaleString()} đôi · ${mergePreview.totalCartons.toLocaleString()} kiện`} description={<><div>Nguồn: {selectedDocuments.map(x => x.document.title || x.document.documentId).join(', ')}</div><div>Thay đổi lựa chọn sẽ hủy kết quả xem trước.</div></>} />
+          {mergePreview.warnings.length > 0 && <Alert type="warning" showIcon message="Cảnh báo" description={mergePreview.warnings.map(w => <div key={`${w.code}-${w.styleCode}`}>{w.message}</div>)} />}
+          <Table size="small" pagination={false} rowKey={row => `${row.styleCode}-${row.processType}`} dataSource={mergePreview.mergedItems} columns={[{ title: 'Mã', dataIndex: 'styleCode' }, { title: 'Công đoạn', dataIndex: 'processType', render: value => value === ProcessType.GoKhongMay ? 'Gò không may' : 'Thành hình' }, { title: 'SL sau gom', dataIndex: 'quantity', align: 'right', render: value => value.toLocaleString() }, { title: 'Đôi/thùng', dataIndex: 'pairPerCarton', align: 'right' }]} />
+        </div>}
       </div>
 
       {/* Edit Card Detail Modal */}

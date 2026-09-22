@@ -27,9 +27,21 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
 
     public async Task<MergeShipmentPreviewResponseDto> PreviewMergeAsync(MergeShipmentRequestDto request, CancellationToken cancellationToken)
     {
+        if (request.SourceDocuments.Count > 0)
+        {
+            var (documents, ocrFolder) = await LoadOcrMergeSourcesAsync(request, cancellationToken);
+            return await BuildMergePreviewAsync(documents.SelectMany(d => d.Items), ocrFolder, request, cancellationToken);
+        }
         _logger.LogInformation("Dispatch Merge Started for batches {BatchIds}", request.SourceBatchIds);
         var (batches, folder) = await LoadMergeSourcesAsync(request, cancellationToken);
-        var items = batches.SelectMany(b => b.Items)
+        return await BuildMergePreviewAsync(batches.SelectMany(b => b.Items.Select(i => new CreateShipmentItemDto
+            { StyleCode = i.StyleCode, Quantity = i.Quantity, ProcessType = i.ProcessType })), folder, request, cancellationToken);
+    }
+
+    private async Task<MergeShipmentPreviewResponseDto> BuildMergePreviewAsync(IEnumerable<CreateShipmentItemDto> sourceItems,
+        MasterDataFolder folder, MergeShipmentRequestDto request, CancellationToken cancellationToken)
+    {
+        var items = sourceItems
             .GroupBy(i => new ItemKey(NormalizeStyle(i.StyleCode), i.ProcessType))
             .Select(g => new CreateShipmentItemDto { StyleCode = g.Key.StyleCode, ProcessType = g.Key.ProcessType, Quantity = g.Sum(x => x.Quantity) })
             .OrderBy(i => i.StyleCode).ThenBy(i => i.ProcessType).ToList();
@@ -44,27 +56,36 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
             PklBreakdown = pkl.BreakdownItems,
             Warnings = items.Where(i => i.Quantity % i.PairPerCarton!.Value != 0).Select(OddCartonWarning).ToList()
         };
-        _logger.LogInformation("Dispatch Merge Completed preview for batches {BatchIds}, quantity {Quantity}", request.SourceBatchIds, result.TotalQuantity);
+        _logger.LogInformation("Dispatch Merge Completed preview, quantity {Quantity}", result.TotalQuantity);
         return result;
     }
 
     public async Task<ValidateSplitResultDto> ValidateSplitAsync(ValidateSplitRequestDto request, CancellationToken cancellationToken)
     {
         var result = new ValidateSplitResultDto();
-        var batch = await _db.WarehouseBatches.AsNoTracking().Include(b => b.Items)
-            .SingleOrDefaultAsync(b => b.Id == request.SourceBatchId, cancellationToken);
-        if (batch == null)
+        Dictionary<ItemKey, int> original;
+        if (request.SourceDocument != null)
         {
-            AddError(result, "SOURCE_BATCH_NOT_FOUND", $"Không tìm thấy đợt nguồn #{request.SourceBatchId}.");
-            return Finish(result);
+            if (string.IsNullOrWhiteSpace(request.SourceDocument.DocumentId))
+                AddError(result, "SOURCE_DOCUMENT_INVALID", "OCR document không có documentId hợp lệ.");
+            original = NormalizeSourceItems(request.SourceDocument.Items, result);
         }
-        if (batch.Status == WarehouseBatchStatus.ProcessedByXnk)
-            AddError(result, "SOURCE_BATCH_INVALID", "Đợt nguồn đã được xử lý trước đó.");
+        else
+        {
+            var batch = request.SourceBatchId.HasValue ? await _db.WarehouseBatches.AsNoTracking().Include(b => b.Items)
+                .SingleOrDefaultAsync(b => b.Id == request.SourceBatchId.Value, cancellationToken) : null;
+            if (batch == null)
+            {
+                AddError(result, "SOURCE_NOT_FOUND", "Không tìm thấy nguồn tách hóa đơn.");
+                return Finish(result);
+            }
+            if (batch.Status == WarehouseBatchStatus.ProcessedByXnk)
+                AddError(result, "SOURCE_BATCH_INVALID", "Đợt nguồn đã được xử lý trước đó.");
+            original = batch.Items.GroupBy(i => new ItemKey(NormalizeStyle(i.StyleCode), i.ProcessType))
+                .ToDictionary(g => g.Key, g => g.Sum(x => x.Quantity));
+        }
         if (request.SubInvoices.Count is < 2 or > 10)
             AddError(result, "SPLIT_INVOICE_COUNT_INVALID", "Phải phân bổ từ 2 đến 10 hóa đơn con.");
-
-        var original = batch.Items.GroupBy(i => new ItemKey(NormalizeStyle(i.StyleCode), i.ProcessType))
-            .ToDictionary(g => g.Key, g => g.Sum(x => x.Quantity));
         result.OriginalTotal = original.Values.Sum();
 
         var allocated = new Dictionary<ItemKey, int>();
@@ -108,7 +129,11 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
     public async Task<ExportFileResult> ExportMergeAsync(MergeShipmentRequestDto request, CancellationToken cancellationToken)
     {
         var preview = await PreviewMergeAsync(request, cancellationToken);
-        var (batches, folder) = await LoadMergeSourcesAsync(request, cancellationToken);
+        var isOcr = request.SourceDocuments.Count > 0;
+        var batches = new List<WarehouseBatch>();
+        MasterDataFolder folder;
+        if (isOcr) (_, folder) = await LoadOcrMergeSourcesAsync(request, cancellationToken);
+        else (batches, folder) = await LoadMergeSourcesAsync(request, cancellationToken);
         await ValidateTemplateAsync(request.TemplateId, folder.Id, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         try
@@ -129,7 +154,7 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
                 files.Add((PartnerDocumentPatternFormatter.FileName(folder.FileNamePattern, numbers[i]), content));
             }
             foreach (var batch in batches) batch.Status = WarehouseBatchStatus.ProcessedByXnk;
-            AddAudit("MERGE_EXPORT", request.SourceBatchIds, orders, preview.TotalQuantity);
+            AddAudit("MERGE_EXPORT", isOcr ? request.SourceDocuments.Select(d => d.DocumentId) : request.SourceBatchIds.Select(x => x.ToString()), orders, preview.TotalQuantity);
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return files.Count == 1
@@ -146,12 +171,15 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
 
     public async Task<ExportFileResult> ExportSplitZipAsync(SplitShipmentRequestDto request, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Dispatch Split Export Started for batch {BatchId}", request.SourceBatchId);
-        var validation = await ValidateSplitAsync(new ValidateSplitRequestDto { SourceBatchId = request.SourceBatchId, SubInvoices = request.SubInvoices }, cancellationToken);
+        _logger.LogInformation("Dispatch Split Export Started for source {Source}", request.SourceDocument?.DocumentId ?? request.SourceBatchId?.ToString());
+        var validation = await ValidateSplitAsync(new ValidateSplitRequestDto { SourceBatchId = request.SourceBatchId, SourceDocument = request.SourceDocument, SubInvoices = request.SubInvoices }, cancellationToken);
         if (!validation.IsValid) throw new DispatchValidationException(validation);
-        var batch = await _db.WarehouseBatches.Include(b => b.Items).SingleAsync(b => b.Id == request.SourceBatchId, cancellationToken);
-        var folderId = request.ContractFolderId ?? batch.ContractFolderId ?? throw new InvalidOperationException("Đợt nguồn chưa được gán hợp đồng.");
-        if (batch.ContractFolderId.HasValue && batch.ContractFolderId != folderId) throw new InvalidOperationException("Hợp đồng không phù hợp với đợt nguồn.");
+        var isOcr = request.SourceDocument != null;
+        WarehouseBatch? batch = null;
+        if (!isOcr && request.SourceBatchId.HasValue)
+            batch = await _db.WarehouseBatches.Include(b => b.Items).SingleAsync(b => b.Id == request.SourceBatchId.Value, cancellationToken);
+        var folderId = request.ContractFolderId ?? batch?.ContractFolderId ?? throw new InvalidOperationException("Nguồn OCR chưa được gán hợp đồng.");
+        if (batch?.ContractFolderId.HasValue == true && batch.ContractFolderId != folderId) throw new InvalidOperationException("Hợp đồng không phù hợp với đợt nguồn.");
         var folder = await _db.MasterDataFolders.SingleOrDefaultAsync(f => f.Id == folderId, cancellationToken)
             ?? throw new InvalidOperationException("Hợp đồng không tồn tại.");
         await ValidateTemplateAsync(request.TemplateId, folder.Id, cancellationToken);
@@ -169,15 +197,15 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
                 var dto = BuildBaseRequest(folder, request.TemplateId, request.InvoiceDate, request.PoSuffix, invoiceNo, groups[i].Items.Select(CloneItem).ToList());
                 await ApplyMasterDataAsync(dto, cancellationToken);
                 files.Add((PartnerDocumentPatternFormatter.FileName(folder.FileNamePattern, numbers[i]), await _excel.ExportShipmentMultiSheetExcelAsync(dto)));
-                var order = CreateOrder(dto, ShipmentSourceRelationType.SplitSource, [batch.Id]);
+                var order = CreateOrder(dto, ShipmentSourceRelationType.SplitSource, batch == null ? [] : [batch.Id]);
                 _db.ShipmentOrders.Add(order);
                 orders.Add(order);
             }
-            batch.Status = WarehouseBatchStatus.ProcessedByXnk;
-            AddAudit("SPLIT_EXPORT", [batch.Id], orders, validation.OriginalTotal);
+            if (batch != null) batch.Status = WarehouseBatchStatus.ProcessedByXnk;
+            AddAudit("SPLIT_EXPORT", isOcr ? [request.SourceDocument!.DocumentId] : [batch!.Id.ToString()], orders, validation.OriginalTotal);
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            _logger.LogInformation("Dispatch Split Export Completed for batch {BatchId}, sequences {Sequences}", batch.Id, numbers);
+            _logger.LogInformation("Dispatch Split Export Completed for source {SourceId}, sequences {Sequences}", request.SourceDocument?.DocumentId ?? batch?.Id.ToString(), numbers);
             return new ExportFileResult(BuildZip(files), "application/zip", $"Bao_Cao_Tach_Hoa_Don_{request.InvoiceDate:yyyyMMdd}_{numbers[0]}_to_{numbers[^1]}.zip");
         }
         catch
@@ -203,6 +231,41 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
         var folder = await _db.MasterDataFolders.SingleAsync(f => f.Id == folderId, ct);
         await ValidateTemplateAsync(request.TemplateId, folderId, ct);
         return (batches, folder);
+    }
+
+    private async Task<(List<OcrDispatchSourceDocumentDto> Documents, MasterDataFolder Folder)> LoadOcrMergeSourcesAsync(
+        MergeShipmentRequestDto request, CancellationToken ct)
+    {
+        var documents = request.SourceDocuments
+            .Where(d => !string.IsNullOrWhiteSpace(d.DocumentId))
+            .GroupBy(d => d.DocumentId, StringComparer.Ordinal)
+            .Select(g => g.First()).ToList();
+        if (documents.Count < 2) throw new InvalidOperationException("Phải chọn ít nhất 2 OCR document để gom.");
+        if (documents.Any(d => d.Items.Count == 0 || d.Items.Any(i => i.Quantity <= 0 || string.IsNullOrWhiteSpace(NormalizeStyle(i.StyleCode)) || !Enum.IsDefined(i.ProcessType))))
+            throw new InvalidOperationException("Một hoặc nhiều OCR document không có mặt hàng hợp lệ.");
+        var folderId = request.ContractFolderId ?? throw new InvalidOperationException("Phải chọn hợp đồng trước khi gom OCR document.");
+        var folder = await _db.MasterDataFolders.SingleOrDefaultAsync(f => f.Id == folderId, ct)
+            ?? throw new InvalidOperationException("Hợp đồng không tồn tại.");
+        await ValidateTemplateAsync(request.TemplateId, folderId, ct);
+        return (documents, folder);
+    }
+
+    private static Dictionary<ItemKey, int> NormalizeSourceItems(IEnumerable<CreateShipmentItemDto> items, ValidateSplitResultDto result)
+    {
+        var original = new Dictionary<ItemKey, int>();
+        foreach (var item in items)
+        {
+            var code = NormalizeStyle(item.StyleCode);
+            if (string.IsNullOrWhiteSpace(code) || item.Quantity <= 0 || !Enum.IsDefined(item.ProcessType))
+            {
+                AddError(result, "SOURCE_ITEM_INVALID", $"Mặt hàng nguồn '{item.StyleCode}' không hợp lệ.", code);
+                continue;
+            }
+            var key = new ItemKey(code, item.ProcessType);
+            original[key] = original.GetValueOrDefault(key) + item.Quantity;
+        }
+        if (original.Count == 0) AddError(result, "SOURCE_DOCUMENT_EMPTY", "OCR document không có mặt hàng hợp lệ.");
+        return original;
     }
 
     private async Task ApplyMasterDataAsync(CreateShipmentRequestDto request, CancellationToken ct)
@@ -253,13 +316,13 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
         return order;
     }
 
-    private void AddAudit(string action, IEnumerable<int> sources, IEnumerable<ShipmentOrder> orders, int quantity)
+    private void AddAudit(string action, IEnumerable<string> sources, IEnumerable<ShipmentOrder> orders, int quantity)
     {
         var context = _http.HttpContext;
         _db.BusinessAuditLogs.Add(new BusinessAuditLog { ActorUserId = context?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value,
             ActorUserName = context?.User.Identity?.Name ?? "System", ActorRole = context?.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "System",
             Action = action, ResourceType = "ShipmentDispatch", ResourceId = string.Join(",", sources), TraceId = context?.TraceIdentifier,
-            NewStateJson = JsonSerializer.Serialize(new { SourceBatchIds = sources, InvoiceNos = orders.Select(o => o.InvoiceNo), Quantity = quantity }) });
+            NewStateJson = JsonSerializer.Serialize(new { SourceIds = sources, InvoiceNos = orders.Select(o => o.InvoiceNo), Quantity = quantity }) });
     }
 
     private static byte[] BuildZip(IEnumerable<(string Name, byte[] Content)> files)

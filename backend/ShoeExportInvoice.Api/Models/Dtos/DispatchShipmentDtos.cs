@@ -5,6 +5,7 @@ namespace ShoeExportInvoice.Api.Models.Dtos;
 public sealed class MergeShipmentRequestDto
 {
     public List<int> SourceBatchIds { get; set; } = [];
+    public List<OcrDispatchSourceDocumentDto> SourceDocuments { get; set; } = [];
     public int? ContractFolderId { get; set; }
     public string? PoSuffix { get; set; }
     public string? InvoiceNo { get; set; }
@@ -23,7 +24,8 @@ public sealed class MergeShipmentPreviewResponseDto
 
 public sealed class SplitShipmentRequestDto
 {
-    public int SourceBatchId { get; set; }
+    public int? SourceBatchId { get; set; }
+    public OcrDispatchSourceDocumentDto? SourceDocument { get; set; }
     public int? ContractFolderId { get; set; }
     public int? TemplateId { get; set; }
     public string? PoSuffix { get; set; }
@@ -33,8 +35,18 @@ public sealed class SplitShipmentRequestDto
 
 public sealed class ValidateSplitRequestDto
 {
-    public int SourceBatchId { get; set; }
+    public int? SourceBatchId { get; set; }
+    public OcrDispatchSourceDocumentDto? SourceDocument { get; set; }
     public List<SubInvoiceAllocationDto> SubInvoices { get; set; } = [];
+}
+
+public sealed class OcrDispatchSourceDocumentDto
+{
+    public string DocumentId { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string? ClientFileId { get; set; }
+    public string? SourceFileName { get; set; }
+    public List<CreateShipmentItemDto> Items { get; set; } = [];
 }
 
 public sealed class SubInvoiceAllocationDto

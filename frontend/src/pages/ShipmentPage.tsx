@@ -86,7 +86,6 @@ import { UnlockAuditsModal } from '../components/UnlockAuditsModal';
 import { TemplateConfigModal } from '../components/TemplateConfigModal';
 import { CustomsArchiveTreePanel, type CustomsTreeFilter } from '../components/CustomsArchiveTreePanel';
 import { SplitMatrixModal } from '../features/shipment-dispatch/components/SplitMatrixModal';
-import { MergeShipmentModal } from '../features/shipment-dispatch/components/MergeShipmentModal';
 
 export interface ShipmentPageRef {
   loadHistoricalOrder: (id: number) => void;
@@ -121,7 +120,6 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [loadingWarehouseBatches, setLoadingWarehouseBatches] = useState<boolean>(false);
   const [activeWarehouseBatchId, setActiveWarehouseBatchId] = useState<number | null>(null);
   const [splitMatrixVisible, setSplitMatrixVisible] = useState(false);
-  const [mergeShipmentVisible, setMergeShipmentVisible] = useState(false);
 
   const [products, setProducts] = useState<ProductMaster[]>([]);
 
@@ -2812,8 +2810,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                     Tách Hóa Đơn
                   </Button>
                 </Tooltip>
-                <Button icon={<ApartmentOutlined />} disabled={readOnly} onClick={() => setMergeShipmentVisible(true)} className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] bg-white font-medium">
-                  Gom Đợt Hàng
+                <Button icon={<ApartmentOutlined />} disabled={readOnly} onClick={() => setBatchOcrModalVisible(true)} className="text-xs h-8 px-3 border-[#D1D5DB] text-[#374151] bg-white font-medium">
+                  OCR Batch / Gom đợt
                 </Button>
                 <Tooltip title="Hỗ trợ dán trực tiếp danh sách mã và số lượng copy từ bảng tính Excel.">
                   <Button
@@ -3104,6 +3102,10 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         products={products}
         selectedPartnerId={selectedPartnerId}
         onApply={handleApplyOcr}
+        templateId={selectedTemplateId}
+        poSuffix={form.getFieldValue('poSuffix') || ''}
+        invoiceDate={dayjs(form.getFieldValue('invoiceDate') || undefined).format('YYYY-MM-DD')}
+        onDispatchExported={() => { void loadShipmentsHistory(); void loadSequence(); }}
       />
 
       {/* Modal Quét ảnh OCR hàng loạt theo lô (Batch Upload / Multi-Scan) */}
@@ -3322,19 +3324,6 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         onExported={() => {
           setActiveWarehouseBatchId(null);
           setItems([]);
-          void loadPendingWarehouseBatches();
-          void loadShipmentsHistory();
-        }}
-      />
-
-      <MergeShipmentModal
-        open={mergeShipmentVisible}
-        contractFolderId={selectedPartnerId}
-        templateId={selectedTemplateId}
-        poSuffix={form.getFieldValue('poSuffix') || ''}
-        invoiceDate={dayjs(form.getFieldValue('invoiceDate') || undefined).format('YYYY-MM-DD')}
-        onClose={() => setMergeShipmentVisible(false)}
-        onExported={() => {
           void loadPendingWarehouseBatches();
           void loadShipmentsHistory();
         }}

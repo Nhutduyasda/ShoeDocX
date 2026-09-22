@@ -53,6 +53,60 @@ public sealed class ShipmentDispatchTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task OcrMerge_Should_OnlyMergeSelectedDocuments_AndKeepProcessTypesSeparate()
+    {
+        var folder = await SeedFolderAsync("42072-410");
+        var request = new MergeShipmentRequestDto
+        {
+            ContractFolderId = folder.Id,
+            SourceDocuments =
+            [
+                OcrDocument("D19", ("42072-410", 5316, ProcessType.Standard)),
+                OcrDocument("D23", ("42072-410", 1704, ProcessType.Standard), ("42072-410.G", 200, ProcessType.GoKhongMay))
+            ]
+        };
+
+        var result = await _service.PreviewMergeAsync(request, default);
+
+        Assert.Equal(2, result.MergedItems.Count);
+        Assert.Equal(7020, result.MergedItems.Single(i => i.ProcessType == ProcessType.Standard).Quantity);
+        Assert.Equal(200, result.MergedItems.Single(i => i.ProcessType == ProcessType.GoKhongMay).Quantity);
+    }
+
+    [Fact]
+    public async Task OcrSplit_Should_RecalculateOriginalFromSourceDocument()
+    {
+        var request = new ValidateSplitRequestDto
+        {
+            SourceDocument = OcrDocument("D20", ("42072-410", 1704, ProcessType.Standard), ("42073-030", 288, ProcessType.Standard), ("42072-030", 5550, ProcessType.Standard)),
+            SubInvoices =
+            [
+                new() { Items = [Item("42072-410", 852), Item("42073-030", 144), Item("42072-030", 2775)] },
+                new() { Items = [Item("42072-410", 852), Item("42073-030", 144), Item("42072-030", 2775)] }
+            ]
+        };
+
+        var result = await _service.ValidateSplitAsync(request, default);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(7542, result.OriginalTotal);
+        Assert.Equal(7542, result.AllocatedTotal);
+    }
+
+    [Fact]
+    public async Task OcrSplit_Should_NotAcceptClientAllocationForAnotherDocument()
+    {
+        var result = await _service.ValidateSplitAsync(new()
+        {
+            SourceDocument = OcrDocument("D19", ("A", 100, ProcessType.Standard)),
+            SubInvoices = [new() { Items = [Item("B", 50)] }, new() { Items = [Item("B", 50)] }]
+        }, default);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "SOURCE_ITEM_NOT_FOUND");
+    }
+
+    [Fact]
     public async Task Split_Should_Fail_When_Quantities_Do_Not_Match_Original()
     {
         var id = await SeedBatchAsync(("A", 11816, ProcessType.Standard));
@@ -173,6 +227,14 @@ public sealed class ShipmentDispatchTests : IAsyncLifetime
     }
 
     private static CreateShipmentItemDto Item(string code, int qty) => new() { StyleCode = code, Quantity = qty, ProcessType = ProcessType.Standard };
+    private static OcrDispatchSourceDocumentDto OcrDocument(string id, params (string code, int qty, ProcessType process)[] items) => new()
+    {
+        DocumentId = id,
+        Title = id,
+        SourceFileName = "source.png",
+        ClientFileId = "client-1",
+        Items = items.Select(item => new CreateShipmentItemDto { StyleCode = item.code, Quantity = item.qty, ProcessType = item.process }).ToList()
+    };
 
     private sealed class FakeSequence : ISequenceService
     {

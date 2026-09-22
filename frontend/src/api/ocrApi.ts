@@ -9,7 +9,9 @@ export const ocrApi = {
   // Gửi ảnh phiếu kho lên backend để nhận diện OCR qua Vision AI
   extractFromImage: async (file: File | Blob): Promise<OcrExtractionResponse> => {
     const formData = new FormData();
-    formData.append('file', file, 'receipt.jpg');
+    // Preserve the original File/Blob bytes. Preview URLs and UI zoom never enter the OCR request pipeline.
+    const fileName = file instanceof File ? file.name : 'receipt.jpg';
+    formData.append('file', file, fileName);
 
     const response = await apiClient.post<OcrExtractionResponse>('/ocr/extract', formData, {
       headers: {

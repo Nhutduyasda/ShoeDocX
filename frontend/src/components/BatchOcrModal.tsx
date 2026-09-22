@@ -25,6 +25,7 @@ import {
   ClearOutlined,
   RocketOutlined,
   SnippetsOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import { ocrApi } from '../api/ocrApi';
 import type {
@@ -39,6 +40,7 @@ import type {
 } from '../types';
 import { ProcessType, ExportSequencePriority, normalizeProcessType } from '../types';
 import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
+import { OriginalImagePreview } from './OriginalImagePreview';
 
 interface BatchOcrModalProps {
   contractFolderId?: number | null;
@@ -70,6 +72,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const [imageQueue, setImageQueue] = useState<ImageQueueItem[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [viewingImage, setViewingImage] = useState<ImageQueueItem | null>(null);
 
   // Edit Card Modal state
   const [editingCard, setEditingCard] = useState<ImageQueueItem | null>(null);
@@ -557,7 +560,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                           <img
                             src={item.previewUrl}
                             alt="preview"
-                            className="w-full h-full object-cover"
+                            className="block max-w-full max-h-full w-auto h-auto object-contain"
                           />
                         ) : (
                           <FileImageOutlined className="text-xl text-slate-400" />
@@ -574,6 +577,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                         {item.status === 'done' && res && (
                           <div className="space-y-1">
                             <div className="font-semibold text-xs text-violet-700">Đã phát hiện {res.documents.length} đợt</div>
+                            <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => setViewingImage(item)} className="text-xs p-0 h-auto">Xem toàn ảnh gốc</Button>
                             {res.documents.map(doc => <div key={doc.documentId} className="border-t border-slate-100 pt-1 mt-1">
                               <div className="flex justify-between gap-2"><span className="truncate text-xs">{doc.title || 'Không tiêu đề'}</span><span className="font-mono text-xs">{doc.items.reduce((s, i) => s + i.quantity, 0).toLocaleString()} đôi</span></div>
                               <div className="flex justify-between items-center">
@@ -852,6 +856,23 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
             />
           </div>
         </div>
+      </Modal>
+      <Modal
+        title={`Ảnh nguồn: ${viewingImage?.file.name || ''}`}
+        open={Boolean(viewingImage)}
+        onCancel={() => setViewingImage(null)}
+        width="92vw"
+        footer={<Button onClick={() => setViewingImage(null)}>Đóng</Button>}
+        destroyOnClose
+      >
+        {viewingImage && (
+          <>
+            <div className="mb-3 text-sm text-slate-600">
+              {viewingImage.result?.documents.length || 0} đợt hàng được phát hiện từ ảnh này.
+            </div>
+            <OriginalImagePreview src={viewingImage.previewUrl} alt={`Ảnh gốc ${viewingImage.file.name}`} maxHeightClassName="max-h-[72vh]" />
+          </>
+        )}
       </Modal>
     </Modal>
   );

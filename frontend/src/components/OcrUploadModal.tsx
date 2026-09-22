@@ -6,6 +6,7 @@ import { ocrApi } from '../api/ocrApi';
 import type { CreateShipmentItem, OcrDetectedDocument, OcrItem, ProductMaster } from '../types';
 import { ProcessType, normalizeProcessType } from '../types';
 import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
+import { OriginalImagePreview } from './OriginalImagePreview';
 
 interface Props {
   visible: boolean; onClose: () => void; products: ProductMaster[]; selectedPartnerId?: number | null;
@@ -76,15 +77,20 @@ export const OcrUploadModal: React.FC<Props> = ({ visible, onClose, products, se
 
   return <Modal title="OCR phiếu kho — phát hiện nhiều đợt" open={visible} onCancel={onClose} width={1080} footer={<Button onClick={onClose}>Đóng</Button>}>
     <input ref={inputRef} hidden type="file" accept="image/*" onChange={e => e.target.files?.[0] && selectFile(e.target.files[0])} />
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-      <div className="lg:col-span-4">
-        <div onClick={() => inputRef.current?.click()} onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) selectFile(e.dataTransfer.files[0]); }} onDragOver={e => e.preventDefault()} className="border-2 border-dashed rounded-lg min-h-64 flex items-center justify-center cursor-pointer overflow-hidden bg-slate-50">
-          {preview ? <img src={preview} className="max-h-[460px] object-contain" /> : <Space direction="vertical" align="center"><InboxOutlined className="text-3xl" /><span>Chọn, kéo thả hoặc dán ảnh</span></Space>}
-        </div>
-        {file && <Button type="link" icon={<ReloadOutlined />} onClick={() => processImage(file)}>Quét lại</Button>}
-        <div className="mt-3"><Radio.Group value={applyMode} onChange={e => setApplyMode(e.target.value)}><Radio value="replace">Thay thế</Radio><Radio value="append">Nối thêm</Radio></Radio.Group></div>
+    <div className="space-y-4">
+      <div onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) selectFile(e.dataTransfer.files[0]); }} onDragOver={e => e.preventDefault()}>
+        {preview ? <>
+          <OriginalImagePreview src={preview} alt="Ảnh phiếu kho gốc" />
+          <Space className="mt-2">
+            <Button onClick={() => inputRef.current?.click()}>Chọn ảnh khác</Button>
+            {file && <Button type="link" icon={<ReloadOutlined />} onClick={() => processImage(file)}>Quét lại ảnh gốc</Button>}
+          </Space>
+        </> : <div onClick={() => inputRef.current?.click()} className="border-2 border-dashed rounded-lg min-h-64 flex items-center justify-center cursor-pointer bg-slate-50">
+          <Space direction="vertical" align="center"><InboxOutlined className="text-3xl" /><span>Chọn, kéo thả hoặc dán ảnh</span></Space>
+        </div>}
       </div>
-      <div className="lg:col-span-8 max-h-[620px] overflow-y-auto space-y-3">
+      <div><Radio.Group value={applyMode} onChange={e => setApplyMode(e.target.value)}><Radio value="replace">Thay thế</Radio><Radio value="append">Nối thêm</Radio></Radio.Group></div>
+      <div className="max-h-[620px] overflow-y-auto space-y-3">
         {loading ? <div className="py-24 text-center"><Spin tip="Đang phát hiện các bảng..." /></div> : documents.length ? <>
           <Alert type="info" showIcon message={`Đã phát hiện ${documents.length} đợt hàng`} />
           {documents.map((doc, index) => { const total = doc.items.reduce((s, i) => s + (i.quantity || 0), 0); const diff = doc.reportedTotal == null ? null : total - doc.reportedTotal; return <Card key={doc.documentId} title={<Input value={doc.title} onChange={e => updateDocument(doc.documentId, d => ({ ...d, title: e.target.value }))} />} extra={<Button type="primary" onClick={() => apply(doc)}>Áp dụng vào hóa đơn</Button>}>

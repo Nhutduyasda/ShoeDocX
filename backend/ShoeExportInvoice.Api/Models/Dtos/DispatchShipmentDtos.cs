@@ -26,6 +26,7 @@ public sealed class SplitShipmentRequestDto
 {
     public int? SourceBatchId { get; set; }
     public OcrDispatchSourceDocumentDto? SourceDocument { get; set; }
+    public List<OcrDispatchSourceDocumentDto> SourceDocuments { get; set; } = [];
     public int? ContractFolderId { get; set; }
     public int? TemplateId { get; set; }
     public string? PoSuffix { get; set; }
@@ -37,6 +38,7 @@ public sealed class ValidateSplitRequestDto
 {
     public int? SourceBatchId { get; set; }
     public OcrDispatchSourceDocumentDto? SourceDocument { get; set; }
+    public List<OcrDispatchSourceDocumentDto> SourceDocuments { get; set; } = [];
     public List<SubInvoiceAllocationDto> SubInvoices { get; set; } = [];
 }
 

@@ -107,6 +107,54 @@ public sealed class ShipmentDispatchTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task MergedOcrSplit_Should_RebuildMergedSource_AndValidateFourInvoices()
+    {
+        var documents = new List<OcrDispatchSourceDocumentDto>
+        {
+            OcrDocument("L19", ("41898-2LI", 84, ProcessType.Standard), ("42072-410", 5316, ProcessType.Standard),
+                ("40700-060", 612, ProcessType.Standard), ("42073-030", 2880, ProcessType.Standard), ("42072-030", 2856, ProcessType.Standard)),
+            OcrDocument("L20", ("42072-410", 1704, ProcessType.Standard), ("42073-030", 288, ProcessType.Standard),
+                ("42072-030", 5550, ProcessType.Standard))
+        };
+        var merged = new Dictionary<string, int> { ["41898-2LI"] = 84, ["42072-410"] = 7020, ["40700-060"] = 612, ["42073-030"] = 3168, ["42072-030"] = 8406 };
+        var folder = await SeedFolderAsync(merged.Keys.ToArray());
+        var preview = await _service.PreviewMergeAsync(new() { ContractFolderId = folder.Id, SourceDocuments = documents }, default);
+        var invoices = Enumerable.Range(0, 4).Select(index => new SubInvoiceAllocationDto
+        {
+            Items = merged.Select(pair => Item(pair.Key, pair.Value / 4 + (index < pair.Value % 4 ? 1 : 0))).ToList()
+        }).ToList();
+
+        var result = await _service.ValidateSplitAsync(new() { SourceDocuments = documents, SubInvoices = invoices }, default);
+
+        Assert.Equal(5, preview.MergedItems.Count);
+        Assert.Equal(19290, preview.TotalQuantity);
+        Assert.Equal(7020, preview.MergedItems.Single(item => item.StyleCode == "42072-410").Quantity);
+        Assert.Equal(3168, preview.MergedItems.Single(item => item.StyleCode == "42073-030").Quantity);
+        Assert.Equal(8406, preview.MergedItems.Single(item => item.StyleCode == "42072-030").Quantity);
+        Assert.True(result.IsValid);
+        Assert.Equal(19290, result.OriginalTotal);
+        Assert.Equal(19290, result.AllocatedTotal);
+        Assert.All(result.ItemChecks, check => Assert.True(check.IsMatched));
+        Assert.Equal(7020, result.ItemChecks.Single(check => check.StyleCode == "42072-410").OriginalQty);
+        Assert.Equal(3168, result.ItemChecks.Single(check => check.StyleCode == "42073-030").OriginalQty);
+        Assert.Equal(8406, result.ItemChecks.Single(check => check.StyleCode == "42072-030").OriginalQty);
+    }
+
+    [Fact]
+    public async Task MergedOcrSplit_Should_Fail_WhenMergedAllocationIsWrong()
+    {
+        var result = await _service.ValidateSplitAsync(new()
+        {
+            SourceDocuments = [OcrDocument("L19", ("A", 100, ProcessType.Standard)), OcrDocument("L20", ("A", 50, ProcessType.Standard))],
+            SubInvoices = [new() { Items = [Item("A", 70)] }, new() { Items = [Item("A", 70)] }]
+        }, default);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(150, result.OriginalTotal);
+        Assert.Contains(result.Errors, error => error.Code == "SPLIT_TOTAL_MISMATCH");
+    }
+
+    [Fact]
     public async Task Split_Should_Fail_When_Quantities_Do_Not_Match_Original()
     {
         var id = await SeedBatchAsync(("A", 11816, ProcessType.Standard));

@@ -8,7 +8,12 @@ export interface DispatchSourceDocument {
 export interface OcrDispatchSourcePayload {
   documentId: string; title: string; items: CreateShipmentItem[]; sourceFileName?: string; clientFileId?: string;
 }
-export interface ValidateSplitRequest { sourceBatchId?: number; sourceDocument?: OcrDispatchSourcePayload; subInvoices: SubInvoiceAllocation[] }
+export interface ConsolidatedDispatchSource {
+  sourceType: 'merged-ocr-documents'; sourceDocumentIds: string[]; sourceTitles: string[];
+  sourceDocuments: OcrDispatchSourcePayload[]; title: string; items: CreateShipmentItem[];
+  totalQuantity: number; totalCartons?: number;
+}
+export interface ValidateSplitRequest { sourceBatchId?: number; sourceDocument?: OcrDispatchSourcePayload; sourceDocuments?: OcrDispatchSourcePayload[]; subInvoices: SubInvoiceAllocation[] }
 export interface SplitShipmentRequest extends ValidateSplitRequest {
   contractFolderId?: number; templateId?: number; poSuffix?: string; invoiceDate: string;
 }

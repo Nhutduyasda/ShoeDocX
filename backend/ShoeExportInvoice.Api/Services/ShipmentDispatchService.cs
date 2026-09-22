@@ -64,7 +64,14 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
     {
         var result = new ValidateSplitResultDto();
         Dictionary<ItemKey, int> original;
-        if (request.SourceDocument != null)
+        if (request.SourceDocuments.Count > 0)
+        {
+            var documents = request.SourceDocuments.Where(d => !string.IsNullOrWhiteSpace(d.DocumentId))
+                .GroupBy(d => d.DocumentId, StringComparer.Ordinal).Select(g => g.First()).ToList();
+            if (documents.Count < 2) AddError(result, "MERGED_SOURCE_COUNT_INVALID", "Nguồn gom phải có ít nhất 2 OCR document.");
+            original = NormalizeSourceItems(documents.SelectMany(d => d.Items), result);
+        }
+        else if (request.SourceDocument != null)
         {
             if (string.IsNullOrWhiteSpace(request.SourceDocument.DocumentId))
                 AddError(result, "SOURCE_DOCUMENT_INVALID", "OCR document không có documentId hợp lệ.");
@@ -171,10 +178,12 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
 
     public async Task<ExportFileResult> ExportSplitZipAsync(SplitShipmentRequestDto request, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Dispatch Split Export Started for source {Source}", request.SourceDocument?.DocumentId ?? request.SourceBatchId?.ToString());
-        var validation = await ValidateSplitAsync(new ValidateSplitRequestDto { SourceBatchId = request.SourceBatchId, SourceDocument = request.SourceDocument, SubInvoices = request.SubInvoices }, cancellationToken);
+        var sourceIds = request.SourceDocuments.Count > 0 ? request.SourceDocuments.Select(d => d.DocumentId).ToList()
+            : request.SourceDocument != null ? [request.SourceDocument.DocumentId] : [];
+        _logger.LogInformation("Dispatch Split Export Started for source {Source}", sourceIds.Count > 0 ? string.Join(",", sourceIds) : request.SourceBatchId?.ToString());
+        var validation = await ValidateSplitAsync(new ValidateSplitRequestDto { SourceBatchId = request.SourceBatchId, SourceDocument = request.SourceDocument, SourceDocuments = request.SourceDocuments, SubInvoices = request.SubInvoices }, cancellationToken);
         if (!validation.IsValid) throw new DispatchValidationException(validation);
-        var isOcr = request.SourceDocument != null;
+        var isOcr = request.SourceDocument != null || request.SourceDocuments.Count > 0;
         WarehouseBatch? batch = null;
         if (!isOcr && request.SourceBatchId.HasValue)
             batch = await _db.WarehouseBatches.Include(b => b.Items).SingleAsync(b => b.Id == request.SourceBatchId.Value, cancellationToken);
@@ -202,10 +211,10 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
                 orders.Add(order);
             }
             if (batch != null) batch.Status = WarehouseBatchStatus.ProcessedByXnk;
-            AddAudit("SPLIT_EXPORT", isOcr ? [request.SourceDocument!.DocumentId] : [batch!.Id.ToString()], orders, validation.OriginalTotal);
+            AddAudit("SPLIT_EXPORT", isOcr ? sourceIds : [batch!.Id.ToString()], orders, validation.OriginalTotal);
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            _logger.LogInformation("Dispatch Split Export Completed for source {SourceId}, sequences {Sequences}", request.SourceDocument?.DocumentId ?? batch?.Id.ToString(), numbers);
+            _logger.LogInformation("Dispatch Split Export Completed for source {SourceId}, sequences {Sequences}", sourceIds.Count > 0 ? string.Join(",", sourceIds) : batch?.Id.ToString(), numbers);
             return new ExportFileResult(BuildZip(files), "application/zip", $"Bao_Cao_Tach_Hoa_Don_{request.InvoiceDate:yyyyMMdd}_{numbers[0]}_to_{numbers[^1]}.zip");
         }
         catch

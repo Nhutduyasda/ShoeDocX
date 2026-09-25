@@ -445,6 +445,72 @@ public class OcrExtractionTests
         Assert.Equal("Mô tả cho 5BUY", resB[0].Items[0].Description);
     }
 
+    [Fact]
+    public async Task ParseAndEnrichOcrResultAsync_SideBySideParallelTables_ShouldExtractTwoIndependentDocuments()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        using var context = new AppDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+
+        context.ProductMasters.AddRange(
+            new ProductMaster { StyleCode = "42072-410", Description = "Shoe A", UnitPriceCMT = 3m, UnitPriceDAP = 8m },
+            new ProductMaster { StyleCode = "42073-030", Description = "Shoe B", UnitPriceCMT = 4m, UnitPriceDAP = 9m }
+        );
+        await context.SaveChangesAsync();
+
+        var service = new OcrExtractionService(new HttpClient(), context, new ConfigurationBuilder().Build(), NullLogger<OcrExtractionService>.Instance);
+
+        // Simulated side-by-side tables in 1 receipt image (Lần 19 on Left, Lần 20 on Right)
+        var sideBySideJson = @"{
+          ""documents"": [
+            {
+              ""title"": ""LẦN 19"",
+              ""reportedTotal"": 1500,
+              ""sourceRegion"": { ""x"": 0.02, ""y"": 0.05, ""width"": 0.46, ""height"": 0.88 },
+              ""items"": [
+                { ""styleCode"": ""42072-410"", ""quantity"": 500, ""note"": """" },
+                { ""styleCode"": ""42073-030"", ""quantity"": 1000, ""note"": ""GÒ KHÔNG MAY"" }
+              ]
+            },
+            {
+              ""title"": ""LẦN 20"",
+              ""reportedTotal"": 2000,
+              ""sourceRegion"": { ""x"": 0.52, ""y"": 0.05, ""width"": 0.46, ""height"": 0.88 },
+              ""items"": [
+                { ""styleCode"": ""42072-410"", ""quantity"": 2000, ""note"": """" }
+              ]
+            }
+          ]
+        }";
+
+        var result = await service.ParseAndEnrichOcrResultAsync(sideBySideJson, default);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Documents.Count);
+
+        var doc1 = result.Documents[0];
+        Assert.Equal("LẦN 19", doc1.Title);
+        Assert.Equal(1500, doc1.ReportedTotal);
+        Assert.Equal(1500, doc1.CalculatedTotal);
+        Assert.True(doc1.IsTotalMatched);
+        Assert.Equal(2, doc1.Items.Count);
+        Assert.Equal(ProcessType.GoKhongMay, doc1.Items[1].ProcessType);
+        Assert.NotNull(doc1.SourceRegion);
+        Assert.True(doc1.SourceRegion.X < 0.1);
+
+        var doc2 = result.Documents[1];
+        Assert.Equal("LẦN 20", doc2.Title);
+        Assert.Equal(2000, doc2.ReportedTotal);
+        Assert.Equal(2000, doc2.CalculatedTotal);
+        Assert.True(doc2.IsTotalMatched);
+        Assert.Single(doc2.Items);
+        Assert.Equal(2000, doc2.Items[0].Quantity);
+        Assert.NotNull(doc2.SourceRegion);
+        Assert.True(doc2.SourceRegion.X >= 0.5);
+    }
+
     private sealed class StubExcelService : IExcelImportExportService
     {
         public PklPreviewResponseDto CalculatePklBreakdown(CreateShipmentRequestDto request) => throw new NotImplementedException();

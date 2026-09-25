@@ -29,6 +29,8 @@ import {
   RocketOutlined,
   SnippetsOutlined,
   EyeOutlined,
+  NodeIndexOutlined,
+  LinkOutlined,
 } from '@ant-design/icons';
 import { ocrApi } from '../api/ocrApi';
 import type {
@@ -45,7 +47,12 @@ import { ProcessType, ExportSequencePriority, normalizeProcessType } from '../ty
 import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
 import { OriginalImagePreview } from './OriginalImagePreview';
 import { parseDownloadError, shipmentDispatchApi, triggerDownload } from '../features/shipment-dispatch/api/shipmentDispatchApi';
-import type { ConsolidatedDispatchSource, MergeShipmentPreviewResponse, OcrDispatchSourcePayload } from '../features/shipment-dispatch/types/shipmentDispatch';
+import type {
+  ConsolidatedDispatchSource,
+  DispatchSourceDocument,
+  MergeShipmentPreviewResponse,
+  OcrDispatchSourcePayload,
+} from '../features/shipment-dispatch/types/shipmentDispatch';
 import { SplitMatrixModal } from '../features/shipment-dispatch/components/SplitMatrixModal';
 
 interface BatchOcrModalProps {
@@ -86,6 +93,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const [isExportingMerge, setIsExportingMerge] = useState(false);
   const [processedDocumentIds, setProcessedDocumentIds] = useState<Set<string>>(new Set());
   const [consolidatedSplitSource, setConsolidatedSplitSource] = useState<ConsolidatedDispatchSource | null>(null);
+  const [splitSource, setSplitSource] = useState<DispatchSourceDocument | null>(null);
 
   // Edit Card Modal state
   const [editingCard, setEditingCard] = useState<ImageQueueItem | null>(null);
@@ -422,6 +430,98 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const previewSelectedMerge = async () => { if (selectedDocuments.length < 2) return; setIsPreviewingMerge(true); try { setMergePreview(await shipmentDispatchApi.previewMerge(mergeRequest())); } catch (error: any) { setMergePreview(null); message.error(error.response?.data?.message || 'Không thể xem trước kết quả gom.'); } finally { setIsPreviewingMerge(false); } };
   const exportSelectedMerge = async () => { if (!mergePreview?.isExportable) return; setIsExportingMerge(true); try { const result = await shipmentDispatchApi.exportMerge(mergeRequest()); triggerDownload(result); const ids = selectedDocuments.map(x => x.document.documentId); setProcessedDocumentIds(current => new Set([...current, ...ids])); setSelectedDocumentIds(new Set()); setMergePreview(null); message.success('Đã xuất Invoice gom thành công.'); onSuccess(); } catch (error: unknown) { const parsed = await parseDownloadError(error); message.error(`${parsed.message}${parsed.traceId ? ` (Mã theo dõi: ${parsed.traceId})` : ''}`); } finally { setIsExportingMerge(false); } };
 
+  const toDispatchSource = (doc: OcrDetectedDocument, fileName?: string): DispatchSourceDocument => ({
+    sourceType: 'ocr-document',
+    documentId: doc.documentId,
+    title: doc.title,
+    items: doc.items.map((i) => ({
+      styleCode: i.styleCode,
+      quantity: i.quantity,
+      processType: normalizeProcessType(i.processType),
+      unitPriceCMT: i.unitPriceCMT,
+      unitPriceDAP: i.unitPriceDAP,
+      unit: i.unit,
+      pairPerCarton: i.pairPerCarton,
+      description: i.description,
+    })),
+    calculatedTotal: doc.calculatedTotal,
+    reportedTotal: doc.reportedTotal,
+    sourceFileName: fileName,
+    isManuallyConfirmed: doc.isManuallyConfirmed,
+    confirmationReason: doc.confirmationReason,
+  });
+
+  const handleMergeAndExportAll = async () => {
+    let targets = selectedDocuments;
+    if (targets.length === 0) {
+      const available = detectedDocuments.filter(x => !processedDocumentIds.has(x.document.documentId));
+      if (available.length > 0) {
+        targets = available;
+        setSelectedDocumentIds(new Set(available.map(x => x.document.documentId)));
+      }
+    }
+
+    if (targets.length === 0) {
+      message.warning('Không có đợt hàng nào sẵn sàng để gộp thành Hóa Đơn.');
+      return;
+    }
+
+    if (targets.length < 2) {
+      message.warning('Cần ít nhất 2 đợt hàng để gộp thành 1 Hóa Đơn duy nhất. Nếu chỉ có 1 đợt, vui lòng xuất riêng hoặc bấm Tách Hóa Đơn trên thẻ.');
+      return;
+    }
+
+    setIsExportingMerge(true);
+    try {
+      const payloadSources: OcrDispatchSourcePayload[] = targets.map(({ document, image }) => ({
+        documentId: document.documentId,
+        title: document.title,
+        sourceFileName: image.file.name,
+        clientFileId: image.id,
+        reportedTotal: document.reportedTotal,
+        calculatedTotal: document.items.reduce((sum, item) => sum + item.quantity, 0),
+        isManuallyConfirmed: document.isManuallyConfirmed,
+        confirmationReason: document.confirmationReason,
+        items: document.items.map(item => ({
+          styleCode: item.styleCode,
+          quantity: item.quantity,
+          processType: normalizeProcessType(item.processType),
+          unitPriceCMT: item.unitPriceCMT,
+          unitPriceDAP: item.unitPriceDAP,
+          unit: item.unit,
+          pairPerCarton: item.pairPerCarton,
+          description: item.description,
+        })),
+      }));
+
+      const req = {
+        sourceDocuments: payloadSources,
+        contractFolderId: contractFolderId ?? undefined,
+        poSuffix: profile?.poSuffix || poSuffix.trim(),
+        invoiceDate: new Date().toISOString().slice(0, 10),
+      };
+
+      const result = await shipmentDispatchApi.exportMerge(req);
+      triggerDownload(result);
+
+      const ids = targets.map(x => x.document.documentId);
+      setProcessedDocumentIds((current) => new Set([...current, ...ids]));
+      setSelectedDocumentIds((current) => {
+        const next = new Set(current);
+        ids.forEach(id => next.delete(id));
+        return next;
+      });
+      setMergePreview(null);
+      message.success(`Đã gộp ${targets.length} đợt và xuất 1 Hóa Đơn duy nhất thành công!`);
+      onSuccess();
+    } catch (error: unknown) {
+      const parsed = await parseDownloadError(error);
+      message.error(`${parsed.message}${parsed.traceId ? ` (Mã theo dõi: ${parsed.traceId})` : ''}`);
+    } finally {
+      setIsExportingMerge(false);
+    }
+  };
+
   return (
     <Modal
       title={
@@ -621,7 +721,20 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                               <div className="text-right font-mono text-xs">{doc.items.reduce((s, i) => s + i.quantity, 0).toLocaleString()} đôi</div>
                               <div className="flex justify-between items-center">
                                 {processedDocumentIds.has(doc.documentId) ? <Tag color="green">Đã xử lý</Tag> : doc.reportedTotal == null ? <Tag color="warning" className="text-[10px] m-0"><ExclamationCircleOutlined /> Chưa thể đối chiếu</Tag> : doc.isTotalMatched ? <Tag color="success" className="text-[10px] m-0"><CheckCircleOutlined /> Khớp</Tag> : <Tag color="error" className="text-[10px] m-0">Lệch {doc.discrepancy}</Tag>}
-                                <Button size="small" type="link" icon={<EditOutlined />} onClick={() => handleOpenEditCard(item, doc)} className="text-xs p-0 h-auto">Sửa</Button>
+                                <div className="flex items-center gap-1">
+                                  <Button size="small" type="link" icon={<EditOutlined />} onClick={() => handleOpenEditCard(item, doc)} className="text-xs p-0 h-auto">Sửa</Button>
+                                  {!processedDocumentIds.has(doc.documentId) && (
+                                    <Button
+                                      size="small"
+                                      type="link"
+                                      icon={<NodeIndexOutlined />}
+                                      onClick={() => setSplitSource(toDispatchSource(doc, item.file.name))}
+                                      className="text-xs p-0 h-auto text-blue-600 hover:text-blue-800"
+                                    >
+                                      🔀 Tách Hóa Đơn
+                                    </Button>
+                                  )}
+                                </div>
                               </div>
                             </div>)}
                           </div>
@@ -704,7 +817,61 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
             <Button onClick={onClose} className="text-xs">
               Đóng
             </Button>
-            {dispatchMode === 'separate' ? <Button type="primary" size="middle" icon={<FileZipOutlined />} onClick={handleExportZip} loading={isExporting} disabled={selectedDocuments.length === 0}>Xuất riêng {selectedDocuments.length} đợt (.zip)</Button> : <><Button icon={<EyeOutlined />} onClick={previewSelectedMerge} loading={isPreviewingMerge} disabled={selectedDocuments.length < 2 || isExportingMerge}>Xem trước kết quả gom</Button><Button type="primary" onClick={exportSelectedMerge} loading={isExportingMerge} disabled={!mergePreview}>Xuất 1 Invoice đã gom</Button><Button icon={<FileZipOutlined />} disabled={!mergePreview} onClick={() => { const source = buildConsolidatedSource(); if (source) setConsolidatedSplitSource(source); }}>Tách nguồn gom thành nhiều INV</Button></>}
+            <Button
+              type="primary"
+              icon={<LinkOutlined />}
+              onClick={handleMergeAndExportAll}
+              loading={isExportingMerge}
+              disabled={detectedDocuments.filter(x => !processedDocumentIds.has(x.document.documentId)).length < 2}
+              className="bg-emerald-600 hover:bg-emerald-700 text-xs font-medium"
+            >
+              🔗 Gộp tất cả thành 1 Hóa Đơn duy nhất
+            </Button>
+            {dispatchMode === 'separate' ? (
+              <Button
+                type="default"
+                size="middle"
+                icon={<FileZipOutlined />}
+                onClick={handleExportZip}
+                loading={isExporting}
+                disabled={selectedDocuments.length === 0}
+                className="text-xs"
+              >
+                Xuất riêng {selectedDocuments.length} đợt (.zip)
+              </Button>
+            ) : (
+              <>
+                <Button
+                  icon={<EyeOutlined />}
+                  onClick={previewSelectedMerge}
+                  loading={isPreviewingMerge}
+                  disabled={selectedDocuments.length < 2 || isExportingMerge}
+                  className="text-xs"
+                >
+                  Xem trước kết quả gom
+                </Button>
+                <Button
+                  type="default"
+                  onClick={exportSelectedMerge}
+                  loading={isExportingMerge}
+                  disabled={!mergePreview}
+                  className="text-xs"
+                >
+                  Xuất 1 Invoice đã gom
+                </Button>
+                <Button
+                  icon={<FileZipOutlined />}
+                  disabled={!mergePreview}
+                  onClick={() => {
+                    const source = buildConsolidatedSource();
+                    if (source) setConsolidatedSplitSource(source);
+                  }}
+                  className="text-xs"
+                >
+                  Tách nguồn gom thành nhiều INV
+                </Button>
+              </>
+            )}
           </div>
         </div>
         {dispatchMode === 'merge' && mergePreview && <div className="rounded-lg border border-emerald-200 p-3 space-y-2">
@@ -908,6 +1075,27 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
           </>
         )}
       </Modal>
+      <SplitMatrixModal
+        open={Boolean(splitSource)}
+        sourceDocument={splitSource}
+        contractFolderId={contractFolderId}
+        poSuffix={profile?.poSuffix || poSuffix.trim()}
+        invoiceDate={new Date().toISOString().slice(0, 10)}
+        onClose={() => setSplitSource(null)}
+        onExported={() => {
+          if (splitSource) {
+            setProcessedDocumentIds((current) => new Set([...current, splitSource.documentId]));
+            setSelectedDocumentIds((current) => {
+              const next = new Set(current);
+              next.delete(splitSource.documentId);
+              return next;
+            });
+            setMergePreview(null);
+          }
+          setSplitSource(null);
+          onSuccess();
+        }}
+      />
       <SplitMatrixModal open={Boolean(consolidatedSplitSource)} consolidatedSource={consolidatedSplitSource} contractFolderId={contractFolderId} poSuffix={profile?.poSuffix || poSuffix.trim()} invoiceDate={new Date().toISOString().slice(0, 10)} onClose={() => setConsolidatedSplitSource(null)} onExported={() => { if (consolidatedSplitSource) setProcessedDocumentIds(current => new Set([...current, ...consolidatedSplitSource.sourceDocumentIds])); onSuccess(); }} />
     </Modal>
   );

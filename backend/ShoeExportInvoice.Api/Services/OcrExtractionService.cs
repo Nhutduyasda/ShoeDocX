@@ -74,30 +74,56 @@ public class OcrExtractionService : IOcrExtractionService
 
         var url = _options.Endpoint;
 
-        var prompt = @"Bạn là trợ lý bóc tách bảng số liệu kiểm kho từ hình ảnh.
-Ảnh có thể chứa MỘT HOẶC NHIỀU bảng giao hàng độc lập. Trước tiên hãy phát hiện TẤT CẢ bảng. Một bảng thường có tiêu đề chứa 'LẦN ...', cột Hình thể/鞋型 và cột Số lượng đi hàng/交货数量. Các bảng có thể nằm cạnh nhau, trên/dưới nhau, hoặc cách nhau bởi khoảng trắng/cột Excel. TUYỆT ĐỐI không trộn dòng của hai bảng.
-Với từng bảng:
-1. Đọc tiêu đề riêng chính xác.
-2. Bảng dữ liệu:
-   - Chỉ đọc các dòng CÓ DỮ LIỆU. Bỏ qua hoàn toàn các dòng kẻ trống.
-   - Cột 1 (Hình thể/Mã giày): Giữ nguyên format mã (vd: ""42072-410"", ""42073-030""). Chỉ trích xuất mã hình thể gốc (ví dụ: 'BM5879-464'), loại bỏ các ký hiệu ghi chú đối tác hoặc phân xưởng nằm trong dấu ngoặc đơn ở đuôi như '(KM3)', '(X3)'.
-   - Cột 2 (Số lượng đi hàng): Chỉ được coi là số lượng khi số nằm trong cùng hàng của styleCode, thuộc đúng cột số lượng và có quan hệ trực tiếp với dòng sản phẩm. TUYỆT ĐỐI KHÔNG lấy các số từ tiêu đề, số lần, ngày tháng, ghi chú, footer, mã ghi chú, số thứ tự (STT), text nhỏ nằm ngoài bảng hay annotation.
-   - Cột 3 (Ghi chú/Màu sắc nếu có): Nếu có ghi chú bên cạnh (vd: ""GÒ KHÔNG MAY"") thì trích xuất, nếu không thì để chuỗi rỗng """".
-3. Tổng cộng: Chỉ đọc con số nếu nó thực sự nằm cạnh nhãn 'TỔNG', 'TỔNG CỘNG', hoặc 'TOTAL' của đúng bảng. Nếu không nhìn thấy hoặc không chắc chắn, trả null. TUYỆT ĐỐI không đoán và không tự tính thay.
-4. sourceRegion: nếu xác định được, trả tọa độ chuẩn hóa 0..1 (x, y, width, height); nếu không thì null.
+        var prompt = @"Bạn là trợ lý AI cao cấp chuyên bóc tách số liệu bảng kiểm kho / phiếu giao hàng từ hình ảnh hoá đơn xuất khẩu giày.
 
-Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
+NHIỆM VỤ QUAN TRỌNG:
+Ảnh có thể chứa MỘT hoặc NHIỀU bảng giao hàng độc lập (thường được đánh số đợt như 'LẦN 19', 'LẦN 20', 'ĐỢT 1', 'ĐỢT 2'...).
+
+1. ĐẶC BIỆT CHÚ Ý CÁC BẢNG NẰM SONG SONG / CẠNH NHAU (SIDE-BY-SIDE / HAI CỘT TRÁI - PHẢI):
+   - Rất phổ biến trường hợp ảnh chụp bảng tính Excel hoặc tài liệu có 2 (hoặc nhiều) bảng đặt song song cạnh nhau trên cùng một trang (ví dụ: Cột bảng bên trái là 'LẦN 19', cột bảng bên phải là 'LẦN 20').
+   - Hãy chia tài liệu theo chiều dọc thành các khối (bounding box / cột dữ liệu) độc lập.
+   - Với mỗi bảng: Quét TOÀN BỘ từ tiêu đề trên cùng ('LẦN ...') xuống hết các dòng hàng và dòng TỔNG CỘNG của bảng đó.
+   - TUYỆT ĐỐI KHÔNG quét ngang hàng từ trái sang phải qua cả trang giấy vì sẽ làm trộn lẫn dòng của bảng trái với bảng phải (interleaving rows), ghép sai mã giày hoặc nhầm số lượng giữa các đợt!
+   - Bảng bên trái tạo thành một document riêng, bảng bên phải tạo thành một document riêng rẽ.
+
+2. VỚI TỪNG BẢNG ĐỘC LẬP:
+   - title: Trích xuất tiêu đề chính xác của bảng đó (ví dụ: ""LẦN 19"", ""LẦN 20"", hoặc ""BẢNG XUẤT HÀNG ĐỢT 1"").
+   - items (danh sách dòng hàng):
+     + Chỉ đọc các dòng CÓ DỮ LIỆU THỰC SỰ. Bỏ qua hoàn toàn các dòng kẻ trống hoặc dòng tiêu đề lặp lại.
+     + styleCode (Hình thể / Mã giày): Giữ nguyên format mã (vd: ""42072-410"", ""BM5879-464""). Chỉ trích xuất mã hình thể gốc, loại bỏ các ký hiệu ghi chú phân xưởng / đối tác nằm trong ngoặc ở đuôi như '(KM3)', '(X3)'.
+     + quantity (Số lượng đi hàng): Chỉ lấy số nguyên khi số nằm cùng hàng với styleCode, thuộc đúng cột số lượng của bảng đó. TUYỆT ĐỐI KHÔNG lấy các số từ tiêu đề, số lần, ngày tháng, số thứ tự (STT), ghi chú phụ, số trang hoặc annotation ngoài lề.
+     + note (Ghi chú): Trích xuất ghi chú quy trình / màu sắc nếu có (ví dụ: ""GÒ KHÔNG MAY"", ""GO KHONG MAY"", màu sắc...), nếu không có thì để chuỗi rỗng """".
+   - reportedTotal (Tổng cộng được in trên bảng):
+     + Chỉ đọc con số nếu nó nằm cạnh nhãn 'TỔNG', 'TỔNG CỘNG', hoặc 'TOTAL' của chính bảng đó.
+     + Nếu không có hoặc không chắc chắn, trả null. TUYỆT ĐỐI không đoán và không tự tính thay.
+   - sourceRegion (Vùng tọa độ của bảng):
+     + Tọa độ chuẩn hóa từ 0.0 đến 1.0 (x, y, width, height) bao quanh toàn bộ bảng đó.
+     + Ví dụ: Bảng bên trái thường có x ~ 0.0, width ~ 0.5. Bảng bên phải thường có x ~ 0.5, width ~ 0.5. Trả null nếu không xác định được.
+
+ĐỊNH DẠNG ĐẦU RA (JSON FORMAT):
+Trả về DUY NHẤT một chuỗi JSON hợp lệ tuân thủ cấu trúc sau:
 {
   ""documents"": [
     {
-      ""title"": string,
-      ""reportedTotal"": number | null,
-      ""sourceRegion"": { ""x"": number, ""y"": number, ""width"": number, ""height"": number } | null,
-      ""items"": [ { ""styleCode"": string, ""quantity"": number, ""note"": string } ]
+      ""title"": ""LẦN 19"",
+      ""reportedTotal"": 1500,
+      ""sourceRegion"": { ""x"": 0.02, ""y"": 0.05, ""width"": 0.46, ""height"": 0.88 },
+      ""items"": [
+        { ""styleCode"": ""42072-410"", ""quantity"": 500, ""note"": """" },
+        { ""styleCode"": ""42073-030"", ""quantity"": 1000, ""note"": ""GÒ KHÔNG MAY"" }
+      ]
+    },
+    {
+      ""title"": ""LẦN 20"",
+      ""reportedTotal"": 2000,
+      ""sourceRegion"": { ""x"": 0.52, ""y"": 0.05, ""width"": 0.46, ""height"": 0.88 },
+      ""items"": [
+        { ""styleCode"": ""42072-410"", ""quantity"": 2000, ""note"": """" }
+      ]
     }
   ]
 }
-Không được trả một items array toàn cục.";
+TUYỆT ĐỐI không trả mảng items toàn cục ngoài documents. Mỗi bảng song song hoặc độc lập bắt buộc phải là một document riêng trong mảng documents.";
 
         var requestBody = new
         {
@@ -214,10 +240,16 @@ Không được trả một items array toàn cục.";
         using var doc = JsonDocument.Parse(cleanJson);
         var root = doc.RootElement;
 
-        // Accept the legacy single-document shape only as an input compatibility adapter.
-        var documentElements = root.TryGetProperty("documents", out var docsProp) && docsProp.ValueKind == JsonValueKind.Array
-            ? docsProp.EnumerateArray().ToList()
-            : new List<JsonElement> { root };
+        // Accept documents array, or batches/tables, or top-level array, or fallback to single object root
+        var documentElements = root.ValueKind == JsonValueKind.Array
+            ? root.EnumerateArray().ToList()
+            : (root.TryGetProperty("documents", out var docsProp) && docsProp.ValueKind == JsonValueKind.Array
+                ? docsProp.EnumerateArray().ToList()
+                : (root.TryGetProperty("batches", out var batchesProp) && batchesProp.ValueKind == JsonValueKind.Array
+                    ? batchesProp.EnumerateArray().ToList()
+                    : (root.TryGetProperty("tables", out var tablesProp) && tablesProp.ValueKind == JsonValueKind.Array
+                        ? tablesProp.EnumerateArray().ToList()
+                        : new List<JsonElement> { root })));
 
         var rawDocuments = new List<(string Title, int? ReportedTotal, OcrSourceRegionDto? Region, List<ExtractedRawItem> Items)>();
         foreach (var documentElement in documentElements)

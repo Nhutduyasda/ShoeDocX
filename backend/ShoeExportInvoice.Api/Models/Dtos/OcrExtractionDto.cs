@@ -38,6 +38,25 @@ public class OcrDetectedDocumentDto
     public OcrSourceRegionDto? SourceRegion { get; set; }
     public bool HasStandardItems => Items.Any(i => i.ProcessType == ProcessType.Standard);
     public bool HasGoItems => Items.Any(i => i.ProcessType == ProcessType.GoKhongMay);
+    public bool IsManuallyConfirmed { get; set; }
+    public string? ConfirmationReason { get; set; }
+}
+
+public class OcrMismatchConfirmRequestDto
+{
+    public string DocumentId { get; set; } = string.Empty;
+    public string DocumentTitle { get; set; } = string.Empty;
+    public int? ReportedTotal { get; set; }
+    public int CalculatedTotal { get; set; }
+    public int Discrepancy => CalculatedTotal - (ReportedTotal ?? 0);
+    public int? ContractFolderId { get; set; }
+    public string? Reason { get; set; }
+}
+
+public class ReEnrichOcrDocumentsRequestDto
+{
+    public List<OcrDetectedDocumentDto> Documents { get; set; } = new();
+    public int? ContractFolderId { get; set; }
 }
 
 public class OcrExtractionResponseDto

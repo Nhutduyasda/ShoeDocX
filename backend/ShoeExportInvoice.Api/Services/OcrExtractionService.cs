@@ -81,9 +81,9 @@ Với từng bảng:
 2. Bảng dữ liệu:
    - Chỉ đọc các dòng CÓ DỮ LIỆU. Bỏ qua hoàn toàn các dòng kẻ trống.
    - Cột 1 (Hình thể/Mã giày): Giữ nguyên format mã (vd: ""42072-410"", ""42073-030""). Chỉ trích xuất mã hình thể gốc (ví dụ: 'BM5879-464'), loại bỏ các ký hiệu ghi chú đối tác hoặc phân xưởng nằm trong dấu ngoặc đơn ở đuôi như '(KM3)', '(X3)'.
-   - Cột 2 (Số lượng đi hàng): Đọc đúng số nguyên tương ứng trên cùng dòng đó.
+   - Cột 2 (Số lượng đi hàng): Chỉ được coi là số lượng khi số nằm trong cùng hàng của styleCode, thuộc đúng cột số lượng và có quan hệ trực tiếp với dòng sản phẩm. TUYỆT ĐỐI KHÔNG lấy các số từ tiêu đề, số lần, ngày tháng, ghi chú, footer, mã ghi chú, số thứ tự (STT), text nhỏ nằm ngoài bảng hay annotation.
    - Cột 3 (Ghi chú/Màu sắc nếu có): Nếu có ghi chú bên cạnh (vd: ""GÒ KHÔNG MAY"") thì trích xuất, nếu không thì để chuỗi rỗng """".
-3. Tổng cộng: Đọc con số ở dòng ""TỔNG CỘNG"" của đúng bảng. Nếu không nhìn thấy hoặc không chắc chắn, trả null; không tự tính thay.
+3. Tổng cộng: Chỉ đọc con số nếu nó thực sự nằm cạnh nhãn 'TỔNG', 'TỔNG CỘNG', hoặc 'TOTAL' của đúng bảng. Nếu không nhìn thấy hoặc không chắc chắn, trả null. TUYỆT ĐỐI không đoán và không tự tính thay.
 4. sourceRegion: nếu xác định được, trả tọa độ chuẩn hóa 0..1 (x, y, width, height); nếu không thì null.
 
 Trả về DUY NHẤT một chuỗi JSON hợp lệ theo cấu trúc:
@@ -302,6 +302,80 @@ Không được trả một items array toàn cục.";
             });
         }
         return result;
+    }
+
+    public async Task<List<OcrDetectedDocumentDto>> ReEnrichOcrDocumentsForPartnerAsync(
+        List<OcrDetectedDocumentDto> documents,
+        int? partnerFolderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (documents == null || documents.Count == 0) return new List<OcrDetectedDocumentDto>();
+
+        var lookupCodes = documents.SelectMany(d => d.Items).Select(x =>
+        {
+            var c = x.StyleCode.ToUpperInvariant();
+            if (c.EndsWith(".G")) c = c.Substring(0, c.Length - 2).Trim();
+            return c;
+        }).Distinct().ToList();
+
+        var query = _context.ProductMasters.AsNoTracking().Where(p => lookupCodes.Contains(p.StyleCode.ToUpper()));
+        if (partnerFolderId.HasValue)
+        {
+            query = query.Where(p => p.FolderId == partnerFolderId.Value);
+        }
+
+        var dbProducts = await query.ToListAsync(cancellationToken);
+        var productMap = dbProducts.GroupBy(p => p.StyleCode.ToUpperInvariant()).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
+
+        var enrichedDocs = new List<OcrDetectedDocumentDto>();
+        foreach (var doc in documents)
+        {
+            var enrichedItems = new List<OcrItemDto>();
+            foreach (var item in doc.Items)
+            {
+                var upperCode = item.StyleCode.ToUpperInvariant();
+                var lookupCode = upperCode.EndsWith(".G") ? upperCode.Substring(0, upperCode.Length - 2).Trim() : upperCode;
+
+                productMap.TryGetValue(lookupCode, out var matchedProduct);
+
+                var isGo = item.ProcessType == ProcessType.GoKhongMay
+                    || item.Note.Contains("GÒ", StringComparison.OrdinalIgnoreCase)
+                    || item.Note.Contains("GO", StringComparison.OrdinalIgnoreCase)
+                    || upperCode.EndsWith(".G");
+
+                decimal cmt = isGo ? (matchedProduct?.UnitPriceCMT_Go ?? matchedProduct?.UnitPriceCMT ?? 0m) : (matchedProduct?.UnitPriceCMT ?? 0m);
+                decimal dap = isGo ? (matchedProduct?.UnitPriceDAP_Go ?? matchedProduct?.UnitPriceDAP ?? 0m) : (matchedProduct?.UnitPriceDAP ?? 0m);
+
+                enrichedItems.Add(new OcrItemDto
+                {
+                    StyleCode = item.StyleCode,
+                    Quantity = item.Quantity,
+                    Note = item.Note,
+                    ProcessType = isGo ? ProcessType.GoKhongMay : ProcessType.Standard,
+                    UnitPriceCMT = cmt,
+                    UnitPriceDAP = dap,
+                    PairPerCarton = (matchedProduct?.PairPerCarton > 0) ? matchedProduct.PairPerCarton : 12,
+                    Description = matchedProduct?.Description ?? string.Empty,
+                    Unit = matchedProduct?.Unit ?? "đôi",
+                    IsMatched = matchedProduct != null
+                });
+            }
+
+            var calculatedTotal = enrichedItems.Sum(x => x.Quantity);
+            enrichedDocs.Add(new OcrDetectedDocumentDto
+            {
+                DocumentId = doc.DocumentId,
+                Title = doc.Title,
+                ReportedTotal = doc.ReportedTotal,
+                CalculatedTotal = calculatedTotal,
+                Items = enrichedItems,
+                SourceRegion = doc.SourceRegion,
+                IsManuallyConfirmed = doc.IsManuallyConfirmed && doc.CalculatedTotal == calculatedTotal,
+                ConfirmationReason = doc.ConfirmationReason
+            });
+        }
+
+        return enrichedDocs;
     }
 
     private static double? ReadNullableDouble(JsonElement element, string propertyName) =>

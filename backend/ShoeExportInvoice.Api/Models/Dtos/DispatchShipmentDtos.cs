@@ -64,6 +64,8 @@ public sealed class OcrDispatchSourceDocumentDto
     public string? SourceFileName { get; set; }
     public int? ReportedTotal { get; set; }
     public int CalculatedTotal { get; set; }
+    public bool IsManuallyConfirmed { get; set; }
+    public string? ConfirmationReason { get; set; }
     public List<CreateShipmentItemDto> Items { get; set; } = [];
 }
 

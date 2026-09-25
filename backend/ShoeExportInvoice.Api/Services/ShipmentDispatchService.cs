@@ -49,6 +49,16 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
         var shipment = BuildBaseRequest(folder, request.TemplateId, request.InvoiceDate, request.PoSuffix, request.InvoiceNo, items);
         await ApplyMasterDataAsync(shipment, cancellationToken);
         var pkl = _excel.CalculatePklBreakdown(shipment);
+        var warnings = items.Where(i => i.Quantity % i.PairPerCarton!.Value != 0).Select(OddCartonWarning).ToList();
+        var manualConfirmWarnings = request.SourceDocuments
+            .Where(d => d.ReportedTotal.HasValue && d.ReportedTotal.Value != d.CalculatedTotal && d.IsManuallyConfirmed)
+            .Select(d => new DispatchValidationMessageDto
+            {
+                Code = "OCR_MANUALLY_CONFIRMED",
+                Message = $"{d.Title}: đợt hàng được xác nhận thủ công dù tổng OCR lệch {d.CalculatedTotal - d.ReportedTotal.GetValueOrDefault():+0;-0;0} đôi."
+            });
+        warnings.AddRange(manualConfirmWarnings);
+
         var result = new MergeShipmentPreviewResponseDto
         {
             SourceItemCount = sourceList.Count,
@@ -56,7 +66,7 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
             TotalCartons = pkl.TotalCartons,
             MergedItems = items,
             PklBreakdown = pkl.BreakdownItems,
-            Warnings = items.Where(i => i.Quantity % i.PairPerCarton!.Value != 0).Select(OddCartonWarning).ToList(),
+            Warnings = warnings,
             ProcessGroups = items.GroupBy(i => i.ProcessType).Select(g => new ProcessGroupPreviewDto
                 { ProcessType = g.Key, ItemCount = g.Count(), TotalQuantity = g.Sum(i => i.Quantity) }).ToList()
         };
@@ -172,7 +182,8 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
                 files.Add((PartnerDocumentPatternFormatter.FileName(folder.FileNamePattern, numbers[i]), content));
             }
             foreach (var batch in batches) batch.Status = WarehouseBatchStatus.ProcessedByXnk;
-            AddAudit("MERGE_EXPORT", isOcr ? request.SourceDocuments.Select(d => d.DocumentId) : request.SourceBatchIds.Select(x => x.ToString()), orders, preview.TotalQuantity);
+            var manuallyConfirmedIds = isOcr ? request.SourceDocuments.Where(d => d.IsManuallyConfirmed).Select(d => d.DocumentId).ToList() : null;
+            AddAudit("MERGE_EXPORT", isOcr ? request.SourceDocuments.Select(d => d.DocumentId) : request.SourceBatchIds.Select(x => x.ToString()), orders, preview.TotalQuantity, manuallyConfirmedIds);
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return files.Count == 1
@@ -341,17 +352,18 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
         return order;
     }
 
-    private void AddAudit(string action, IEnumerable<string> sources, IEnumerable<ShipmentOrder> orders, int quantity)
+    private void AddAudit(string action, IEnumerable<string> sources, IEnumerable<ShipmentOrder> orders, int quantity, IEnumerable<string>? manuallyConfirmed = null)
     {
         var context = _http.HttpContext;
+        var manualList = manuallyConfirmed?.ToList() ?? [];
         _db.BusinessAuditLogs.Add(new BusinessAuditLog { ActorUserId = context?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value,
             ActorUserName = context?.User.Identity?.Name ?? "System", ActorRole = context?.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "System",
             Action = action, ResourceType = "ShipmentDispatch", ResourceId = string.Join(",", sources), TraceId = context?.TraceIdentifier,
-            NewStateJson = JsonSerializer.Serialize(new { SourceIds = sources, InvoiceNos = orders.Select(o => o.InvoiceNo), Quantity = quantity }) });
+            NewStateJson = JsonSerializer.Serialize(new { SourceIds = sources, InvoiceNos = orders.Select(o => o.InvoiceNo), Quantity = quantity, ManuallyConfirmed = manualList }) });
     }
 
     private static List<DispatchValidationMessageDto> ReconciliationErrors(IEnumerable<OcrDispatchSourceDocumentDto> documents) => documents
-        .Where(d => d.ReportedTotal.HasValue && d.ReportedTotal.Value != d.CalculatedTotal)
+        .Where(d => d.ReportedTotal.HasValue && d.ReportedTotal.Value != d.CalculatedTotal && !d.IsManuallyConfirmed)
         .Select(d => new DispatchValidationMessageDto
         {
             Code = "OCR_TOTAL_MISMATCH",

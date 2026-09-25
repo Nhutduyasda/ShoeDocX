@@ -3101,6 +3101,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         onClose={() => setOcrModalVisible(false)}
         products={products}
         selectedPartnerId={selectedPartnerId}
+        partnerFolders={partnerFolders}
+        onPartnerChange={(newPartnerId) => setSelectedPartnerId(newPartnerId)}
         onApply={handleApplyOcr}
         templateId={selectedTemplateId}
         poSuffix={form.getFieldValue('poSuffix') || ''}

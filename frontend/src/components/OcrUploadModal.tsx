@@ -1,18 +1,46 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Card, Checkbox, Input, InputNumber, message, Modal, Radio, Select, Space, Spin, Table, Tag } from 'antd';
-import { DeleteOutlined, EyeOutlined, FileZipOutlined, InboxOutlined, NodeIndexOutlined, ReloadOutlined } from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Modal, Space, message } from 'antd';
+import { ArrowLeftOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import { ocrApi } from '../api/ocrApi';
-import type { CreateShipmentItem, OcrDetectedDocument, OcrItem, ProductMaster } from '../types';
-import { ProcessType, normalizeProcessType } from '../types';
-import { normalizeOcrStyleCode } from '../utils/normalizeOcrStyleCode';
-import { OriginalImagePreview } from './OriginalImagePreview';
+import type {
+  CreateShipmentItem,
+  MasterDataFolder,
+  OcrDetectedDocument,
+  ProductMaster,
+} from '../types';
+import { normalizeProcessType } from '../types';
 import { SplitMatrixModal } from '../features/shipment-dispatch/components/SplitMatrixModal';
-import type { ConsolidatedDispatchSource, DispatchSourceDocument, MergeShipmentPreviewResponse, OcrDispatchSourcePayload } from '../features/shipment-dispatch/types/shipmentDispatch';
-import { parseDownloadError, shipmentDispatchApi, triggerDownload } from '../features/shipment-dispatch/api/shipmentDispatchApi';
+import type {
+  ConsolidatedDispatchSource,
+  DispatchSourceDocument,
+  MergeShipmentPreviewResponse,
+  OcrDispatchSourcePayload,
+} from '../features/shipment-dispatch/types/shipmentDispatch';
+import {
+  parseDownloadError,
+  shipmentDispatchApi,
+  triggerDownload,
+} from '../features/shipment-dispatch/api/shipmentDispatchApi';
+import {
+  getReconciliationStatus,
+  reEnrichOcrDocumentsForPartner,
+} from '../utils/ocrReconciliation';
+import { OcrWorkflowStepper, type OcrWorkflowStep, STEP_KEYS } from './ocr/OcrWorkflowStepper';
+import { OcrPartnerSelector } from './ocr/OcrPartnerSelector';
+import { ManualOcrConfirmationModal } from './ocr/ManualOcrConfirmationModal';
+import { OcrReviewStep } from './ocr/OcrReviewStep';
+import { OcrDispatchStep } from './ocr/OcrDispatchStep';
+import { OcrResultStep } from './ocr/OcrResultStep';
+import { OcrExportStep } from './ocr/OcrExportStep';
+import { OcrDoneStep } from './ocr/OcrDoneStep';
 
 interface Props {
-  visible: boolean; onClose: () => void; products: ProductMaster[]; selectedPartnerId?: number | null;
+  visible: boolean;
+  onClose: () => void;
+  products: ProductMaster[];
+  selectedPartnerId?: number | null;
+  partnerFolders?: MasterDataFolder[];
+  onPartnerChange?: (partnerId: number) => void;
   onApply: (items: CreateShipmentItem[], mode: 'replace' | 'append') => void;
   onDispatchExported?: () => void;
   templateId?: number | null;
@@ -20,152 +48,623 @@ interface Props {
   invoiceDate?: string;
 }
 
-export const OcrUploadModal: React.FC<Props> = ({ visible, onClose, products, selectedPartnerId, onApply, onDispatchExported, templateId, poSuffix, invoiceDate }) => {
+export const OcrUploadModal: React.FC<Props> = ({
+  visible,
+  onClose,
+  products,
+  selectedPartnerId,
+  partnerFolders = [],
+  onPartnerChange,
+  onApply,
+  onDispatchExported,
+  templateId,
+  poSuffix,
+  invoiceDate,
+}) => {
+  // WORKFLOW STATE
+  const [step, setStep] = useState<OcrWorkflowStep>('review');
+  const [maxReachedStep, setMaxReachedStep] = useState<number>(0);
+
+  // PARTNER IN-MODAL STATE
+  const [inModalPartnerId, setInModalPartnerId] = useState<number | null>(selectedPartnerId ?? null);
+
+  useEffect(() => {
+    if (selectedPartnerId !== undefined) {
+      setInModalPartnerId(selectedPartnerId);
+    }
+  }, [selectedPartnerId]);
+
+  // OCR DATA STATE
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [documents, setDocuments] = useState<OcrDetectedDocument[]>([]);
+  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [applyMode, setApplyMode] = useState<'replace' | 'append'>('replace');
-  const [splitSource, setSplitSource] = useState<DispatchSourceDocument | null>(null);
-  const [consolidatedSplitSource, setConsolidatedSplitSource] = useState<ConsolidatedDispatchSource | null>(null);
-  const [processedDocumentIds, setProcessedDocumentIds] = useState<Set<string>>(new Set());
+
+  // DISPATCH STATE
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
+  const [processedDocumentIds, setProcessedDocumentIds] = useState<Set<string>>(new Set());
+
+  // VERSIONING & STALE CONTROL
+  const [sourceVersion, setSourceVersion] = useState<number>(1);
+  const [previewVersion, setPreviewVersion] = useState<number | undefined>(undefined);
+
+  // DOWNSTREAM RESULTS
   const [mergePreview, setMergePreview] = useState<MergeShipmentPreviewResponse | null>(null);
   const [isPreviewingMerge, setIsPreviewingMerge] = useState(false);
   const [isExportingMerge, setIsExportingMerge] = useState(false);
   const [isExportingSeparate, setIsExportingSeparate] = useState(false);
-  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [exportError, setExportError] = useState<{ message: string; traceId?: string } | null>(null);
   const [exportSuccess, setExportSuccess] = useState<{ fileName: string; count: number } | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const resultRef = useRef<HTMLDivElement>(null);
-  const productMap = useMemo(() => new Map(products.filter(p => !selectedPartnerId || !p.folderId || p.folderId === selectedPartnerId)
-    .map(p => [p.styleCode.trim().toUpperCase(), p])), [products, selectedPartnerId]);
 
-  useEffect(() => () => { if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview); }, [preview]);
+  // MANUAL CONFIRMATION MODAL
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [documentToConfirm, setDocumentToConfirm] = useState<OcrDetectedDocument | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
-  const enrich = useCallback((item: OcrItem): OcrItem => {
-    const styleCode = normalizeOcrStyleCode(item.styleCode);
-    const key = styleCode.toUpperCase().replace(/\.G$/, '').trim();
-    const pm = productMap.get(key);
-    return { ...item, styleCode, processType: normalizeProcessType(item.processType), unitPriceCMT: pm?.unitPriceCMT ?? item.unitPriceCMT,
-      unitPriceDAP: pm?.unitPriceDAP ?? item.unitPriceDAP, pairPerCarton: pm?.pairPerCarton || item.pairPerCarton || 12,
-      description: pm?.description ?? item.description, unit: pm?.unit ?? item.unit ?? 'đôi', isMatched: Boolean(pm) || item.isMatched };
-  }, [productMap]);
+  // SPLIT MODALS
+  const [splitSource, setSplitSource] = useState<DispatchSourceDocument | null>(null);
+  const [consolidatedSplitSource, setConsolidatedSplitSource] = useState<ConsolidatedDispatchSource | null>(null);
 
-  const processImage = useCallback(async (image: File | Blob) => {
-    setLoading(true);
-    try {
-      const response = await ocrApi.extractFromImage(image);
-      const next = response.documents.map(d => ({ ...d, items: d.items.map(enrich), calculatedTotal: d.items.reduce((s, i) => s + i.quantity, 0) }));
-      setDocuments(next);
-      setActiveDocumentId(next[0]?.documentId ?? null);
-      setSelectedDocumentIds(next.map(document => document.documentId));
-      setMergePreview(null);
-      message.success(`Đã phát hiện ${next.length} đợt hàng trong ảnh.`);
-    } catch (e: unknown) {
-      const text = (e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Không thể nhận diện ảnh phiếu kho.';
-      message.error(text);
-    } finally { setLoading(false); }
-  }, [enrich]);
+  // REVOKE BLOB URL
+  useEffect(() => () => {
+    if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
+
+  // RESET ON MODAL CLOSE
+  const handleModalClose = () => {
+    onClose();
+  };
+
+  // CHANGE STEP WITH PROGRESSION TRACKING
+  const goToStep = (nextStep: OcrWorkflowStep) => {
+    const nextIdx = STEP_KEYS.indexOf(nextStep);
+    setMaxReachedStep((prev) => Math.max(prev, nextIdx));
+    setStep(nextStep);
+  };
+
+  // QUICK PARTNER SWITCH (ZERO AI TOKEN)
+  const handlePartnerChange = useCallback(
+    (newPartnerId: number) => {
+      setInModalPartnerId(newPartnerId);
+      onPartnerChange?.(newPartnerId);
+
+      // Re-enrich documents with new partner's product master without OCR
+      setDocuments((prevDocs) => {
+        const enriched = reEnrichOcrDocumentsForPartner(prevDocs, newPartnerId, products);
+        return enriched;
+      });
+
+      // Increment source version to mark downstream preview stale
+      setSourceVersion((v) => v + 1);
+
+      const folderName = partnerFolders.find((f) => f.id === newPartnerId)?.name || 'đối tác mới';
+      message.success(`Đã cập nhật danh mục theo ${folderName} (không gọi lại OCR).`);
+    },
+    [products, partnerFolders, onPartnerChange]
+  );
+
+  // OCR EXTRACTION (ONLY CALLED ON IMAGE UPLOAD OR RESCAN)
+  const processImage = useCallback(
+    async (imageFile: File | Blob) => {
+      setLoading(true);
+      setExportError(null);
+      try {
+        const response = await ocrApi.extractFromImage(imageFile);
+        const initialEnriched = reEnrichOcrDocumentsForPartner(
+          response.documents,
+          inModalPartnerId,
+          products
+        );
+        setDocuments(initialEnriched);
+        setActiveDocumentId(initialEnriched[0]?.documentId ?? null);
+        setSelectedDocumentIds(initialEnriched.map((d) => d.documentId));
+        setSourceVersion((v) => v + 1);
+        setMergePreview(null);
+        setPreviewVersion(undefined);
+        setMaxReachedStep(0);
+        setStep('review');
+        message.success(`Đã bóc tách thành công ${initialEnriched.length} đợt hàng từ ảnh.`);
+      } catch (e: unknown) {
+        const text =
+          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+          'Không thể nhận diện ảnh phiếu kho.';
+        message.error(text);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [inModalPartnerId, products]
+  );
 
   const selectFile = (selected: File) => {
-    if (!selected.type.startsWith('image/')) return message.error('Vui lòng chọn file ảnh hợp lệ.');
-    if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview);
-    setFile(selected); setPreview(URL.createObjectURL(selected)); setDocuments([]); processImage(selected);
+    if (!selected.type.startsWith('image/')) {
+      return message.error('Vui lòng chọn file ảnh hợp lệ.');
+    }
+    if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
+    setFile(selected);
+    setPreviewUrl(URL.createObjectURL(selected));
+    setDocuments([]);
+    processImage(selected);
   };
 
+  // CLIPBOARD PASTE
   useEffect(() => {
     if (!visible) return;
-    const paste = (e: ClipboardEvent) => { const blob = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'))?.getAsFile(); if (blob) selectFile(blob); };
-    window.addEventListener('paste', paste); return () => window.removeEventListener('paste', paste);
+    const pasteHandler = (e: ClipboardEvent) => {
+      const blob = Array.from(e.clipboardData?.items || [])
+        .find((i) => i.type.startsWith('image/'))
+        ?.getAsFile();
+      if (blob) selectFile(blob);
+    };
+    window.addEventListener('paste', pasteHandler);
+    return () => window.removeEventListener('paste', pasteHandler);
   });
 
-  const updateDocument = (id: string, fn: (d: OcrDetectedDocument) => OcrDetectedDocument) => { setDocuments(prev => prev.map(d => d.documentId === id ? fn(d) : d)); setMergePreview(null); };
-  const columns = (doc: OcrDetectedDocument): ColumnsType<OcrItem> => [
-    { title: 'Mã hình thể', dataIndex: 'styleCode', render: (v, _r, i) => <Input value={v} size="small" onChange={e => updateDocument(doc.documentId, d => ({ ...d, items: d.items.map((x, n) => n === i ? enrich({ ...x, styleCode: e.target.value }) : x) }))} /> },
-    { title: 'Số lượng', dataIndex: 'quantity', width: 115, render: (v, _r, i) => <InputNumber min={1} value={v} size="small" onChange={q => updateDocument(doc.documentId, d => ({ ...d, items: d.items.map((x, n) => n === i ? { ...x, quantity: q || 0 } : x) }))} /> },
-    { title: 'Công đoạn', dataIndex: 'processType', width: 145, render: (v, _r, i) => <Select size="small" value={normalizeProcessType(v)} options={[{ value: ProcessType.Standard, label: 'Thành hình' }, { value: ProcessType.GoKhongMay, label: 'Gò không may' }]} onChange={p => updateDocument(doc.documentId, d => ({ ...d, items: d.items.map((x, n) => n === i ? { ...x, processType: p } : x) }))} /> },
-    { title: 'Master', width: 75, render: (_, r) => <Tag color={r.isMatched ? 'green' : 'default'}>{r.isMatched ? 'Khớp' : 'Mới'}</Tag> },
-    { title: '', width: 40, render: (_, _r, i) => <Button danger type="text" icon={<DeleteOutlined />} onClick={() => updateDocument(doc.documentId, d => ({ ...d, items: d.items.filter((_x, n) => n !== i) }))} /> },
-  ];
-
-  const apply = (doc: OcrDetectedDocument) => {
-    const valid = doc.items.filter(i => i.quantity > 0 && i.styleCode.trim());
-    if (!valid.length) return message.warning('Đợt này không có mặt hàng hợp lệ.');
-    onApply(valid.map(i => ({ styleCode: i.styleCode, quantity: i.quantity, processType: normalizeProcessType(i.processType), unitPriceCMT: i.unitPriceCMT, unitPriceDAP: i.unitPriceDAP, unit: i.unit, pairPerCarton: i.pairPerCarton, description: i.description })), applyMode);
-    message.success(`Đã áp dụng đợt “${doc.title || 'Không tiêu đề'}” vào hóa đơn.`); onClose();
+  // UPDATE DOCUMENT
+  const handleUpdateDocument = (
+    id: string,
+    updater: (d: OcrDetectedDocument) => OcrDetectedDocument
+  ) => {
+    setDocuments((prev) => prev.map((d) => (d.documentId === id ? updater(d) : d)));
+    setSourceVersion((v) => v + 1);
   };
 
+  // MANUAL CONFIRMATION FLOW
+  const handleOpenManualConfirm = (doc: OcrDetectedDocument) => {
+    setDocumentToConfirm(doc);
+    setConfirmModalOpen(true);
+  };
+
+  const handleConfirmMismatch = async (reason: string) => {
+    if (!documentToConfirm) return;
+    setIsConfirming(true);
+    try {
+      await ocrApi.confirmMismatch({
+        documentId: documentToConfirm.documentId,
+        documentTitle: documentToConfirm.title,
+        reportedTotal: documentToConfirm.reportedTotal,
+        calculatedTotal: documentToConfirm.calculatedTotal,
+        contractFolderId: inModalPartnerId,
+        reason,
+      });
+
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.documentId === documentToConfirm.documentId
+            ? { ...d, isManuallyConfirmed: true, confirmationReason: reason }
+            : d
+        )
+      );
+      setSourceVersion((v) => v + 1);
+      message.success(`Đã xác nhận đối soát thủ công cho “${documentToConfirm.title}”.`);
+      setConfirmModalOpen(false);
+      setDocumentToConfirm(null);
+    } catch {
+      message.error('Không thể lưu xác nhận đối soát vào hệ thống.');
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  // SELECTION
+  const handleToggleSelectDocument = (id: string, checked: boolean) => {
+    setSelectedDocumentIds((current) =>
+      checked ? [...new Set([...current, id])] : current.filter((val) => val !== id)
+    );
+    setSourceVersion((v) => v + 1);
+  };
+
+  const handleSelectAll = () => {
+    const availableIds = documents
+      .filter((d) => !processedDocumentIds.has(d.documentId) && getReconciliationStatus(d) !== 'MISMATCH')
+      .map((d) => d.documentId);
+    setSelectedDocumentIds(availableIds);
+    setSourceVersion((v) => v + 1);
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedDocumentIds([]);
+    setSourceVersion((v) => v + 1);
+  };
+
+  // FILTERED SELECTED DOCUMENTS
+  const selectedDocuments = useMemo(
+    () =>
+      documents.filter(
+        (d) => selectedDocumentIds.includes(d.documentId) && !processedDocumentIds.has(d.documentId)
+      ),
+    [documents, selectedDocumentIds, processedDocumentIds]
+  );
+
+  const localSelectedTotal = useMemo(
+    () => selectedDocuments.reduce((sum, d) => sum + d.calculatedTotal, 0),
+    [selectedDocuments]
+  );
+
+  // BUILD DISPATCH PAYLOADS
   const toDispatchSource = (doc: OcrDetectedDocument): DispatchSourceDocument => ({
-    sourceType: 'ocr-document', documentId: doc.documentId, title: doc.title,
-    items: doc.items.map(i => ({ styleCode: i.styleCode, quantity: i.quantity, processType: normalizeProcessType(i.processType), unitPriceCMT: i.unitPriceCMT, unitPriceDAP: i.unitPriceDAP, unit: i.unit, pairPerCarton: i.pairPerCarton, description: i.description })),
-    calculatedTotal: doc.items.reduce((sum, item) => sum + item.quantity, 0), reportedTotal: doc.reportedTotal,
+    sourceType: 'ocr-document',
+    documentId: doc.documentId,
+    title: doc.title,
+    items: doc.items.map((i) => ({
+      styleCode: i.styleCode,
+      quantity: i.quantity,
+      processType: normalizeProcessType(i.processType),
+      unitPriceCMT: i.unitPriceCMT,
+      unitPriceDAP: i.unitPriceDAP,
+      unit: i.unit,
+      pairPerCarton: i.pairPerCarton,
+      description: i.description,
+    })),
+    calculatedTotal: doc.calculatedTotal,
+    reportedTotal: doc.reportedTotal,
     sourceFileName: file?.name,
+    isManuallyConfirmed: doc.isManuallyConfirmed,
+    confirmationReason: doc.confirmationReason,
   });
 
-  const selectedDocuments = documents.filter(document => selectedDocumentIds.includes(document.documentId) && !processedDocumentIds.has(document.documentId));
-  const selectedTotal = selectedDocuments.reduce((sum, document) => sum + document.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0);
-  const sourcePayloads = (): OcrDispatchSourcePayload[] => selectedDocuments.map(document => ({ documentId: document.documentId, title: document.title, sourceFileName: file?.name,
-    reportedTotal: document.reportedTotal, calculatedTotal: document.items.reduce((sum, item) => sum + item.quantity, 0), items: toDispatchSource(document).items }));
-  const mergeRequest = () => ({ sourceDocuments: sourcePayloads(), contractFolderId: selectedPartnerId ?? undefined, templateId: templateId ?? undefined, poSuffix, invoiceDate: invoiceDate || new Date().toISOString().slice(0, 10) });
-  const toggleSelection = (id: string, checked: boolean) => { setSelectedDocumentIds(current => checked ? [...new Set([...current, id])] : current.filter(value => value !== id)); setMergePreview(null); };
-  const previewMerge = async () => { if (selectedDocuments.length < 2) return; setIsPreviewingMerge(true); setExportError(null); try { setMergePreview(await shipmentDispatchApi.previewMerge(mergeRequest())); setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0); } catch (error: unknown) { const parsed = await parseDownloadError(error); setExportError({ message: parsed.message, traceId: parsed.traceId }); } finally { setIsPreviewingMerge(false); } };
-  const consolidatedSource = (): ConsolidatedDispatchSource | null => mergePreview ? ({ sourceType: 'merged-ocr-documents', sourceDocumentIds: selectedDocuments.map(d => d.documentId), sourceTitles: selectedDocuments.map(d => d.title), sourceDocuments: sourcePayloads(), title: selectedDocuments.map(d => d.title).join(' + '), items: mergePreview.mergedItems, totalQuantity: mergePreview.totalQuantity, totalCartons: mergePreview.totalCartons }) : null;
-  const exportMerge = async () => { if (!mergePreview?.isExportable || isExportingMerge) return; setIsExportingMerge(true); setExportError(null); try { const result = await shipmentDispatchApi.exportMerge(mergeRequest()); triggerDownload(result); setProcessedDocumentIds(current => new Set([...current, ...selectedDocuments.map(d => d.documentId)])); setExportSuccess({ fileName: result.fileName, count: mergePreview.generatedDocumentCount }); onDispatchExported?.(); } catch (error: unknown) { const parsed = await parseDownloadError(error); setExportError({ message: [parsed.message, ...parsed.validationErrors].filter(Boolean).join(' '), traceId: parsed.traceId }); } finally { setIsExportingMerge(false); } };
-  const exportSeparate = async () => { if (!selectedDocuments.length) return; setIsExportingSeparate(true); try { const batches = selectedDocuments.map(document => ({ batchId: document.documentId, title: document.title, items: toDispatchSource(document).items })); const blob = await ocrApi.batchExportZip({ contractFolderId: selectedPartnerId, poSuffix, invoiceDate, batches }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `OCR-Separate-${invoiceDate || new Date().toISOString().slice(0, 10)}.zip`; anchor.click(); URL.revokeObjectURL(url); setProcessedDocumentIds(current => new Set([...current, ...selectedDocuments.map(d => d.documentId)])); message.success(`Đã xuất riêng ${batches.length} đợt.`); onDispatchExported?.(); } catch { message.error('Không thể xuất riêng các đợt đã chọn.'); } finally { setIsExportingSeparate(false); } };
+  const sourcePayloads = (): OcrDispatchSourcePayload[] =>
+    selectedDocuments.map((doc) => ({
+      documentId: doc.documentId,
+      title: doc.title,
+      sourceFileName: file?.name,
+      reportedTotal: doc.reportedTotal,
+      calculatedTotal: doc.calculatedTotal,
+      isManuallyConfirmed: doc.isManuallyConfirmed,
+      confirmationReason: doc.confirmationReason,
+      items: toDispatchSource(doc).items,
+    }));
 
-  const activeDocument = documents.find(document => document.documentId === activeDocumentId) ?? documents[0];
+  const mergeRequest = () => ({
+    sourceDocuments: sourcePayloads(),
+    contractFolderId: inModalPartnerId ?? undefined,
+    templateId: templateId ?? undefined,
+    poSuffix,
+    invoiceDate: invoiceDate || new Date().toISOString().slice(0, 10),
+  });
 
-  return <Modal title="OCR phiếu kho — đối soát và xuất chứng từ" open={visible} onCancel={onClose} width="95vw" style={{ maxWidth: 1600 }} footer={<Button onClick={onClose}>Đóng</Button>}>
-    <input ref={inputRef} hidden type="file" accept="image/*" onChange={e => e.target.files?.[0] && selectFile(e.target.files[0])} />
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[43%_57%]">
-      <div className="lg:sticky lg:top-0 lg:self-start" onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) selectFile(e.dataTransfer.files[0]); }} onDragOver={e => e.preventDefault()}>
-        <div className="mb-2 font-semibold text-slate-800">ẢNH PHIẾU KHO GỐC</div>
-        {preview ? <>
-          <OriginalImagePreview src={preview} alt="Ảnh phiếu kho gốc" sourceRegion={activeDocument?.sourceRegion} maxHeightClassName="max-h-[70vh]" />
-          <Space className="mt-2">
-            <Button onClick={() => inputRef.current?.click()}>Chọn ảnh khác</Button>
-            {file && <Button type="link" icon={<ReloadOutlined />} onClick={() => processImage(file)}>Quét lại ảnh gốc</Button>}
-            <Button onClick={() => setActiveDocumentId(null)}>Xem toàn ảnh</Button>
-          </Space>
-        </> : <div onClick={() => inputRef.current?.click()} className="border-2 border-dashed rounded-lg min-h-64 flex items-center justify-center cursor-pointer bg-slate-50">
-          <Space direction="vertical" align="center"><InboxOutlined className="text-3xl" /><span>Chọn, kéo thả hoặc dán ảnh</span></Space>
-        </div>}
-      </div>
-      <div className="max-h-[76vh] overflow-y-auto space-y-3 pr-2">
-        <div className="flex items-center justify-between"><div className="font-semibold text-slate-800">DỮ LIỆU OCR</div><Radio.Group value={applyMode} onChange={e => setApplyMode(e.target.value)}><Radio value="replace">Thay thế</Radio><Radio value="append">Nối thêm</Radio></Radio.Group></div>
-        {loading ? <div className="py-24 text-center"><Spin tip="Đang phát hiện các bảng..." /></div> : documents.length ? <>
-          <Alert type="info" showIcon message={`Đã phát hiện ${documents.length} đợt hàng`} />
-          <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
-            <div className="flex justify-between"><div><strong>Đã chọn: {selectedDocuments.length} đợt</strong><div className="text-xs text-slate-500">Tổng đã chọn: {selectedTotal.toLocaleString()} đôi</div></div><Space><Button size="small" onClick={() => { setSelectedDocumentIds(documents.filter(d => !processedDocumentIds.has(d.documentId)).map(d => d.documentId)); setMergePreview(null); }}>Chọn tất cả</Button><Button size="small" onClick={() => { setSelectedDocumentIds([]); setMergePreview(null); }}>Bỏ chọn</Button></Space></div>
-            <Space wrap>
-              <Button disabled={selectedDocuments.length !== 1} onClick={() => selectedDocuments[0] && apply(selectedDocuments[0])}>Áp dụng 1 INV</Button>
-              <Button icon={<NodeIndexOutlined />} disabled={selectedDocuments.length !== 1} onClick={() => selectedDocuments[0] && setSplitSource(toDispatchSource(selectedDocuments[0]))}>Tách document đã chọn</Button>
-              <Button icon={<FileZipOutlined />} loading={isExportingSeparate} disabled={!selectedDocuments.length} onClick={exportSeparate}>Xuất riêng từng đợt</Button>
-              <Button type="primary" icon={<EyeOutlined />} loading={isPreviewingMerge} disabled={selectedDocuments.length < 2} onClick={previewMerge}>Xem kết quả gom</Button>
-            </Space>
-            {selectedDocuments.length < 2 && <div className="text-xs text-slate-500">Cần chọn ít nhất 2 đợt để gom.</div>}
+  // MERGE PREVIEW
+  const handlePreviewMerge = async () => {
+    if (selectedDocuments.length < 2) return;
+    setIsPreviewingMerge(true);
+    setExportError(null);
+    try {
+      const preview = await shipmentDispatchApi.previewMerge(mergeRequest());
+      setMergePreview(preview);
+      setPreviewVersion(sourceVersion);
+      goToStep('result');
+    } catch (error: unknown) {
+      const parsed = await parseDownloadError(error);
+      setExportError({ message: parsed.message, traceId: parsed.traceId });
+      message.error(parsed.message || 'Không thể xem trước kết quả gom.');
+    } finally {
+      setIsPreviewingMerge(false);
+    }
+  };
+
+  // EXPORT MERGE
+  const handleExportMerge = async () => {
+    if (!mergePreview?.isExportable || isExportingMerge) return;
+    setIsExportingMerge(true);
+    setExportError(null);
+    try {
+      const result = await shipmentDispatchApi.exportMerge(mergeRequest());
+      triggerDownload(result);
+      setProcessedDocumentIds((current) => new Set([...current, ...selectedDocuments.map((d) => d.documentId)]));
+      setExportSuccess({
+        fileName: result.fileName,
+        count: mergePreview.generatedDocumentCount,
+      });
+      onDispatchExported?.();
+      goToStep('done');
+    } catch (error: unknown) {
+      const parsed = await parseDownloadError(error);
+      setExportError({
+        message: [parsed.message, ...parsed.validationErrors].filter(Boolean).join(' '),
+        traceId: parsed.traceId,
+      });
+    } finally {
+      setIsExportingMerge(false);
+    }
+  };
+
+  // EXPORT SEPARATE
+  const handleExportSeparate = async () => {
+    if (!selectedDocuments.length) return;
+    setIsExportingSeparate(true);
+    try {
+      const batches = selectedDocuments.map((doc) => ({
+        batchId: doc.documentId,
+        title: doc.title,
+        items: toDispatchSource(doc).items,
+      }));
+      const blob = await ocrApi.batchExportZip({
+        contractFolderId: inModalPartnerId ?? undefined,
+        poSuffix,
+        invoiceDate,
+        batches,
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `OCR-Separate-${invoiceDate || new Date().toISOString().slice(0, 10)}.zip`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setProcessedDocumentIds((current) => new Set([...current, ...selectedDocuments.map((d) => d.documentId)]));
+      setExportSuccess({
+        fileName: anchor.download,
+        count: batches.length,
+      });
+      onDispatchExported?.();
+      goToStep('done');
+    } catch {
+      message.error('Không thể xuất riêng các đợt đã chọn.');
+    } finally {
+      setIsExportingSeparate(false);
+    }
+  };
+
+  // APPLY SINGLE INVOICE
+  const handleApplySingle = (doc: OcrDetectedDocument) => {
+    const valid = doc.items.filter((i) => i.quantity > 0 && i.styleCode.trim());
+    if (!valid.length) return message.warning('Đợt này không có mặt hàng hợp lệ.');
+    onApply(
+      valid.map((i) => ({
+        styleCode: i.styleCode,
+        quantity: i.quantity,
+        processType: normalizeProcessType(i.processType),
+        unitPriceCMT: i.unitPriceCMT,
+        unitPriceDAP: i.unitPriceDAP,
+        unit: i.unit,
+        pairPerCarton: i.pairPerCarton,
+        description: i.description,
+      })),
+      'replace'
+    );
+    message.success(`Đã áp dụng đợt “${doc.title || 'Không tiêu đề'}” vào hóa đơn.`);
+    onClose();
+  };
+
+  // CONSOLIDATED SPLIT SOURCE
+  const consolidatedSource = (): ConsolidatedDispatchSource | null =>
+    mergePreview
+      ? {
+          sourceType: 'merged-ocr-documents',
+          sourceDocumentIds: selectedDocuments.map((d) => d.documentId),
+          sourceTitles: selectedDocuments.map((d) => d.title),
+          sourceDocuments: sourcePayloads(),
+          title: selectedDocuments.map((d) => d.title).join(' + '),
+          items: mergePreview.mergedItems,
+          totalQuantity: mergePreview.totalQuantity,
+          totalCartons: mergePreview.totalCartons,
+        }
+      : null;
+
+  // STALE DETECTION
+  const isStale = previewVersion !== undefined && sourceVersion > previewVersion;
+
+  // STEP VALIDATION
+  const canProceedToDispatch = documents.length > 0 && selectedDocuments.length > 0;
+  const canProceedToResult = Boolean(mergePreview && !isStale);
+  const canProceedToExport = Boolean(mergePreview?.isExportable && !isStale && inModalPartnerId);
+
+  // CURRENT PARTNER OBJECT
+  const currentPartner = partnerFolders.find((f) => f.id === inModalPartnerId) || null;
+
+  return (
+    <Modal
+      title={
+        <div className="flex flex-wrap justify-between items-center pr-8 gap-3">
+          <div className="font-semibold text-slate-800 text-base">
+            OCR Phiếu kho &mdash; Quy trình đối soát và xuất chứng từ
           </div>
-          {documents.map((doc, index) => { const total = doc.items.reduce((s, i) => s + (i.quantity || 0), 0); const diff = doc.reportedTotal == null ? null : total - doc.reportedTotal; const processed = processedDocumentIds.has(doc.documentId); return <Card key={doc.documentId} size="small" className={activeDocument?.documentId === doc.documentId ? 'border-blue-400' : ''} onClick={() => setActiveDocumentId(doc.documentId)} title={<Space wrap><Checkbox checked={selectedDocumentIds.includes(doc.documentId)} disabled={processed} onClick={e => e.stopPropagation()} onChange={event => toggleSelection(doc.documentId, event.target.checked)} /><Input value={doc.title} onClick={e => e.stopPropagation()} onChange={e => updateDocument(doc.documentId, d => ({ ...d, title: e.target.value }))} /><Tag color={diff === 0 ? 'green' : diff == null ? 'default' : 'red'}>{diff === 0 ? 'Khớp' : diff == null ? 'Chưa xác định' : 'Lệch'}</Tag></Space>}>
-            <div className="mb-2 flex gap-3 text-sm"><b>Đợt {index + 1}</b><span>{doc.items.length} mã</span><span>{total.toLocaleString()} đôi</span>{processed && <Tag color="green">Đã xử lý</Tag>}</div>
-            {doc.reportedTotal == null ? <Alert type="warning" showIcon message="Chưa thể đối chiếu tổng" description={`Không nhận diện được tổng trên phiếu. Tổng dòng hàng: ${total.toLocaleString()} đôi.`} /> : diff === 0 ? <Alert type="success" showIcon message={`Khớp — ${total.toLocaleString()} đôi`} /> : <Alert type="error" showIcon message={`${doc.title} chưa thể xuất`} description={`Tổng trên phiếu: ${doc.reportedTotal.toLocaleString()} · Tổng các dòng OCR: ${total.toLocaleString()} · Còn lệch: ${Number(diff) > 0 ? '+' : ''}${Number(diff).toLocaleString()} đôi`} />}
-            <Table className="mt-3" size="small" pagination={false} rowKey={(_r, i) => `${doc.documentId}-${i}`} dataSource={doc.items} columns={columns(doc)} />
-          </Card>; })}
-          {exportError && <Alert type="error" showIcon message="Không thể xuất INV" description={<div><div>{exportError.message}</div>{exportError.traceId && <div className="mt-1 text-xs">Mã theo dõi: <code>{exportError.traceId}</code> <Button size="small" type="link" onClick={() => navigator.clipboard.writeText(exportError.traceId!)}>Sao chép</Button></div>}</div>} />}
-          {exportSuccess && <Alert type="success" showIcon message="Đã xuất hóa đơn thành công" description={`${exportSuccess.count} chứng từ · File ${exportSuccess.fileName} · Nguồn ${selectedDocuments.map(d => d.title).join(', ')}`} />}
-          {mergePreview && <div ref={resultRef}><Card title="BƯỚC 2 — KẾT QUẢ GOM" className="border-emerald-200">
-            <Alert type={mergePreview.isExportable ? 'success' : 'error'} showIcon message={`Đã gom thử ${selectedDocuments.length} đợt · ${mergePreview.mergedItems.length} mã · ${mergePreview.totalQuantity.toLocaleString()} đôi`} description={`Dữ liệu CHƯA được xuất thành Invoice. ${mergePreview.generatedDocumentCount > 1 ? `Kết quả gồm ${mergePreview.generatedDocumentCount} nhóm công đoạn và sẽ tạo ${mergePreview.generatedDocumentCount} Invoice.` : 'Kết quả sẽ tạo 1 Invoice.'}`} />
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-4"><div>Nguồn: <b>{selectedDocuments.length} đợt</b></div><div>Mã trước gom: <b>{mergePreview.sourceItemCount}</b></div><div>Mã sau gom: <b>{mergePreview.mergedItemCount}</b></div><div>Được cộng dồn: <b>{mergePreview.consolidatedItemCount}</b></div></div>
-            {mergePreview.blockingErrors.map(error => <Alert key={error.code + error.message} className="mt-2" type="error" showIcon message={error.message} />)}
-            {selectedTotal !== mergePreview.totalQuantity && <Alert className="mt-2" type="error" showIcon message={`Tổng local ${selectedTotal.toLocaleString()} khác backend ${mergePreview.totalQuantity.toLocaleString()}. Export đang bị khóa.`} />}
-            <Table className="mt-3" size="small" pagination={false} rowKey={row => `${row.styleCode}-${row.processType}`} dataSource={mergePreview.mergedItems} columns={[{ title: 'Mã hình thể', dataIndex: 'styleCode' }, { title: 'Công đoạn', dataIndex: 'processType', render: value => value === ProcessType.GoKhongMay ? 'Gò không may' : 'Thành hình' }, { title: 'SL sau gom', dataIndex: 'quantity', align: 'right', render: value => value.toLocaleString() }, { title: 'Carton', dataIndex: 'pairPerCarton', align: 'right' }, { title: 'CMT', dataIndex: 'unitPriceCMT', align: 'right' }, { title: 'DAP', dataIndex: 'unitPriceDAP', align: 'right' }]} />
-            <Space className="mt-3" wrap><Button onClick={() => setMergePreview(null)}>Quay lại chỉnh dữ liệu</Button><Button type="primary" loading={isExportingMerge} disabled={!mergePreview.isExportable || selectedTotal !== mergePreview.totalQuantity} onClick={exportMerge}>Xuất {mergePreview.generatedDocumentCount} INV</Button><Button icon={<NodeIndexOutlined />} disabled={!mergePreview.isExportable || selectedTotal !== mergePreview.totalQuantity} onClick={() => { const source = consolidatedSource(); if (source) setConsolidatedSplitSource(source); }}>Tách thành nhiều INV</Button></Space>
-          </Card></div>}
-        </> : <Alert message="Chưa có kết quả OCR" description="Chọn một ảnh để bắt đầu." />}
+          <OcrPartnerSelector
+            partners={partnerFolders}
+            selectedPartnerId={inModalPartnerId}
+            onPartnerChange={handlePartnerChange}
+          />
+        </div>
+      }
+      open={visible}
+      onCancel={handleModalClose}
+      width="96vw"
+      style={{ maxWidth: 1600, top: 15 }}
+      bodyStyle={{ padding: 0 }}
+      footer={
+        <div className="flex justify-between items-center px-4 py-2 bg-slate-50 border-t border-slate-200">
+          <div>
+            {step === 'review' && (
+              <Button onClick={handleModalClose}>Đóng</Button>
+            )}
+            {step === 'dispatch' && (
+              <Button icon={<ArrowLeftOutlined />} onClick={() => goToStep('review')}>
+                Quay lại đối soát (Bước 1)
+              </Button>
+            )}
+            {step === 'result' && (
+              <Button icon={<ArrowLeftOutlined />} onClick={() => goToStep('dispatch')}>
+                Quay lại điều phối (Bước 2)
+              </Button>
+            )}
+            {step === 'export' && (
+              <Button icon={<ArrowLeftOutlined />} onClick={() => goToStep('result')}>
+                Quay lại kết quả (Bước 3)
+              </Button>
+            )}
+            {step === 'done' && (
+              <Button onClick={handleModalClose}>Đóng</Button>
+            )}
+          </div>
+
+          <Space>
+            {step === 'review' && (
+              <Button
+                type="primary"
+                disabled={!canProceedToDispatch}
+                onClick={() => goToStep('dispatch')}
+              >
+                Tiếp tục điều phối <ArrowRightOutlined />
+              </Button>
+            )}
+            {step === 'result' && (
+              <Button
+                type="primary"
+                disabled={!mergePreview?.isExportable || isStale}
+                onClick={() => goToStep('export')}
+              >
+                Tiếp tục kiểm tra xuất <ArrowRightOutlined />
+              </Button>
+            )}
+          </Space>
+        </div>
+      }
+    >
+      {/* GUIDED WORKFLOW STEPPER */}
+      <OcrWorkflowStepper
+        currentStep={step}
+        maxReachedStep={maxReachedStep}
+        onStepChange={(s) => setStep(s)}
+        canProceedToDispatch={canProceedToDispatch}
+        canProceedToResult={canProceedToResult}
+        canProceedToExport={canProceedToExport}
+        isDone={step === 'done'}
+      />
+
+      {/* STEP CONTENT */}
+      <div className="min-h-[600px]">
+        {step === 'review' && (
+          <OcrReviewStep
+            file={file}
+            previewUrl={previewUrl}
+            documents={documents}
+            activeDocumentId={activeDocumentId}
+            selectedDocumentIds={selectedDocumentIds}
+            loading={loading}
+            products={products}
+            selectedPartnerId={inModalPartnerId}
+            onSelectFile={selectFile}
+            onRescanImage={() => file && processImage(file)}
+            onSetActiveDocumentId={setActiveDocumentId}
+            onToggleSelectDocument={handleToggleSelectDocument}
+            onUpdateDocument={handleUpdateDocument}
+            onRequestManualConfirm={handleOpenManualConfirm}
+          />
+        )}
+
+        {step === 'dispatch' && (
+          <OcrDispatchStep
+            documents={documents}
+            selectedDocumentIds={selectedDocumentIds}
+            processedDocumentIds={processedDocumentIds}
+            onToggleSelectDocument={handleToggleSelectDocument}
+            onSelectAll={handleSelectAll}
+            onDeselectAll={handleDeselectAll}
+            onPreviewMerge={handlePreviewMerge}
+            onExportSeparate={handleExportSeparate}
+            onOpenSplitSingle={(doc) => setSplitSource(toDispatchSource(doc))}
+            onApplySingleInv={handleApplySingle}
+            isPreviewingMerge={isPreviewingMerge}
+            isExportingSeparate={isExportingSeparate}
+          />
+        )}
+
+        {step === 'result' && (
+          <OcrResultStep
+            mergePreview={mergePreview}
+            isStale={isStale}
+            selectedDocCount={selectedDocuments.length}
+            localSelectedTotal={localSelectedTotal}
+            onRecalculateMerge={handlePreviewMerge}
+            onOpenConsolidatedSplit={() => {
+              const source = consolidatedSource();
+              if (source) setConsolidatedSplitSource(source);
+            }}
+            isLoading={isPreviewingMerge}
+          />
+        )}
+
+        {step === 'export' && (
+          <OcrExportStep
+            partners={partnerFolders}
+            selectedPartnerId={inModalPartnerId}
+            onPartnerChange={handlePartnerChange}
+            selectedDocuments={selectedDocuments}
+            mergePreview={mergePreview}
+            isStale={isStale}
+            isExporting={isExportingMerge}
+            onExport={handleExportMerge}
+            exportError={exportError}
+          />
+        )}
+
+        {step === 'done' && (
+          <OcrDoneStep
+            selectedDocuments={selectedDocuments}
+            partner={currentPartner}
+            exportedFileName={exportSuccess?.fileName}
+            documentCount={exportSuccess?.count}
+            totalQuantity={localSelectedTotal}
+            onClose={handleModalClose}
+            onScanNewImage={() => {
+              setDocuments([]);
+              setPreviewUrl(null);
+              setFile(null);
+              setStep('review');
+              setMaxReachedStep(0);
+            }}
+          />
+        )}
       </div>
-    </div>
-    <SplitMatrixModal open={Boolean(splitSource)} sourceDocument={splitSource} contractFolderId={selectedPartnerId} templateId={templateId} poSuffix={poSuffix} invoiceDate={invoiceDate || new Date().toISOString().slice(0, 10)} onClose={() => setSplitSource(null)} onExported={() => { if (splitSource) setProcessedDocumentIds(current => new Set(current).add(splitSource.documentId)); onDispatchExported?.(); }} />
-    <SplitMatrixModal open={Boolean(consolidatedSplitSource)} consolidatedSource={consolidatedSplitSource} contractFolderId={selectedPartnerId} templateId={templateId} poSuffix={poSuffix} invoiceDate={invoiceDate || new Date().toISOString().slice(0, 10)} onClose={() => setConsolidatedSplitSource(null)} onExported={() => { if (consolidatedSplitSource) setProcessedDocumentIds(current => new Set([...current, ...consolidatedSplitSource.sourceDocumentIds])); onDispatchExported?.(); }} />
-  </Modal>;
+
+      {/* MANUAL CONFIRMATION DIALOG */}
+      <ManualOcrConfirmationModal
+        open={confirmModalOpen}
+        document={documentToConfirm}
+        onCancel={() => {
+          setConfirmModalOpen(false);
+          setDocumentToConfirm(null);
+        }}
+        onConfirm={handleConfirmMismatch}
+        loading={isConfirming}
+      />
+
+      {/* SPLIT MATRIX MODALS */}
+      <SplitMatrixModal
+        open={Boolean(splitSource)}
+        sourceDocument={splitSource}
+        contractFolderId={inModalPartnerId ?? undefined}
+        templateId={templateId}
+        poSuffix={poSuffix}
+        invoiceDate={invoiceDate || new Date().toISOString().slice(0, 10)}
+        onClose={() => setSplitSource(null)}
+        onExported={() => {
+          if (splitSource) {
+            setProcessedDocumentIds((current) => new Set(current).add(splitSource.documentId));
+          }
+          onDispatchExported?.();
+          goToStep('done');
+        }}
+      />
+
+      <SplitMatrixModal
+        open={Boolean(consolidatedSplitSource)}
+        consolidatedSource={consolidatedSplitSource}
+        contractFolderId={inModalPartnerId ?? undefined}
+        templateId={templateId}
+        poSuffix={poSuffix}
+        invoiceDate={invoiceDate || new Date().toISOString().slice(0, 10)}
+        onClose={() => setConsolidatedSplitSource(null)}
+        onExported={() => {
+          if (consolidatedSplitSource) {
+            setProcessedDocumentIds(
+              (current) => new Set([...current, ...consolidatedSplitSource.sourceDocumentIds])
+            );
+          }
+          onDispatchExported?.();
+          goToStep('done');
+        }}
+      />
+    </Modal>
+  );
 };

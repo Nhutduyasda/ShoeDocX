@@ -437,6 +437,8 @@ export interface OcrDetectedDocument {
   sourceRegion?: OcrSourceRegion | null;
   hasStandardItems: boolean;
   hasGoItems: boolean;
+  isManuallyConfirmed?: boolean;
+  confirmationReason?: string;
 }
 
 export interface OcrExtractionResponse {

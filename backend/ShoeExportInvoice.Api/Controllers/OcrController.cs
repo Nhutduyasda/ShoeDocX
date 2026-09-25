@@ -104,6 +104,76 @@ public class OcrController : ControllerBase
     }
 
     /// <summary>
+    /// Ghi nhận xác nhận đối soát thủ công (Manual Confirmation) cho đợt OCR bị lệch tổng
+    /// </summary>
+    [HttpPost("confirm-mismatch")]
+    public async Task<IActionResult> ConfirmMismatch(
+        [FromBody] OcrMismatchConfirmRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.DocumentId))
+        {
+            return BadRequest(new { message = "Dữ liệu xác nhận không hợp lệ." });
+        }
+
+        var actorUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var actorUserName = User.Identity?.Name ?? "Unknown";
+        var actorRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Unknown";
+
+        var log = new BusinessAuditLog
+        {
+            ActorUserId = actorUserId,
+            ActorUserName = actorUserName,
+            ActorRole = actorRole,
+            Action = "OCR_MISMATCH_CONFIRMED",
+            ResourceType = "OcrDocument",
+            ResourceId = request.DocumentId,
+            TraceId = HttpContext.TraceIdentifier,
+            Reason = request.Reason ?? "Người dùng đã đối chiếu ảnh gốc và xác nhận dữ liệu dòng OCR chính xác.",
+            NewStateJson = JsonSerializer.Serialize(new
+            {
+                DocumentId = request.DocumentId,
+                DocumentTitle = request.DocumentTitle,
+                ReportedTotal = request.ReportedTotal,
+                CalculatedTotal = request.CalculatedTotal,
+                Discrepancy = request.Discrepancy,
+                ContractFolderId = request.ContractFolderId,
+                ConfirmedAt = DateTime.UtcNow
+            }),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.BusinessAuditLogs.Add(log);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("OCR mismatch manually confirmed for doc {DocId} ({DocTitle}) by {User}",
+            request.DocumentId, request.DocumentTitle, actorUserName);
+
+        return Ok(new { success = true, auditId = log.Id, message = "Đã ghi nhận xác nhận đối soát thủ công." });
+    }
+
+    /// <summary>
+    /// Tái làm giàu dữ liệu OCR theo đối tác mới mà không cần quét lại ảnh (Zero AI Token)
+    /// </summary>
+    [HttpPost("re-enrich")]
+    public async Task<ActionResult<List<OcrDetectedDocumentDto>>> ReEnrichForPartner(
+        [FromBody] ReEnrichOcrDocumentsRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (request == null || request.Documents == null)
+        {
+            return BadRequest(new { message = "Dữ liệu yêu cầu không hợp lệ." });
+        }
+
+        var enriched = await _ocrService.ReEnrichOcrDocumentsForPartnerAsync(
+            request.Documents,
+            request.ContractFolderId,
+            cancellationToken);
+
+        return Ok(enriched);
+    }
+
+    /// <summary>
     /// Bóc tách hàng loạt ảnh phiếu kho theo lô (Batch Upload / Multi-Scan OCR).
     /// Áp dụng Semaphore(3) để kiểm soát số lượng tiến trình song song, tránh nghẽn và vượt rate-limit AI.
     /// </summary>

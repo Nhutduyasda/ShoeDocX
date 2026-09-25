@@ -172,6 +172,78 @@ public sealed class ShipmentDispatchTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Phase223_Test1_OcrMismatch_WithoutManualConfirm_ShouldBlockExport()
+    {
+        var folder = await SeedFolderAsync("STYLE-1");
+        var first = OcrDocument("L19", ("STYLE-1", 990, ProcessType.Standard));
+        first.ReportedTotal = 1000;
+        first.CalculatedTotal = 990;
+        first.IsManuallyConfirmed = false;
+
+        var second = OcrDocument("L20", ("STYLE-1", 50, ProcessType.Standard));
+        second.ReportedTotal = 50;
+        second.CalculatedTotal = 50;
+
+        var request = new MergeShipmentRequestDto { ContractFolderId = folder.Id, SourceDocuments = [first, second] };
+        var preview = await _service.PreviewMergeAsync(request, default);
+
+        Assert.False(preview.IsExportable);
+        Assert.Contains(preview.BlockingErrors, e => e.Code == "OCR_TOTAL_MISMATCH");
+        var ex = await Assert.ThrowsAsync<DispatchBusinessException>(() => _service.ExportMergeAsync(request, default));
+        Assert.Equal("OCR_DOCUMENT_INVALID", ex.Code);
+    }
+
+    [Fact]
+    public async Task Phase223_Test2_OcrMismatch_WithManualConfirm_ShouldPassReconciliationGuard()
+    {
+        var folder = await SeedFolderAsync("STYLE-1");
+        var first = OcrDocument("L19", ("STYLE-1", 990, ProcessType.Standard));
+        first.ReportedTotal = 1000;
+        first.CalculatedTotal = 990;
+        first.IsManuallyConfirmed = true;
+        first.ConfirmationReason = "Ghi chú trên phiếu kho bị đọc nhầm thành tổng";
+
+        var second = OcrDocument("L20", ("STYLE-1", 50, ProcessType.Standard));
+        second.ReportedTotal = 50;
+        second.CalculatedTotal = 50;
+
+        var request = new MergeShipmentRequestDto { ContractFolderId = folder.Id, SourceDocuments = [first, second] };
+        var preview = await _service.PreviewMergeAsync(request, default);
+
+        Assert.True(preview.IsExportable);
+        Assert.DoesNotContain(preview.BlockingErrors, e => e.Code == "OCR_TOTAL_MISMATCH");
+        Assert.Contains(preview.Warnings, w => w.Code == "OCR_MANUALLY_CONFIRMED");
+
+        var file = await _service.ExportMergeAsync(request, default);
+        Assert.NotEmpty(file.Content);
+
+        var order = await _db.ShipmentOrders.SingleAsync();
+        Assert.Equal(1040, order.Items.Single().Quantity);
+
+        var audit = await _db.BusinessAuditLogs.SingleAsync(a => a.Action == "MERGE_EXPORT");
+        Assert.Contains("L19", audit.NewStateJson);
+    }
+
+    [Fact]
+    public async Task Phase223_Test7_ManualConfirmation_ShouldNotBypassMissingProductMaster()
+    {
+        var folder = await SeedFolderAsync("STYLE-VALID");
+        var first = OcrDocument("L19", ("STYLE-UNMATCHED-123", 990, ProcessType.Standard));
+        first.ReportedTotal = 1000;
+        first.CalculatedTotal = 990;
+        first.IsManuallyConfirmed = true;
+
+        var second = OcrDocument("L20", ("STYLE-VALID", 50, ProcessType.Standard));
+        second.ReportedTotal = 50;
+        second.CalculatedTotal = 50;
+
+        var request = new MergeShipmentRequestDto { ContractFolderId = folder.Id, SourceDocuments = [first, second] };
+
+        var ex = await Assert.ThrowsAsync<DispatchBusinessException>(() => _service.PreviewMergeAsync(request, default));
+        Assert.Equal("PRODUCT_NOT_IN_CONTRACT", ex.Code);
+    }
+
+    [Fact]
     public async Task OcrMerge_Export_ShouldPersistOrder_WhenCmtPriceIsNull()
     {
         var folder = await SeedFolderAsync("A");

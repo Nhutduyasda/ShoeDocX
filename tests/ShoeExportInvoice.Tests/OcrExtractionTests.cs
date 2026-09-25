@@ -1,7 +1,12 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using ShoeExportInvoice.Api.Controllers;
 using ShoeExportInvoice.Api.Data;
+using ShoeExportInvoice.Api.Models.Dtos;
 using ShoeExportInvoice.Api.Models.Entities;
 using ShoeExportInvoice.Api.Services;
 
@@ -254,5 +259,202 @@ public class OcrExtractionTests
         Assert.Equal(1704, Assert.Single(result.Documents[1].Items.Where(i => i.StyleCode == "42072-410")).Quantity);
         Assert.Equal(ProcessType.GoKhongMay, result.Documents[1].Items.Last().ProcessType);
         Assert.Equal(0.46, result.Documents[0].SourceRegion?.Width);
+    }
+
+    [Fact]
+    public async Task Phase223_Test3_ManualConfirmation_InvalidatedWhenQuantityEdited()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        using var context = new AppDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+
+        var service = new OcrExtractionService(new HttpClient(), context, new ConfigurationBuilder().Build(), NullLogger<OcrExtractionService>.Instance);
+
+        var doc = new OcrDetectedDocumentDto
+        {
+            DocumentId = "DOC-1",
+            Title = "LẦN 19",
+            ReportedTotal = 1000,
+            CalculatedTotal = 950,
+            IsManuallyConfirmed = true,
+            Items = new List<OcrItemDto>
+            {
+                new() { StyleCode = "STYLE-A", Quantity = 950, ProcessType = ProcessType.Standard }
+            }
+        };
+
+        // When user edits quantity: 950 -> 900
+        doc.Items[0].Quantity = 900;
+        var recomputed = await service.ReEnrichOcrDocumentsForPartnerAsync(new List<OcrDetectedDocumentDto> { doc }, null);
+
+        Assert.Equal(900, recomputed[0].CalculatedTotal);
+        // Confirmation must be invalidated because calculatedTotal changed
+        Assert.False(recomputed[0].IsManuallyConfirmed);
+    }
+
+    [Fact]
+    public async Task Phase223_Test4_ManualConfirmationAudit_ShouldBeCreated()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        using var context = new AppDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+
+        var controller = new OcrController(
+            new OcrExtractionService(new HttpClient(), context, new ConfigurationBuilder().Build(), NullLogger<OcrExtractionService>.Instance),
+            new SequenceService(context, NullLogger<SequenceService>.Instance),
+            new StubExcelService(),
+            context,
+            NullLogger<OcrController>.Instance
+        );
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, "user-456"),
+            new Claim(ClaimTypes.Name, "Tester"),
+            new Claim(ClaimTypes.Role, "Xnk")
+        }, "mock"));
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new OcrMismatchConfirmRequestDto
+        {
+            DocumentId = "DOC-MISMATCH-1",
+            DocumentTitle = "LẦN 19",
+            ReportedTotal = 235,
+            CalculatedTotal = 11748,
+            ContractFolderId = 10,
+            Reason = "Số 235 là ghi chú trên phiếu, các dòng 11.748 đôi là đúng"
+        };
+
+        var result = await controller.ConfirmMismatch(request, default);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.NotNull(ok.Value);
+
+        var audit = await context.BusinessAuditLogs.SingleAsync(a => a.Action == "OCR_MISMATCH_CONFIRMED");
+        Assert.Equal("OcrDocument", audit.ResourceType);
+        Assert.Equal("DOC-MISMATCH-1", audit.ResourceId);
+        Assert.Equal("user-456", audit.ActorUserId);
+        Assert.Equal("Tester", audit.ActorUserName);
+        Assert.Contains("11748", audit.NewStateJson);
+        Assert.Contains("235", audit.NewStateJson);
+    }
+
+    [Fact]
+    public async Task Phase223_Test5_ChangePartner_ShouldNotChange_OcrItemRawQuantity()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        using var context = new AppDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+
+        var service = new OcrExtractionService(new HttpClient(), context, new ConfigurationBuilder().Build(), NullLogger<OcrExtractionService>.Instance);
+
+        var doc = new OcrDetectedDocumentDto
+        {
+            DocumentId = "DOC-PARTNER-SWITCH",
+            Title = "LẦN 19",
+            Items = new List<OcrItemDto>
+            {
+                new() { StyleCode = "42072-410", Quantity = 5316 },
+                new() { StyleCode = "42073-030", Quantity = 2880 },
+                new() { StyleCode = "42072-030", Quantity = 2856 }
+            }
+        };
+
+        // Enrich with Partner 1 (e.g. 101)
+        var forPartner1 = await service.ReEnrichOcrDocumentsForPartnerAsync(new List<OcrDetectedDocumentDto> { doc }, 101);
+        Assert.Equal(5316, forPartner1[0].Items[0].Quantity);
+        Assert.Equal(2880, forPartner1[0].Items[1].Quantity);
+        Assert.Equal(2856, forPartner1[0].Items[2].Quantity);
+
+        // Switch to Partner 2 (e.g. 202)
+        var forPartner2 = await service.ReEnrichOcrDocumentsForPartnerAsync(forPartner1, 202);
+        Assert.Equal(5316, forPartner2[0].Items[0].Quantity);
+        Assert.Equal(2880, forPartner2[0].Items[1].Quantity);
+        Assert.Equal(2856, forPartner2[0].Items[2].Quantity);
+        Assert.Equal(11052, forPartner2[0].CalculatedTotal);
+    }
+
+    [Fact]
+    public async Task Phase223_Test6_ReEnrichPartnerA_To_B_ShouldUpdateProductMasterInfo()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        using var context = new AppDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+
+        var folderA = new MasterDataFolder { Name = "Partner KM3" };
+        var folderB = new MasterDataFolder { Name = "Partner 5BUY" };
+        context.MasterDataFolders.AddRange(folderA, folderB);
+        await context.SaveChangesAsync();
+
+        context.ProductMasters.AddRange(
+            new ProductMaster
+            {
+                FolderId = folderA.Id,
+                StyleCode = "42072-030",
+                Description = "Mô tả cho KM3",
+                UnitPriceCMT = 3.0m,
+                UnitPriceDAP = 8.0m,
+                PairPerCarton = 12
+            },
+            new ProductMaster
+            {
+                FolderId = folderB.Id,
+                StyleCode = "42072-030",
+                Description = "Mô tả cho 5BUY",
+                UnitPriceCMT = 4.5m,
+                UnitPriceDAP = 10.0m,
+                PairPerCarton = 24
+            }
+        );
+        await context.SaveChangesAsync();
+
+        var service = new OcrExtractionService(new HttpClient(), context, new ConfigurationBuilder().Build(), NullLogger<OcrExtractionService>.Instance);
+
+        var doc = new OcrDetectedDocumentDto
+        {
+            DocumentId = "DOC-SWITCH-TEST",
+            Title = "LẦN 20",
+            Items = new List<OcrItemDto>
+            {
+                new() { StyleCode = "42072-030", Quantity = 100 }
+            }
+        };
+
+        // Enrich with Partner A
+        var resA = await service.ReEnrichOcrDocumentsForPartnerAsync(new List<OcrDetectedDocumentDto> { doc }, folderA.Id);
+        Assert.True(resA[0].Items[0].IsMatched);
+        Assert.Equal(3.0m, resA[0].Items[0].UnitPriceCMT);
+        Assert.Equal(8.0m, resA[0].Items[0].UnitPriceDAP);
+        Assert.Equal(12, resA[0].Items[0].PairPerCarton);
+        Assert.Equal("Mô tả cho KM3", resA[0].Items[0].Description);
+
+        // Switch to Partner B
+        var resB = await service.ReEnrichOcrDocumentsForPartnerAsync(resA, folderB.Id);
+        Assert.True(resB[0].Items[0].IsMatched);
+        Assert.Equal(4.5m, resB[0].Items[0].UnitPriceCMT);
+        Assert.Equal(10.0m, resB[0].Items[0].UnitPriceDAP);
+        Assert.Equal(24, resB[0].Items[0].PairPerCarton);
+        Assert.Equal("Mô tả cho 5BUY", resB[0].Items[0].Description);
+    }
+
+    private sealed class StubExcelService : IExcelImportExportService
+    {
+        public PklPreviewResponseDto CalculatePklBreakdown(CreateShipmentRequestDto request) => throw new NotImplementedException();
+        public DocumentPreviewResponseDto CalculateDocumentPreview(CreateShipmentRequestDto request) => throw new NotImplementedException();
+        public Task<byte[]> ExportShipmentMultiSheetExcelAsync(CreateShipmentRequestDto request) => Task.FromResult(new byte[] { 1 });
+        public Task<byte[]> ExportSplitToZipAsync(CreateShipmentRequestDto goRequest, string goFileName, CreateShipmentRequestDto standardRequest, string standardFileName) => throw new NotImplementedException();
+        public Task<byte[]> ExportShipmentToExcelAsync(ShipmentExportModel model) => throw new NotImplementedException();
+        public byte[] GenerateProductMasterTemplate() => throw new NotImplementedException();
+        public Task<byte[]> ExportProductMastersToExcelAsync() => throw new NotImplementedException();
+        public Task<ImportResultDto> ImportProductMastersFromExcelAsync(Stream fileStream, bool updateExisting = true, int? folderId = null, ColumnMappingOverrideDto? mappingOverride = null) => throw new NotImplementedException();
+        public Task<ImportPreviewResponseDto> PreviewProductMastersFromExcelAsync(Stream fileStream, int? folderId = null) => throw new NotImplementedException();
     }
 }

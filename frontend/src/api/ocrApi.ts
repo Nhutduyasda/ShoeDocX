@@ -1,6 +1,7 @@
 import { apiClient } from './client';
 import type {
   OcrExtractionResponse,
+  OcrDetectedDocument,
   BatchOcrImageResult,
   BatchOcrConfirmRequest,
 } from '../types';
@@ -45,6 +46,28 @@ export const ocrApi = {
     const response = await apiClient.post('/ocr/batch-export-zip', data, {
       responseType: 'blob',
     });
+    return response.data;
+  },
+
+  // Xác nhận thủ công đối soát OCR bị mismatch tổng
+  confirmMismatch: async (data: {
+    documentId: string;
+    documentTitle: string;
+    reportedTotal?: number | null;
+    calculatedTotal: number;
+    contractFolderId?: number | null;
+    reason?: string;
+  }): Promise<{ success: boolean; auditId: number; message: string }> => {
+    const response = await apiClient.post<{ success: boolean; auditId: number; message: string }>('/ocr/confirm-mismatch', data);
+    return response.data;
+  },
+
+  // Tái làm giàu dữ liệu OCR theo đối tác mới (server-side nếu cần)
+  reEnrich: async (data: {
+    documents: OcrDetectedDocument[];
+    contractFolderId?: number | null;
+  }): Promise<OcrDetectedDocument[]> => {
+    const response = await apiClient.post<OcrDetectedDocument[]>('/ocr/re-enrich', data);
     return response.data;
   },
 };

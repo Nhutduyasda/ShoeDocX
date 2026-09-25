@@ -4,10 +4,12 @@ export interface SubInvoiceAllocation { invoiceSuffixTitle: string; items: Creat
 export interface DispatchSourceDocument {
   sourceType: 'ocr-document'; documentId: string; title: string; items: CreateShipmentItem[];
   calculatedTotal: number; reportedTotal?: number | null; sourceFileName?: string; clientFileId?: string;
+  isManuallyConfirmed?: boolean; confirmationReason?: string;
 }
 export interface OcrDispatchSourcePayload {
   documentId: string; title: string; items: CreateShipmentItem[]; sourceFileName?: string; clientFileId?: string;
   reportedTotal?: number | null; calculatedTotal: number;
+  isManuallyConfirmed?: boolean; confirmationReason?: string;
 }
 export interface ConsolidatedDispatchSource {
   sourceType: 'merged-ocr-documents'; sourceDocumentIds: string[]; sourceTitles: string[];

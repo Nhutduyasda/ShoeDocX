@@ -260,6 +260,116 @@ public class OcrController : ControllerBase
     }
 
     /// <summary>
+    /// Bóc tách ảnh phiếu kho theo dạng danh sách phẳng (Flattened Batches).
+    /// Nếu 1 ảnh có 2 bảng song song (ví dụ: Lần 19 cạnh Lần 20), trả về 2 phần tử BatchOcrScanResultDto riêng biệt trong mảng kết quả gửi lên Frontend.
+    /// </summary>
+    [HttpPost("batch-scan")]
+    [Consumes("multipart/form-data")]
+    public async Task<ActionResult<List<BatchOcrScanResultDto>>> BatchScan(
+        [FromForm] List<IFormFile> files,
+        CancellationToken cancellationToken)
+    {
+        if (files == null || files.Count == 0)
+        {
+            return BadRequest(new { message = "Vui lòng chọn ít nhất một ảnh phiếu kho." });
+        }
+
+        if (files.Count > MaxBatchFiles)
+            return BadRequest(new { message = $"Mỗi lần chỉ được tải tối đa {MaxBatchFiles} ảnh." });
+
+        if (files.Sum(f => f.Length) > MaxBatchBytes)
+            return BadRequest(new { message = "Tổng dung lượng lô ảnh vượt quá giới hạn 100MB." });
+
+        var results = new List<BatchOcrScanResultDto>();
+        var semaphore = new SemaphoreSlim(1, 1);
+
+        foreach (var file in files)
+        {
+            await semaphore.WaitAsync(cancellationToken);
+            try
+            {
+                var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+                var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+                if (!allowedExtensions.Contains(extension) && !file.ContentType.StartsWith("image/"))
+                {
+                    results.Add(new BatchOcrScanResultDto
+                    {
+                        FileName = file.FileName,
+                        IsSuccess = false,
+                        ErrorMessage = "Định dạng file không được hỗ trợ (chỉ chấp nhận PNG, JPG, WEBP)."
+                    });
+                    continue;
+                }
+
+                if (file.Length > MaxImageBytes)
+                {
+                    results.Add(new BatchOcrScanResultDto
+                    {
+                        FileName = file.FileName,
+                        IsSuccess = false,
+                        ErrorMessage = "Dung lượng ảnh vượt quá 20MB."
+                    });
+                    continue;
+                }
+
+                var mimeType = !string.IsNullOrWhiteSpace(file.ContentType)
+                    ? file.ContentType
+                    : (extension == ".png" ? "image/png" : "image/jpeg");
+
+                using var stream = file.OpenReadStream();
+                var ocrRes = await _ocrService.ExtractFromImageAsync(stream, mimeType, cancellationToken);
+
+                if (ocrRes.Documents == null || ocrRes.Documents.Count == 0)
+                {
+                    results.Add(new BatchOcrScanResultDto
+                    {
+                        FileName = file.FileName,
+                        Title = Path.GetFileNameWithoutExtension(file.FileName),
+                        IsSuccess = true
+                    });
+                }
+                else
+                {
+                    // FLATTEN: Mỗi bảng (document) được nhận diện trong ảnh (kể cả 2 bảng song song)
+                    // sẽ được làm phẳng thành một phần tử BatchOcrScanResultDto độc lập
+                    foreach (var doc in ocrRes.Documents)
+                    {
+                        results.Add(new BatchOcrScanResultDto
+                        {
+                            BatchId = !string.IsNullOrWhiteSpace(doc.DocumentId) ? doc.DocumentId : Guid.NewGuid().ToString(),
+                            FileName = file.FileName,
+                            Title = !string.IsNullOrWhiteSpace(doc.Title) ? doc.Title : Path.GetFileNameWithoutExtension(file.FileName),
+                            ReportedTotal = doc.ReportedTotal,
+                            CalculatedTotal = doc.CalculatedTotal,
+                            Items = doc.Items,
+                            HasStandardItems = doc.HasStandardItems,
+                            HasGoItems = doc.HasGoItems,
+                            IsSuccess = true
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi bóc tách ảnh {FileName} trong batch-scan", file.FileName);
+                results.Add(new BatchOcrScanResultDto
+                {
+                    FileName = file.FileName,
+                    IsSuccess = false,
+                    ErrorMessage = "Không thể nhận dạng ảnh này. Vui lòng kiểm tra ảnh hoặc thử lại sau."
+                });
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }
+
+        return Ok(results);
+    }
+
+    /// <summary>
     /// Xác nhận xuất toàn bộ các đợt trong lô ra gói file Excel nén (.ZIP) duy nhất.
     /// Tự động sinh số hóa đơn tiếp theo liên tục, lưu toàn bộ đơn hàng vào CSDL với trạng thái Exported.
     /// </summary>

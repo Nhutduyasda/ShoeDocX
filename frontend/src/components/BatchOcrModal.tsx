@@ -33,6 +33,7 @@ import {
   LinkOutlined,
 } from '@ant-design/icons';
 import { ocrApi } from '../api/ocrApi';
+import { shipmentApi } from '../api/shipmentApi';
 import type {
   BatchOcrImageResult,
   OcrDetectedDocument,
@@ -94,6 +95,19 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
   const [processedDocumentIds, setProcessedDocumentIds] = useState<Set<string>>(new Set());
   const [consolidatedSplitSource, setConsolidatedSplitSource] = useState<ConsolidatedDispatchSource | null>(null);
   const [splitSource, setSplitSource] = useState<DispatchSourceDocument | null>(null);
+  const [startInvoiceNumber, setStartInvoiceNumber] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (visible) {
+      shipmentApi.getSequence().then((info) => {
+        if (info?.nextNumber) {
+          setStartInvoiceNumber(info.nextNumber);
+        }
+      }).catch((err) => {
+        console.warn('Could not load current sequence info:', err);
+      });
+    }
+  }, [visible]);
 
   // Edit Card Modal state
   const [editingCard, setEditingCard] = useState<ImageQueueItem | null>(null);
@@ -342,6 +356,60 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
     message.success('Đã cập nhật chi tiết đợt thành công.');
   };
 
+  const enrichItemWithMasterData = useCallback((item: {
+    styleCode: string;
+    quantity: number;
+    processType?: ProcessType;
+    note?: string;
+    unitPriceCMT?: number;
+    unitPriceDAP?: number;
+    unit?: string;
+    pairPerCarton?: number;
+    description?: string;
+  }): CreateShipmentItem => {
+    const cleanCode = normalizeOcrStyleCode(item.styleCode);
+    const isGo = normalizeProcessType(item.processType) === ProcessType.GoKhongMay
+      || cleanCode.toUpperCase().endsWith('.G')
+      || (Boolean(item.note) && (item.note!.toUpperCase().includes('GÒ') || item.note!.toUpperCase().includes('GO')));
+
+    const lookupCode = cleanCode.toUpperCase().endsWith('.G')
+      ? cleanCode.slice(0, -2).trim().toUpperCase()
+      : cleanCode.toUpperCase();
+
+    const matched = (products || []).find(p =>
+      (!contractFolderId || p.folderId === contractFolderId) &&
+      p.styleCode.trim().toUpperCase() === lookupCode
+    ) || (products || []).find(p => p.styleCode.trim().toUpperCase() === lookupCode);
+
+    const processType = isGo ? ProcessType.GoKhongMay : ProcessType.Standard;
+
+    const unitPriceCMT = isGo
+      ? ((matched?.unitPriceCMT_Go && matched.unitPriceCMT_Go > 0) ? matched.unitPriceCMT_Go : (matched?.unitPriceCMT ?? item.unitPriceCMT ?? 0))
+      : (matched?.unitPriceCMT ?? item.unitPriceCMT ?? 0);
+
+    const unitPriceDAP = isGo
+      ? ((matched?.unitPriceDAP_Go && matched.unitPriceDAP_Go > 0) ? matched.unitPriceDAP_Go : (matched?.unitPriceDAP ?? item.unitPriceDAP ?? 0))
+      : (matched?.unitPriceDAP ?? item.unitPriceDAP ?? 0);
+
+    const pairPerCarton = (matched?.pairPerCarton && matched.pairPerCarton > 0)
+      ? matched.pairPerCarton
+      : (item.pairPerCarton && item.pairPerCarton > 0 ? item.pairPerCarton : 12);
+
+    const description = matched?.description || item.description || '';
+    const unit = matched?.unit || item.unit || 'đôi';
+
+    return {
+      styleCode: cleanCode,
+      quantity: item.quantity,
+      processType,
+      unitPriceCMT,
+      unitPriceDAP,
+      unit,
+      pairPerCarton,
+      description,
+    };
+  }, [products, contractFolderId]);
+
   // Handle export all completed batches to single ZIP
   const handleExportZip = async () => {
     const doneItems = imageQueue.filter((item) => item.status === 'done' && item.result && item.result.documents.some(d => selectedDocumentIds.has(d.documentId) && d.items.length > 0));
@@ -355,16 +423,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
       setIsExporting(true);
 
       const batchesPayload: BatchScanItemExport[] = doneItems.flatMap((dItem) => dItem.result!.documents.filter(d => selectedDocumentIds.has(d.documentId) && d.items.length).map(doc => {
-        const shipmentItems: CreateShipmentItem[] = doc.items.map((i) => ({
-          styleCode: i.styleCode,
-          description: i.description,
-          quantity: i.quantity,
-          processType: normalizeProcessType(i.processType),
-          unitPriceCMT: i.unitPriceCMT,
-          unitPriceDAP: i.unitPriceDAP,
-          unit: i.unit || 'đôi',
-          pairPerCarton: i.pairPerCarton || 12,
-        }));
+        const shipmentItems: CreateShipmentItem[] = doc.items.map(enrichItemWithMasterData);
 
         return {
           batchId: doc.documentId,
@@ -380,6 +439,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
         poSuffix: profile?.poSuffix || poSuffix.trim(),
         customerName: profile?.customerName || customerName.trim(),
         priority: batchPriority,
+        startInvoiceNumber,
         batches: batchesPayload,
       };
 
@@ -395,6 +455,14 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
 
       message.success(`Đã xuất thành công gói ZIP chứa ${batchesPayload.length} đợt giao hàng.`);
       setProcessedDocumentIds(current => new Set([...current, ...batchesPayload.map(batch => batch.batchId)]));
+      if (startInvoiceNumber !== undefined) {
+        setStartInvoiceNumber(prev => (prev ? prev + batchesPayload.length : undefined));
+      }
+      shipmentApi.getSequence().then(res => {
+        if (res && res.nextNumber) {
+          setStartInvoiceNumber(res.nextNumber);
+        }
+      }).catch(() => {});
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -420,12 +488,28 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
     setSelectedDocumentIds(current => { const next = new Set(current); checked ? next.add(documentId) : next.delete(documentId); return next; });
     setMergePreview(null);
   };
+
   const sourcePayloads = (): OcrDispatchSourcePayload[] => selectedDocuments.map(({ document, image }) => ({
-    documentId: document.documentId, title: document.title, sourceFileName: image.file.name, clientFileId: image.id,
-    reportedTotal: document.reportedTotal, calculatedTotal: document.items.reduce((sum, item) => sum + item.quantity, 0),
-    items: document.items.map(item => ({ styleCode: item.styleCode, quantity: item.quantity, processType: normalizeProcessType(item.processType), unitPriceCMT: item.unitPriceCMT, unitPriceDAP: item.unitPriceDAP, unit: item.unit, pairPerCarton: item.pairPerCarton, description: item.description })),
+    documentId: document.documentId,
+    title: document.title,
+    sourceFileName: image.file.name,
+    clientFileId: image.id,
+    reportedTotal: document.reportedTotal,
+    calculatedTotal: document.items.reduce((sum, item) => sum + item.quantity, 0),
+    isManuallyConfirmed: document.isManuallyConfirmed,
+    confirmationReason: document.confirmationReason,
+    items: document.items.map(enrichItemWithMasterData),
   }));
-  const mergeRequest = () => ({ sourceDocuments: sourcePayloads(), contractFolderId: contractFolderId ?? undefined, poSuffix: profile?.poSuffix || poSuffix.trim(), invoiceDate: new Date().toISOString().slice(0, 10) });
+
+  const mergeRequest = () => ({
+    sourceDocuments: sourcePayloads(),
+    contractFolderId: contractFolderId ?? undefined,
+    poSuffix: profile?.poSuffix || poSuffix.trim(),
+    invoiceDate: new Date().toISOString().slice(0, 10),
+    priority: batchPriority,
+    startInvoiceNumber,
+  });
+
   const buildConsolidatedSource = (): ConsolidatedDispatchSource | null => mergePreview ? ({ sourceType: 'merged-ocr-documents', sourceDocumentIds: selectedDocuments.map(x => x.document.documentId), sourceTitles: selectedDocuments.map(x => x.document.title), sourceDocuments: sourcePayloads(), title: selectedDocuments.map(x => x.document.title).join(' + '), items: mergePreview.mergedItems, totalQuantity: mergePreview.totalQuantity, totalCartons: mergePreview.totalCartons }) : null;
   const previewSelectedMerge = async () => { if (selectedDocuments.length < 2) return; setIsPreviewingMerge(true); try { setMergePreview(await shipmentDispatchApi.previewMerge(mergeRequest())); } catch (error: any) { setMergePreview(null); message.error(error.response?.data?.message || 'Không thể xem trước kết quả gom.'); } finally { setIsPreviewingMerge(false); } };
   const exportSelectedMerge = async () => { if (!mergePreview?.isExportable) return; setIsExportingMerge(true); try { const result = await shipmentDispatchApi.exportMerge(mergeRequest()); triggerDownload(result); const ids = selectedDocuments.map(x => x.document.documentId); setProcessedDocumentIds(current => new Set([...current, ...ids])); setSelectedDocumentIds(new Set()); setMergePreview(null); message.success('Đã xuất Invoice gom thành công.'); onSuccess(); } catch (error: unknown) { const parsed = await parseDownloadError(error); message.error(`${parsed.message}${parsed.traceId ? ` (Mã theo dõi: ${parsed.traceId})` : ''}`); } finally { setIsExportingMerge(false); } };
@@ -434,16 +518,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
     sourceType: 'ocr-document',
     documentId: doc.documentId,
     title: doc.title,
-    items: doc.items.map((i) => ({
-      styleCode: i.styleCode,
-      quantity: i.quantity,
-      processType: normalizeProcessType(i.processType),
-      unitPriceCMT: i.unitPriceCMT,
-      unitPriceDAP: i.unitPriceDAP,
-      unit: i.unit,
-      pairPerCarton: i.pairPerCarton,
-      description: i.description,
-    })),
+    items: doc.items.map(enrichItemWithMasterData),
     calculatedTotal: doc.calculatedTotal,
     reportedTotal: doc.reportedTotal,
     sourceFileName: fileName,
@@ -482,16 +557,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
         calculatedTotal: document.items.reduce((sum, item) => sum + item.quantity, 0),
         isManuallyConfirmed: document.isManuallyConfirmed,
         confirmationReason: document.confirmationReason,
-        items: document.items.map(item => ({
-          styleCode: item.styleCode,
-          quantity: item.quantity,
-          processType: normalizeProcessType(item.processType),
-          unitPriceCMT: item.unitPriceCMT,
-          unitPriceDAP: item.unitPriceDAP,
-          unit: item.unit,
-          pairPerCarton: item.pairPerCarton,
-          description: item.description,
-        })),
+        items: document.items.map(enrichItemWithMasterData),
       }));
 
       const req = {
@@ -499,6 +565,8 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
         contractFolderId: contractFolderId ?? undefined,
         poSuffix: profile?.poSuffix || poSuffix.trim(),
         invoiceDate: new Date().toISOString().slice(0, 10),
+        priority: batchPriority,
+        startInvoiceNumber,
       };
 
       const result = await shipmentDispatchApi.exportMerge(req);
@@ -512,7 +580,17 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
         return next;
       });
       setMergePreview(null);
-      message.success(`Đã gộp ${targets.length} đợt và xuất 1 Hóa Đơn duy nhất thành công!`);
+
+      // Cập nhật bộ đếm số thứ tự sau khi gộp thành công
+      const hasBoth = payloadSources.some(s => s.items.some(i => i.processType === ProcessType.Standard)) &&
+                      payloadSources.some(s => s.items.some(i => i.processType === ProcessType.GoKhongMay));
+      const consumed = hasBoth ? 2 : 1;
+      setStartInvoiceNumber(prev => (prev ? prev + consumed : undefined));
+      shipmentApi.getSequence().then(info => {
+        if (info?.nextNumber) setStartInvoiceNumber(info.nextNumber);
+      }).catch(() => {});
+
+      message.success(`Đã gộp ${targets.length} đợt và xuất ${hasBoth ? '2 file (Thành hình & Gò .G trong ZIP)' : '1 Hóa Đơn'} thành công!`);
       onSuccess();
     } catch (error: unknown) {
       const parsed = await parseDownloadError(error);
@@ -770,7 +848,7 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
 
         {/* Global Export Config & Final Action Button */}
         <div className="border-t border-slate-200 pt-3 bg-slate-50 p-4 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 flex-1 text-xs">
             <div>
               <span className="text-slate-500 block mb-0.5">Số Hợp đồng:</span>
               <Input
@@ -796,6 +874,17 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 className="text-xs"
+              />
+            </div>
+            <div>
+              <span className="text-slate-500 block mb-0.5">Số HĐ bắt đầu:</span>
+              <InputNumber
+                size="small"
+                min={1}
+                value={startInvoiceNumber}
+                onChange={(v) => setStartInvoiceNumber(v ?? undefined)}
+                className="w-full text-xs"
+                placeholder="Tự động"
               />
             </div>
             <div>
@@ -1081,8 +1170,9 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
         contractFolderId={contractFolderId}
         poSuffix={profile?.poSuffix || poSuffix.trim()}
         invoiceDate={new Date().toISOString().slice(0, 10)}
+        startInvoiceNumber={startInvoiceNumber}
         onClose={() => setSplitSource(null)}
-        onExported={() => {
+        onExported={(splitCount = 4) => {
           if (splitSource) {
             setProcessedDocumentIds((current) => new Set([...current, splitSource.documentId]));
             setSelectedDocumentIds((current) => {
@@ -1092,11 +1182,42 @@ export const BatchOcrModal: React.FC<BatchOcrModalProps> = ({
             });
             setMergePreview(null);
           }
+          if (startInvoiceNumber !== undefined) {
+            setStartInvoiceNumber(prev => (prev ? prev + splitCount : undefined));
+          }
+          shipmentApi.getSequence().then(res => {
+            if (res && res.nextNumber) {
+              setStartInvoiceNumber(res.nextNumber);
+            }
+          }).catch(() => {});
           setSplitSource(null);
           onSuccess();
         }}
       />
-      <SplitMatrixModal open={Boolean(consolidatedSplitSource)} consolidatedSource={consolidatedSplitSource} contractFolderId={contractFolderId} poSuffix={profile?.poSuffix || poSuffix.trim()} invoiceDate={new Date().toISOString().slice(0, 10)} onClose={() => setConsolidatedSplitSource(null)} onExported={() => { if (consolidatedSplitSource) setProcessedDocumentIds(current => new Set([...current, ...consolidatedSplitSource.sourceDocumentIds])); onSuccess(); }} />
+      <SplitMatrixModal
+        open={Boolean(consolidatedSplitSource)}
+        consolidatedSource={consolidatedSplitSource}
+        contractFolderId={contractFolderId}
+        poSuffix={profile?.poSuffix || poSuffix.trim()}
+        invoiceDate={new Date().toISOString().slice(0, 10)}
+        startInvoiceNumber={startInvoiceNumber}
+        onClose={() => setConsolidatedSplitSource(null)}
+        onExported={(splitCount = 4) => {
+          if (consolidatedSplitSource) {
+            setProcessedDocumentIds(current => new Set([...current, ...consolidatedSplitSource.sourceDocumentIds]));
+          }
+          if (startInvoiceNumber !== undefined) {
+            setStartInvoiceNumber(prev => (prev ? prev + splitCount : undefined));
+          }
+          shipmentApi.getSequence().then(res => {
+            if (res && res.nextNumber) {
+              setStartInvoiceNumber(res.nextNumber);
+            }
+          }).catch(() => {});
+          setConsolidatedSplitSource(null);
+          onSuccess();
+        }}
+      />
     </Modal>
   );
 };

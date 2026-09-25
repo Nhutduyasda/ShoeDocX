@@ -11,6 +11,8 @@ public sealed class MergeShipmentRequestDto
     public string? InvoiceNo { get; set; }
     public DateTime InvoiceDate { get; set; } = DateTime.Today;
     public int? TemplateId { get; set; }
+    public ExportSequencePriority Priority { get; set; } = ExportSequencePriority.StandardFirst;
+    public int? StartInvoiceNumber { get; set; }
 }
 
 public sealed class MergeShipmentPreviewResponseDto
@@ -46,6 +48,7 @@ public sealed class SplitShipmentRequestDto
     public string? PoSuffix { get; set; }
     public DateTime InvoiceDate { get; set; } = DateTime.Today;
     public List<SubInvoiceAllocationDto> SubInvoices { get; set; } = [];
+    public int? StartInvoiceNumber { get; set; }
 }
 
 public sealed class ValidateSplitRequestDto

@@ -1,4 +1,4 @@
-import type { CreateShipmentItem, PklBreakdownItem, ProcessType } from '../../../types';
+import type { CreateShipmentItem, PklBreakdownItem, ProcessType, ExportSequencePriority } from '../../../types';
 
 export interface SubInvoiceAllocation { invoiceSuffixTitle: string; items: CreateShipmentItem[] }
 export interface DispatchSourceDocument {
@@ -18,7 +18,7 @@ export interface ConsolidatedDispatchSource {
 }
 export interface ValidateSplitRequest { sourceBatchId?: number; sourceDocument?: OcrDispatchSourcePayload; sourceDocuments?: OcrDispatchSourcePayload[]; subInvoices: SubInvoiceAllocation[] }
 export interface SplitShipmentRequest extends ValidateSplitRequest {
-  contractFolderId?: number; templateId?: number; poSuffix?: string; invoiceDate: string;
+  contractFolderId?: number; templateId?: number; poSuffix?: string; invoiceDate: string; startInvoiceNumber?: number;
 }
 export interface DispatchValidationMessage { code: string; message: string; styleCode?: string }
 export interface ItemAllocationCheck {
@@ -31,7 +31,7 @@ export interface ValidateSplitResult {
 }
 export interface MergeShipmentRequest {
   sourceBatchIds?: number[]; sourceDocuments?: OcrDispatchSourcePayload[]; contractFolderId?: number; poSuffix?: string; invoiceNo?: string;
-  invoiceDate: string; templateId?: number;
+  invoiceDate: string; templateId?: number; priority?: ExportSequencePriority; startInvoiceNumber?: number;
 }
 export interface MergeShipmentPreviewResponse {
   isExportable: boolean; generatedDocumentCount: number; sourceItemCount: number; mergedItemCount: number; consolidatedItemCount: number;

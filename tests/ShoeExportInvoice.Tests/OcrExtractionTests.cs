@@ -511,6 +511,83 @@ public class OcrExtractionTests
         Assert.True(doc2.SourceRegion.X >= 0.5);
     }
 
+    [Fact]
+    public async Task BatchScan_WithImageHavingParallelTables_ShouldFlattenIntoSeparateResults()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        using var context = new AppDbContext(options);
+        await context.Database.EnsureCreatedAsync();
+
+        var fakeOcrService = new FakeParallelOcrService();
+        var controller = new OcrController(
+            fakeOcrService,
+            new SequenceService(context, NullLogger<SequenceService>.Instance),
+            new StubExcelService(),
+            context,
+            NullLogger<OcrController>.Instance
+        );
+
+        var formFile = new FormFile(new MemoryStream(new byte[] { 1, 2, 3 }), 0, 3, "files", "two_tables.png")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "image/png"
+        };
+
+        var response = await controller.BatchScan(new List<IFormFile> { formFile }, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(response.Result);
+        var results = Assert.IsAssignableFrom<List<BatchOcrScanResultDto>>(okResult.Value);
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal("LẦN 19", results[0].Title);
+        Assert.Equal(1500, results[0].ReportedTotal);
+        Assert.Equal("LẦN 20", results[1].Title);
+        Assert.Equal(2000, results[1].ReportedTotal);
+        Assert.All(results, r => Assert.True(r.IsSuccess));
+    }
+
+    private sealed class FakeParallelOcrService : IOcrExtractionService
+    {
+        public Task<OcrExtractionResponseDto> ExtractFromImageAsync(Stream imageStream, string mimeType, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new OcrExtractionResponseDto
+            {
+                Documents = new List<OcrDetectedDocumentDto>
+                {
+                    new OcrDetectedDocumentDto
+                    {
+                        DocumentId = "DOC-19",
+                        Title = "LẦN 19",
+                        ReportedTotal = 1500,
+                        CalculatedTotal = 1500,
+                        Items = new List<OcrItemDto>
+                        {
+                            new OcrItemDto { StyleCode = "42072-410", Quantity = 500 }
+                        }
+                    },
+                    new OcrDetectedDocumentDto
+                    {
+                        DocumentId = "DOC-20",
+                        Title = "LẦN 20",
+                        ReportedTotal = 2000,
+                        CalculatedTotal = 2000,
+                        Items = new List<OcrItemDto>
+                        {
+                            new OcrItemDto { StyleCode = "42073-030", Quantity = 2000 }
+                        }
+                    }
+                }
+            });
+        }
+
+        public Task<List<OcrDetectedDocumentDto>> ReEnrichOcrDocumentsForPartnerAsync(List<OcrDetectedDocumentDto> documents, int? partnerFolderId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(documents);
+        }
+    }
+
     private sealed class StubExcelService : IExcelImportExportService
     {
         public PklPreviewResponseDto CalculatePklBreakdown(CreateShipmentRequestDto request) => throw new NotImplementedException();

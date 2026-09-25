@@ -11,9 +11,9 @@ import { DispatchSafetyBar } from './DispatchSafetyBar';
 import { DispatchValidationPanel } from './DispatchValidationPanel';
 import { SplitMatrixTable } from './SplitMatrixTable';
 
-interface Props { open: boolean; sourceBatchId?: number | null; sourceDocument?: DispatchSourceDocument | null; consolidatedSource?: ConsolidatedDispatchSource | null; contractFolderId?: number | null; templateId?: number | null; poSuffix?: string; invoiceDate: string; onClose: () => void; onExported: () => void }
+interface Props { open: boolean; sourceBatchId?: number | null; sourceDocument?: DispatchSourceDocument | null; consolidatedSource?: ConsolidatedDispatchSource | null; contractFolderId?: number | null; templateId?: number | null; poSuffix?: string; invoiceDate: string; startInvoiceNumber?: number; onClose: () => void; onExported: (splitCount?: number) => void }
 
-export function SplitMatrixModal({ open, sourceBatchId, sourceDocument, consolidatedSource, contractFolderId, templateId, poSuffix, invoiceDate, onClose, onExported }: Props) {
+export function SplitMatrixModal({ open, sourceBatchId, sourceDocument, consolidatedSource, contractFolderId, templateId, poSuffix, invoiceDate, startInvoiceNumber, onClose, onExported }: Props) {
   const [batch, setBatch] = useState<WarehouseBatch | null>(null);
   const [loading, setLoading] = useState(false);
   const [invoiceCount, setInvoiceCount] = useState(4);
@@ -74,8 +74,8 @@ export function SplitMatrixModal({ open, sourceBatchId, sourceDocument, consolid
   const hasSource = Boolean(batch || sourceDocument || consolidatedSource);
   const validate = async () => { if (!hasSource || !clientValid) return; setValidating(true); try { const result = await shipmentDispatchApi.validateSplit({ sourceBatchId: batch?.id, sourceDocument: sourcePayload, sourceDocuments: consolidatedSource?.sourceDocuments, subInvoices }); setServerValidation(result); setDirty(false); if (result.isValid) message.success('Backend đã xác nhận phân bổ hợp lệ.'); } finally { setValidating(false); } };
   const exportZip = async () => { if (!hasSource || dirty || !serverValidation?.isValid) return; setExporting(true); try {
-    const result = await shipmentDispatchApi.exportSplitZip({ sourceBatchId: batch?.id, sourceDocument: sourcePayload, sourceDocuments: consolidatedSource?.sourceDocuments, contractFolderId: contractFolderId ?? batch?.contractFolderId ?? undefined, templateId: templateId ?? undefined, poSuffix, invoiceDate, subInvoices });
-    triggerDownload(result); message.success('Đã tải bộ chứng từ tách hóa đơn thành công.'); onExported(); onClose();
+    const result = await shipmentDispatchApi.exportSplitZip({ sourceBatchId: batch?.id, sourceDocument: sourcePayload, sourceDocuments: consolidatedSource?.sourceDocuments, contractFolderId: contractFolderId ?? batch?.contractFolderId ?? undefined, templateId: templateId ?? undefined, poSuffix, invoiceDate, startInvoiceNumber, subInvoices });
+    triggerDownload(result); message.success('Đã tải bộ chứng từ tách hóa đơn thành công.'); onExported(subInvoices.length); onClose();
   } catch (error) { const validation = await readBlobValidation(error); if (validation) { setServerValidation(validation); setDirty(false); } const parsed = await parseDownloadError(error); message.error(validation ? 'Dữ liệu nguồn đã thay đổi hoặc không còn hợp lệ. Vui lòng kiểm tra lại.' : `${parsed.message}${parsed.traceId ? ` (Mã theo dõi: ${parsed.traceId})` : ''}`); } finally { setExporting(false); } };
 
   return <Modal title="Tách đợt hàng thành nhiều hóa đơn" open={open} onCancel={exporting ? undefined : onClose} footer={null} width="94vw" style={{ maxWidth: 1500, top: 24 }} destroyOnHidden maskClosable={!exporting}>

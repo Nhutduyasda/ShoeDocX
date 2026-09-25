@@ -164,12 +164,19 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
         await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         try
         {
-            var physicalGroups = preview.MergedItems.GroupBy(i => i.ProcessType).ToList();
-            var numbers = await _sequences.ReservePartnerSequenceNumbersAsync(folder.Id, physicalGroups.Count);
+            var physicalGroups = preview.MergedItems
+                .GroupBy(i => i.ProcessType)
+                .OrderBy(g => request.Priority == ExportSequencePriority.GoFirst
+                    ? (g.Key == ProcessType.GoKhongMay ? 0 : 1)
+                    : (g.Key == ProcessType.Standard ? 0 : 1))
+                .ToList();
+            var requestedStart = request.StartInvoiceNumber ?? (!string.IsNullOrWhiteSpace(request.InvoiceNo) ? _sequences.ExtractSequenceNumber(request.InvoiceNo) : null);
+            var numbers = await _sequences.ReservePartnerSequenceNumbersAsync(folder.Id, physicalGroups.Count, requestedStart);
             var files = new List<(string Name, byte[] Content)>();
             var orders = new List<ShipmentOrder>();
             for (var i = 0; i < physicalGroups.Count; i++)
             {
+                var isGo = physicalGroups[i].Key == ProcessType.GoKhongMay;
                 var invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(folder.InvoiceNoPattern, numbers[i]);
                 if (await _db.ShipmentOrders.AnyAsync(o => o.InvoiceNo == invoiceNo, cancellationToken))
                     throw new DispatchBusinessException("INVOICE_NUMBER_CONFLICT", $"Số hóa đơn {invoiceNo} đã tồn tại.");
@@ -179,7 +186,11 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
                 var order = CreateOrder(dto, ShipmentSourceRelationType.MergeSource, batches.Select(b => b.Id));
                 _db.ShipmentOrders.Add(order);
                 orders.Add(order);
-                files.Add((PartnerDocumentPatternFormatter.FileName(folder.FileNamePattern, numbers[i]), content));
+                var baseName = PartnerDocumentPatternFormatter.FileName(folder.FileNamePattern, numbers[i]);
+                var fileName = isGo && physicalGroups.Count > 1
+                    ? $"{Path.GetFileNameWithoutExtension(baseName)}_G.xlsx"
+                    : baseName;
+                files.Add((fileName, content));
             }
             foreach (var batch in batches) batch.Status = WarehouseBatchStatus.ProcessedByXnk;
             var manuallyConfirmedIds = isOcr ? request.SourceDocuments.Where(d => d.IsManuallyConfirmed).Select(d => d.DocumentId).ToList() : null;
@@ -219,17 +230,22 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
         await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         try
         {
-            var numbers = await _sequences.ReservePartnerSequenceNumbersAsync(folder.Id, groups.Count);
+            var numbers = await _sequences.ReservePartnerSequenceNumbersAsync(folder.Id, groups.Count, request.StartInvoiceNumber);
             var files = new List<(string Name, byte[] Content)>();
             var orders = new List<ShipmentOrder>();
             for (var i = 0; i < groups.Count; i++)
             {
-            var invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(folder.InvoiceNoPattern, numbers[i]);
+                var isGo = groups[i].Items.Any(x => x.ProcessType == ProcessType.GoKhongMay);
+                var invoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(folder.InvoiceNoPattern, numbers[i]);
                 if (await _db.ShipmentOrders.AnyAsync(o => o.InvoiceNo == invoiceNo, cancellationToken))
                     throw new DispatchBusinessException("INVOICE_NUMBER_CONFLICT", $"Số hóa đơn {invoiceNo} đã tồn tại.");
                 var dto = BuildBaseRequest(folder, request.TemplateId, request.InvoiceDate, request.PoSuffix, invoiceNo, groups[i].Items.Select(CloneItem).ToList());
                 await ApplyMasterDataAsync(dto, cancellationToken);
-                files.Add((PartnerDocumentPatternFormatter.FileName(folder.FileNamePattern, numbers[i]), await _excel.ExportShipmentMultiSheetExcelAsync(dto)));
+                var baseName = PartnerDocumentPatternFormatter.FileName(folder.FileNamePattern, numbers[i]);
+                var fileName = isGo && groups.Count > 1
+                    ? $"{Path.GetFileNameWithoutExtension(baseName)}_G.xlsx"
+                    : baseName;
+                files.Add((fileName, await _excel.ExportShipmentMultiSheetExcelAsync(dto)));
                 var order = CreateOrder(dto, ShipmentSourceRelationType.SplitSource, batch == null ? [] : [batch.Id]);
                 _db.ShipmentOrders.Add(order);
                 orders.Add(order);

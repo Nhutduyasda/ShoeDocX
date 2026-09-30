@@ -13,7 +13,21 @@ Observed resources in subscription `16216155-36a1-4338-b072-9dfbf2eeb2eb`:
 - Free Offer configured with overage billing disabled; validate the deployed database properties before app deployment
 - Container Apps, R2, managed identity permissions and GitHub OIDC: not provisioned yet
 
-## Architecture
+## Current deployment decision — App Service Free F1
+
+The owner selected App Service Free F1 instead of Container Apps on 2026-09-30 to avoid compute overage billing. The app is not deployed yet. The previous Container Apps instructions below are retained as an alternative, not the active rollout.
+
+Target: Windows App Service, Code publish, .NET 8, Southeast Asia, Free F1 (1 GiB RAM), existing resource group and Azure SQL Free Offer. Optional Application Insights and Defender paid add-ons are not enabled. Keep the generated azurewebsites.net HTTPS hostname. Publish the API with `dotnet publish ... -c Release -o publish /p:UseAppHost=false`, then copy `frontend/dist/` into `publish/wwwroot/` and deploy that folder. Do not publish the repository root or the historical database backup.
+
+The active GitHub workflow verifies tests/frontend/Docker, then publishes the same-origin app with `azure/webapps-deploy@v3`. Configure OIDC at the web app scope, repository variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_WEBAPP_NAME`. Enable `AZURE_DEPLOY_ENABLED=true` only after secrets, managed identity database permissions, storage and initial admin are ready. The workflow checks that the app's plan SKU is F1 before deploying. No container registry or Container Apps resources are required.
+
+Use App Service Configuration for the same runtime settings listed below, including R2 and the passwordless SQL connection. Enable a managed identity on the web app and grant only required SQL rights. F1 has no deployment slots: rollback by publishing the previous verified commit's artifact. Never include user uploads in the deployment artifact. Files remain in R2 and SQL remains in Azure SQL. Backups and bootstrap admin instructions below still apply. Keep `BootstrapAdmin` disabled after the initial account is created.
+
+Free F1 includes 60 CPU minutes per day and 1 GiB memory. CPU time means consumed CPU, not wall-clock website availability. CPU or bandwidth quota exhaustion stops the app until reset; memory exhaustion can restart it. F1 is intended for development/testing and has no production uptime guarantee. Azure SQL has overage disabled and can pause until next month when its free allowance is exhausted. R2/OCR charges are separate; do not enable billable use without owner approval. Do not upgrade the plan automatically.
+
+App Service creation, deployment, persistent file storage, real login/business flows and restart verification remain pending. The approved goal is still 2–3 internal users, durable data, unchanged business logic, and no paid resource upgrades.
+
+## Previous Container Apps design (not deployed)
 
 The root `Dockerfile` builds React/Vite into ASP.NET `wwwroot` and runs the API on port 8080 as the non-root `app` user. Container Apps ingress terminates HTTPS. `/` and non-file SPA paths return the frontend; `/api/*` goes to controllers, and unknown API paths return 404. No database or user files are included in the image. Secrets are runtime configuration only.
 

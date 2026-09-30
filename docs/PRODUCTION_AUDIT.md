@@ -20,3 +20,7 @@ No business workflow, calculation or frontend redesign is part of this change.
 | Tests | One fixture test hardcodes author's Windows path | Resolve from published test fixture directory for Linux CI |
 
 Unfinished blockers: Container Apps cost-risk approval, private registry/pull credential, R2 account/bucket/secure credentials, managed identity SQL permissions, real SQL migration and full production verification. SQL provisioning alone is not application readiness.
+
+## Updated hosting decision (2026-09-30)
+
+The owner selected Azure App Service Free F1 with Code/.NET 8 deployment instead of Container Apps. The same-origin publish artifact and R2 abstraction remain applicable. CI deploy now uses webapps-deploy with OIDC and refuses non-F1 plans. Runtime secrets, SQL managed identity permissions, R2 configuration, bootstrap and live acceptance remain blockers; no production success is claimed.

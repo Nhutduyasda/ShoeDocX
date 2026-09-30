@@ -16,16 +16,18 @@ public class CustomsDeclarationService : ICustomsDeclarationService
     private readonly ILogger<CustomsDeclarationService> _logger;
     private readonly IWebHostEnvironment _environment;
     private readonly XnkOptions _options;
+    private readonly IFileStorage _storage;
 
     public CustomsDeclarationService(
         AppDbContext context,
         ILogger<CustomsDeclarationService> logger,
-        IWebHostEnvironment environment, Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null)
+        IWebHostEnvironment environment, Microsoft.Extensions.Options.IOptions<XnkOptions>? options = null, IFileStorage? storage = null)
     {
         _context = context;
         _logger = logger;
         _environment = environment;
         _options = options?.Value ?? new XnkOptions();
+        _storage = storage ?? new LocalFileStorage(environment);
 
         // Đảm bảo đăng ký CodePagesEncodingProvider để đọc các file Excel 97-2003 (.xls) legacy encoding
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -995,21 +997,18 @@ public class CustomsDeclarationService : ICustomsDeclarationService
                 s.Id != orderId && s.DeclarationNo != null && s.DeclarationNo.ToUpper() == parsed.DeclarationNo.Trim().ToUpper()))
             throw new InvalidOperationException($"Tờ khai {parsed.DeclarationNo} đã được đồng bộ với một đơn hàng khác.");
 
-        var storageDir = Path.GetFullPath(Path.Combine(_environment.ContentRootPath, _options.CustomsStoragePath));
-        Directory.CreateDirectory(storageDir);
         var safeDeclaration = Regex.Replace(parsed.DeclarationNo, @"[^A-Za-z0-9_-]", "_");
         var savedFileName = $"{safeDeclaration}_{Guid.NewGuid():N}{ext}";
-        var fullPath = Path.Combine(storageDir, savedFileName);
-        string? previousPath = null;
-        if (!string.IsNullOrWhiteSpace(order.CustomsAttachmentFilePath))
-        {
-            var candidate = Path.GetFullPath(Path.Combine(_environment.ContentRootPath, order.CustomsAttachmentFilePath));
-            if (candidate.StartsWith(storageDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                previousPath = candidate;
-        }
+        var previousReference = order.CustomsAttachmentFilePath;
+        var storageKey = _storage is R2FileStorage ? $"customs/{savedFileName}"
+            : Path.GetRelativePath(_environment.ContentRootPath,
+                Path.Combine(_environment.ContentRootPath, _options.CustomsStoragePath, savedFileName)).Replace("\\", "/");
+        string? reference = null;
+        var committed = false;
         try
         {
-            await File.WriteAllBytesAsync(fullPath, original.ToArray());
+            reference = await _storage.SaveAsync(storageKey, original.ToArray(),
+                ext == ".xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/vnd.ms-excel");
             order.DeclarationNo = parsed.DeclarationNo;
             order.ClearanceDate = parsed.ClearanceDate;
             order.CustomsDeclarationType = parsed.CustomsDeclarationType;
@@ -1020,18 +1019,26 @@ public class CustomsDeclarationService : ICustomsDeclarationService
             order.CustomsTotalDap = parsed.TotalDap;
             order.CustomsTotalCmt = parsed.TotalCmt;
             order.CustomsAttachmentFileName = savedFileName;
-            order.CustomsAttachmentFilePath = Path.GetRelativePath(_environment.ContentRootPath, fullPath).Replace("\\", "/");
+            order.CustomsAttachmentFilePath = reference;
             order.Status = ShipmentStatus.Cleared;
             order.IsLocked = true;
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
-            if (!string.IsNullOrWhiteSpace(previousPath) && !string.Equals(previousPath, fullPath, StringComparison.OrdinalIgnoreCase) && File.Exists(previousPath))
-                File.Delete(previousPath);
+            committed = true;
+            if (!string.IsNullOrWhiteSpace(previousReference) && previousReference != reference)
+            {
+                try { await _storage.DeleteAsync(previousReference); }
+                catch (Exception cleanup) { _logger.LogWarning(cleanup, "Old attachment retained after successful commit for shipment {Id}.", orderId); }
+            }
             return order;
         }
         catch
         {
-            if (File.Exists(fullPath)) File.Delete(fullPath);
+            if (!committed && reference != null)
+            {
+                try { await _storage.DeleteAsync(reference); }
+                catch (Exception cleanup) { _logger.LogWarning(cleanup, "Orphaned attachment upload requires cleanup for shipment {Id}.", orderId); }
+            }
             throw;
         }
     }
@@ -1045,6 +1052,15 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         if (order == null || (string.IsNullOrEmpty(order.CustomsAttachmentFileName) && string.IsNullOrEmpty(order.CustomsAttachmentFilePath)))
         {
             return null;
+        }
+
+        if (order.CustomsAttachmentFilePath?.StartsWith("r2:", StringComparison.Ordinal) == true)
+        {
+            var stored = await _storage.ReadAsync(order.CustomsAttachmentFilePath);
+            if (stored == null) return null;
+            var name = order.CustomsAttachmentFileName!;
+            return (stored, name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
+                ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/vnd.ms-excel", name);
         }
 
         string? filePath = null;
@@ -1070,3 +1086,4 @@ public class CustomsDeclarationService : ICustomsDeclarationService
         return (bytes, contentType, fileName);
     }
 }
+

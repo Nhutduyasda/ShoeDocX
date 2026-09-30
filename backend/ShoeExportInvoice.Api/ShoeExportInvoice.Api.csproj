@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="4.0.103.4" />
     <PackageReference Include="ClosedXML" Version="0.104.2" />
     <PackageReference Include="ExcelDataReader" Version="3.9.0" />
     <PackageReference Include="ExcelDataReader.DataSet" Version="3.9.0" />
@@ -31,7 +32,9 @@
   <ItemGroup>
     <None Update="Templates\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
   </ItemGroup>
 
 </Project>
+

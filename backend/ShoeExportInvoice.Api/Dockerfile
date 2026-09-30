@@ -15,7 +15,7 @@ RUN dotnet publish "ShoeExportInvoice.Api.csproj" -c Release -o /app/publish /p:
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 
-# Create directory for SQLite persistent database and templates
+# Local development volume paths; database is always SQL Server
 RUN mkdir -p /app/data /app/Templates
 
 COPY --from=build /app/publish .
@@ -23,8 +23,8 @@ COPY --from=build /app/publish .
 # Environment variables
 ENV ASPNETCORE_URLS=http://+:5270
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV ConnectionStrings__DefaultConnection="Data Source=/app/data/shoe_export.db"
 
 EXPOSE 5270
 
 ENTRYPOINT ["dotnet", "ShoeExportInvoice.Api.dll"]
+

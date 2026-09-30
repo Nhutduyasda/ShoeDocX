@@ -2,6 +2,8 @@
 
 Hệ thống web ứng dụng nội bộ chuẩn Enterprise B2B SaaS phục vụ tự động hóa toàn diện quy trình lập hóa đơn thương mại quốc tế (Commercial Invoice - INV) và bảng kê chi tiết đóng gói (Packing List - PKL) cho ngành sản xuất gia công giày dép xuất khẩu, thay thế hoàn toàn việc nhập liệu thủ công bằng Excel.
 
+> Production Azure: see [deployment guide](docs/PRODUCTION.md) and [verified audit](docs/PRODUCTION_AUDIT.md). The application is not yet deployed/verified; SQL provisioning alone is not completion.
+
 ---
 
 ## 🌟 Tính Năng Nổi Bật
@@ -39,10 +41,10 @@ Hệ thống web ứng dụng nội bộ chuẩn Enterprise B2B SaaS phục vụ
   - So sánh tổng nhận diện (`CalculatedTotal`) với số ghi dưới đáy phiếu (`ReportedTotal`).
   - Badge xanh: `Khớp 100% số tổng phiếu kho (6,348 đôi)`.
   - Cảnh báo đỏ: Cảnh báo chi tiết số đôi chênh lệch để kiểm tra lại trước khi áp dụng.
-- **Chế độ mô phỏng (Demo Fallback)**: Tự động chạy chế độ mô phỏng thông minh khi chưa có API Key, cho phép kiểm thử toàn diện quy trình mà không bị gián đoạn.
+- **Production OCR**: cần `OPENAI_API_KEY`; không có key thì OCR không khả dụng. Không sử dụng dữ liệu mô phỏng để làm chứng từ.
 
 ### 6. Quản Lý Lịch Sử Hóa Đơn & Tái Xuất
-- Tự động lưu vết lô hàng vào cơ sở dữ liệu SQLite mỗi khi xuất file Excel.
+- Tự động lưu vết lô hàng vào cơ sở dữ liệu SQL Server mỗi khi xuất file Excel.
 - Tab **"Lịch sử Hóa đơn"**: Xem danh sách các lần xuất trước đây.
 - Nút **"Tải lại Excel"**: Tải trực tiếp file Excel từ đơn hàng cũ.
 - Nút **"Mở lại dữ liệu" (Load into Editor)**: Tải toàn bộ dữ liệu đơn hàng cũ lên lưới làm việc để chỉnh sửa hoặc tái xuất.
@@ -53,9 +55,9 @@ Hệ thống web ứng dụng nội bộ chuẩn Enterprise B2B SaaS phục vụ
 
 | Thành phần | Công nghệ sử dụng |
 | :--- | :--- |
-| **Backend** | ASP.NET Core 8 Web API, Entity Framework Core 8, SQLite |
+| **Backend** | ASP.NET Core 8 Web API, Entity Framework Core 8, SQL Server |
 | **Xử lý Excel** | ClosedXML (OpenXML standard) |
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Ant Design 5 |
+| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS, Ant Design 5 |
 | **Thiết kế UI/UX** | Clean Slate Minimalist & Modern (Linear / Vercel design system) |
 | **Thị giác AI / OCR** | Google Gemini Vision API / OpenAI GPT-4o-mini Vision |
 | **Containerization** | Docker, Docker Compose, Nginx Alpine Reverse Proxy |
@@ -75,8 +77,9 @@ Yêu cầu: Máy tính đã cài đặt [Docker Desktop](https://www.docker.com/
    ```
 
 2. Tạo file `.env` từ `.env.example` và cấu hình khóa JWT mạnh:
-   - Khóa JWT là bắt buộc; API key OCR là tùy chọn:
+   - SQL Server connection và khóa JWT là bắt buộc; API key OCR là tùy chọn:
      ```env
+     SQLSERVER_CONNECTION_STRING=replace-with-your-sql-server-connection
      JWT_KEY=replace-with-a-random-secret-at-least-32-bytes
      OPENAI_API_KEY=
      ```
@@ -108,7 +111,7 @@ cd backend/ShoeExportInvoice.Api
 $env:Jwt__Key="replace-with-a-random-secret-at-least-32-bytes"
 dotnet run --urls "http://localhost:5270"
 ```
-*Cơ sở dữ liệu SQLite `shoe_export.db` sẽ được tự động migrate. Hệ thống không còn tạo tài khoản hoặc mật khẩu mặc định.*
+*Cơ sở dữ liệu SQL Server cấu hình qua `ConnectionStrings__DefaultConnection` sẽ được tự động migrate. Hệ thống không còn tạo tài khoản hoặc mật khẩu mặc định.*
 
 #### Bước 2: Chạy Frontend (React + Vite)
 Mở một terminal mới:
@@ -143,8 +146,11 @@ WEB_PORT=80
 # Port truy cập Backend API (Tùy chọn)
 BACKEND_PORT=5270
 
-# OpenAI API Key dùng cho tính năng Vision OCR
-OPENAI_API_KEY=sk-proj-...
+# SQL Server ngoài container; cấu hình thật chỉ qua secret/env
+SQLSERVER_CONNECTION_STRING=replace-with-your-sql-server-connection
+
+# OpenAI API Key dùng cho tính năng Vision OCR (tùy chọn)
+OPENAI_API_KEY=
 
 # Bắt buộc: bí mật ký JWT, tối thiểu 32 byte và không đưa vào Git
 JWT_KEY=replace-with-a-random-secret-at-least-32-bytes
@@ -184,7 +190,7 @@ docker compose restart
 
 ### 5. Truy cập ứng dụng:
 - **Giao diện Web**: [http://localhost](http://localhost) (hoặc `http://<IP_Server>:<WEB_PORT>`).
-- **Dữ liệu SQLite**: Tự động lưu trữ bền vững tại thư mục `./data/shoe_export.db` trên máy host.
+- **Database**: SQL Server nằm ngoài container, cấu hình bằng `SQLSERVER_CONNECTION_STRING`. `./data` chỉ chứa file nghiệp vụ khi chạy Compose.
 - **Mẫu Excel**: Có thể thay thế file template trực tiếp tại thư mục `./Templates/Shipment_Template.xlsx` mà không cần build lại container.
 
 ## 🔑 Cấu Hình OCR Vision API
@@ -201,33 +207,7 @@ File tờ khai mặc định được lưu tại `data/customs` trong volume b�
 
 JWT được đặt trong cookie `HttpOnly`, `SameSite=Strict`; logout revoke token hiện tại. Thay đổi department hoặc vô hiệu user có hiệu lực trên request kế tiếp.
 
-Hệ thống hỗ trợ 2 cách cấu hình API Key:
-
-### Cách 1: Cấu hình trong `appsettings.json`
-Mở file `backend/ShoeExportInvoice.Api/appsettings.json`:
-```json
-{
-  "OcrSettings": {
-    "Provider": "Gemini",
-    "GeminiApiKey": "AIzaSyYourGeminiApiKeyHere",
-    "GeminiModel": "gemini-1.5-flash",
-    "OpenAIApiKey": "",
-    "OpenAIModel": "gpt-4o-mini"
-  }
-}
-```
-
-### Cách 2: Sử dụng biến môi trường (Environment Variable)
-- Với Windows PowerShell:
-  ```powershell
-  $env:GEMINI_API_KEY="AIzaSyYourGeminiApiKeyHere"
-  ```
-- Với Docker Compose: đặt `GEMINI_API_KEY=...` trong file `.env`.
-
-> **Mẹo lấy Google Gemini API Key miễn phí**:
-> 1. Truy cập [Google AI Studio](https://aistudio.google.com/).
-> 2. Đăng nhập tài khoản Google và bấm **"Get API key"** $\rightarrow$ **"Create API key"**.
-> 3. Copy key và dán vào cấu hình trên.
+Backend OCR hiện tại dùng OpenAI. Cấu hình `OPENAI_API_KEY` qua secret/environment. Không đặt key trong `appsettings.json`, source code hoặc chat. OCR không hoạt động khi thiếu key; các nghiệp vụ khác vẫn dùng được. OpenAI tính phí riêng, không nằm trong Azure free tier.
 
 ---
 
@@ -259,9 +239,10 @@ Dự án trang bị bộ test tự động kiểm tra toàn diện thuật toán
 ```bash
 dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj
 ```
-Kết quả kiểm thử: **4/4 Tests Passed 100%**.
+Kết quả kiểm thử phải được ghi từ lần chạy thực tế; xem workflow và deployment guide. Không coi test unit là kiểm thử production.
 
 ---
 
 ## 📄 Bản Quyền & Giấy Phép
 Phát triển bởi đội ngũ Kỹ thuật & Tự động hóa Doanh nghiệp. Dự án dành cho mục đích nội bộ quản lý xuất nhập khẩu.
+

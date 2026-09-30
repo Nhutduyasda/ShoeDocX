@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/bin
+**/obj
+**/dist
+.env
+.env.*
+!.env.example
+data
+**/*.db*
+**/*.backup*
+**/*.b64
+tests
+docs

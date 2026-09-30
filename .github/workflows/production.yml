@@ -1,0 +1,89 @@
+name: ShoeDocX production
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shoedocx-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --configuration Release
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: shoedocx:verify
+
+  deploy:
+    # Enable only after App Service F1, identity, SQL and durable storage are configured.
+    if: github.ref == 'refs/heads/main' && vars.AZURE_DEPLOY_ENABLED == 'true'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - name: Publish API and same-origin SPA
+        run: |
+          dotnet publish backend/ShoeExportInvoice.Api/ShoeExportInvoice.Api.csproj -c Release -o publish /p:UseAppHost=false
+          mkdir -p publish/wwwroot
+          cp -a frontend/dist/. publish/wwwroot/
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Require Free F1 plan before deployment
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          WEBAPP: ${{ vars.AZURE_WEBAPP_NAME }}
+        run: |
+          plan=$(az webapp show -g "$RESOURCE_GROUP" -n "$WEBAPP" --query serverFarmId -o tsv)
+          sku=$(az appservice plan show --ids "$plan" --query sku.name -o tsv)
+          test "$sku" = F1
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: publish
+      - name: Verify HTTPS liveness
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          WEBAPP: ${{ vars.AZURE_WEBAPP_NAME }}
+        run: |
+          fqdn=$(az webapp show -g "$RESOURCE_GROUP" -n "$WEBAPP" --query defaultHostName -o tsv)
+          test -n "$fqdn"
+          curl --fail --retry 12 --retry-all-errors --retry-delay 10 --max-time 60 "https://$fqdn/health/live"

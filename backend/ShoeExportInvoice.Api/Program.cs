@@ -39,8 +39,9 @@ var databaseOptions = builder.Configuration.GetSection("ConnectionStrings").Get<
 var connectionString = databaseOptions.DefaultConnection;
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(connectionString, sql =>
-        sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(5), null)));
+    // Existing workflows own explicit transactions, including file uploads.
+    // Do not replay these operations automatically with a retry execution strategy.
+    options.UseSqlServer(connectionString, sql => sql.CommandTimeout(120)));
 
 // ASP.NET Core Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
@@ -116,6 +117,26 @@ builder.Services.AddAuthentication(options =>
         }
     };
 });
+
+// Durable uploads: fail closed in Production rather than write to an ephemeral container.
+var fileStorage = builder.Configuration.GetSection("FileStorage").Get<FileStorageOptions>() ?? new();
+builder.Services.Configure<FileStorageOptions>(builder.Configuration.GetSection("FileStorage"));
+if (fileStorage.Provider.Equals("R2", StringComparison.OrdinalIgnoreCase))
+{
+    if (!Uri.TryCreate(fileStorage.Endpoint, UriKind.Absolute, out var endpoint) || endpoint.Scheme != "https" ||
+        string.IsNullOrWhiteSpace(fileStorage.Bucket) || string.IsNullOrWhiteSpace(fileStorage.AccessKeyId) ||
+        string.IsNullOrWhiteSpace(fileStorage.SecretAccessKey))
+        throw new InvalidOperationException("R2 storage requires an HTTPS endpoint, bucket and credentials.");
+    builder.Services.AddSingleton<Amazon.S3.IAmazonS3>(_ => new Amazon.S3.AmazonS3Client(
+        fileStorage.AccessKeyId, fileStorage.SecretAccessKey,
+        new Amazon.S3.AmazonS3Config { ServiceURL = fileStorage.Endpoint, ForcePathStyle = true, AuthenticationRegion = "auto" }));
+    builder.Services.AddSingleton<IFileStorage, R2FileStorage>();
+}
+else if (fileStorage.Provider.Equals("Local", StringComparison.OrdinalIgnoreCase) &&
+         (builder.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("FileStorage:AllowLocalInProduction")))
+    builder.Services.AddSingleton<IFileStorage, LocalFileStorage>();
+else
+    throw new InvalidOperationException("Production requires durable R2 storage. Local storage is development-only unless explicitly mounted and enabled.");
 
 // Dependency Injection Services
 builder.Services.AddHttpClient();
@@ -240,7 +261,7 @@ using (var scope = app.Services.CreateScope())
         var environment = services.GetRequiredService<IWebHostEnvironment>();
         if (args.Contains("--migrate-customs-storage"))
             await CustomsStorageMaintenance.MigrateLegacyAsync(context, environment, storageOptions, logger);
-        await CustomsStorageMaintenance.CheckIntegrityAsync(context, environment, storageOptions, logger);
+        await CustomsStorageMaintenance.CheckIntegrityAsync(context, environment, storageOptions, logger, services.GetRequiredService<IFileStorage>());
         if (builder.Configuration.GetValue<bool>("BootstrapAdmin:Enabled"))
         {
             var username = builder.Configuration["BootstrapAdmin:Username"];
@@ -271,6 +292,8 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.UseCors("AllowFrontend");
 
 app.UseRateLimiter();
@@ -278,5 +301,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapGet("/health/live", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+// Unknown API paths must remain API 404s instead of returning the SPA HTML.
+app.MapFallback("/api/{**path}", () => Results.NotFound()).AllowAnonymous();
+app.MapFallbackToFile("index.html");
 
 app.Run();
+

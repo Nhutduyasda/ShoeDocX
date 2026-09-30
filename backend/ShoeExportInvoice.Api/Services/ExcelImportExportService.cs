@@ -81,7 +81,7 @@ public class ExcelImportExportService : IExcelImportExportService
         throw new FileNotFoundException("Không tìm thấy file mẫu tại Templates/Shipment_Template.xlsx");
     }
 
-    private async Task<(string FilePath, DocumentTemplateConfig Config)> ResolveTemplateAsync(int? templateId)
+    private async Task<(byte[] Bytes, DocumentTemplateConfig Config)> ResolveTemplateAsync(int? templateId)
     {
         CompanyTemplateDto? template = null;
         if (_templateService != null)
@@ -104,23 +104,24 @@ public class ExcelImportExportService : IExcelImportExportService
             }
         }
 
-        string filePath;
+        byte[] templateBytes;
         DocumentTemplateConfig config;
 
         if (template != null)
         {
-            filePath = ResolveTemplateFilePath(template.TemplateFilePath);
+            var file = await _templateService!.GetTemplateFileAsync(template.Id);
+            templateBytes = file?.Bytes ?? throw new FileNotFoundException("Không tìm thấy file template đã chọn.");
             config = template.Config ?? (string.IsNullOrWhiteSpace(template.ConfigJson)
                 ? new DocumentTemplateConfig()
                 : JsonSerializer.Deserialize<DocumentTemplateConfig>(template.ConfigJson, JsonOptions) ?? new DocumentTemplateConfig());
         }
         else
         {
-            filePath = GetTemplatePath();
+            templateBytes = await File.ReadAllBytesAsync(GetTemplatePath());
             config = new DocumentTemplateConfig();
         }
 
-        return (filePath, config);
+        return (templateBytes, config);
     }
 
     private string ResolveTemplateFilePath(string? customPath)
@@ -167,9 +168,11 @@ public class ExcelImportExportService : IExcelImportExportService
     /// Xuất hóa đơn Commercial Invoice và Packing List trực tiếp từ file mẫu Shipment_Template.xlsx
     /// Tuyệt đối KHÔNG tạo new XLWorkbook(), giữ nguyên 100% format, header, footer, style và formulas.
     /// </summary>
-    private static MemoryStream OpenStampFreeTemplate(string templatePath)
+    private static MemoryStream OpenStampFreeTemplate(byte[] templateBytes)
     {
-        var stream = new MemoryStream(File.ReadAllBytes(templatePath));
+        var stream = new MemoryStream();
+        stream.Write(templateBytes);
+        stream.Position = 0;
         using (var document = SpreadsheetDocument.Open(stream, true))
         {
             foreach (var worksheetPart in document.WorkbookPart!.WorksheetParts)
@@ -2114,3 +2117,4 @@ public class ExcelImportExportService : IExcelImportExportService
         return zipStream.ToArray();
     }
 }
+

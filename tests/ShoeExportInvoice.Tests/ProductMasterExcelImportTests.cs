@@ -239,7 +239,7 @@ public class ProductMasterExcelImportTests : IDisposable
     [Fact]
     public async Task Import_ActualBook1File_AdaptiveParser_ShouldDetectColumnsAndSucceed()
     {
-        var path = @"C:\Users\nhutd\Documents\antigravity\clever-faraday\backend\ShoeExportInvoice.Api\Templates\Book1.xlsx";
+        var path = Path.Combine(AppContext.BaseDirectory, "Templates", "Book1.xlsx");
         Assert.True(File.Exists(path), $"File Book1.xlsx must exist at {path}");
 
         using var context = new AppDbContext(_dbOptions);
@@ -280,7 +280,7 @@ public class ProductMasterExcelImportTests : IDisposable
     [Fact]
     public async Task Import_ActualWorkbook1File_AdaptiveParser_ShouldDetectColumnsAndSucceed()
     {
-        var path = @"C:\Users\nhutd\Documents\antigravity\clever-faraday\backend\ShoeExportInvoice.Api\Templates\Workbook1.xlsx";
+        var path = Path.Combine(AppContext.BaseDirectory, "Templates", "Workbook1.xlsx");
         Assert.True(File.Exists(path), $"File Workbook1.xlsx must exist at {path}");
 
         using var context = new AppDbContext(_dbOptions);

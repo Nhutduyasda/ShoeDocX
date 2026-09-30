@@ -6,7 +6,7 @@ namespace ShoeExportInvoice.Api.Services;
 
 public static class CustomsStorageMaintenance
 {
-    public static async Task CheckIntegrityAsync(AppDbContext db, IWebHostEnvironment env, XnkOptions options, ILogger logger)
+    public static async Task CheckIntegrityAsync(AppDbContext db, IWebHostEnvironment env, XnkOptions options, ILogger logger, IFileStorage? storage = null)
     {
         var rows = await db.ShipmentOrders.AsNoTracking()
             .Where(s => s.CustomsAttachmentFilePath != null || s.CustomsAttachmentFileName != null)
@@ -14,6 +14,12 @@ public static class CustomsStorageMaintenance
         foreach (var row in rows)
         {
             var relative = row.CustomsAttachmentFilePath ?? Path.Combine(options.CustomsStoragePath, row.CustomsAttachmentFileName!);
+            if (relative.StartsWith("r2:", StringComparison.Ordinal))
+            {
+                if (storage == null || await storage.ReadAsync(relative) == null)
+                    throw new IOException($"Missing durable customs attachment for shipment {row.Id}.");
+                continue;
+            }
             var path = Path.GetFullPath(Path.Combine(env.ContentRootPath, relative));
             if (!File.Exists(path)) logger.LogError("Missing customs attachment for shipment {ShipmentId}: {Path}", row.Id, relative);
         }
@@ -43,3 +49,4 @@ public static class CustomsStorageMaintenance
         await db.SaveChangesAsync();
     }
 }
+

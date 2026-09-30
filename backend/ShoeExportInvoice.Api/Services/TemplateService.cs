@@ -15,6 +15,7 @@ public class TemplateService : ITemplateService
     private readonly AppDbContext _context;
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<TemplateService> _logger;
+    private readonly IFileStorage _storage;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -26,11 +27,12 @@ public class TemplateService : ITemplateService
     public TemplateService(
         AppDbContext context,
         IWebHostEnvironment environment,
-        ILogger<TemplateService> logger)
+        ILogger<TemplateService> logger, IFileStorage? storage = null)
     {
         _context = context;
         _environment = environment;
         _logger = logger;
+        _storage = storage ?? new LocalFileStorage(environment);
     }
 
     public async Task<List<CompanyTemplateDto>> GetAllTemplatesAsync()
@@ -106,22 +108,12 @@ public class TemplateService : ITemplateService
             throw new ArgumentException($"Thư mục với ID {folderId.Value} không tồn tại.", nameof(folderId));
         }
 
-        var templatesDir = Path.Combine(_environment.ContentRootPath, "Templates");
-        if (!Directory.Exists(templatesDir))
-        {
-            Directory.CreateDirectory(templatesDir);
-        }
-
         var safeFileName = Path.GetFileName(file.FileName);
-        var uniqueFileName = $"{Path.GetFileNameWithoutExtension(safeFileName)}_{Guid.NewGuid().ToString("N")[..8]}{ext}";
-        var fullPath = Path.Combine(templatesDir, uniqueFileName);
-
-        using (var stream = new FileStream(fullPath, FileMode.Create))
-        {
-            await file.CopyToAsync(stream);
-        }
-
-        var relativePath = Path.Combine("Templates", uniqueFileName).Replace("\\", "/");
+        var uniqueFileName = $"{Path.GetFileNameWithoutExtension(safeFileName)}_{Guid.NewGuid():N}{ext}";
+        using var upload = new MemoryStream();
+        await file.CopyToAsync(upload);
+        var relativePath = await _storage.SaveAsync($"Templates/{uniqueFileName}", upload.ToArray(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         bool isFirst = !await _context.CompanyTemplates.AnyAsync();
 
         var template = new CompanyTemplate
@@ -137,7 +129,13 @@ public class TemplateService : ITemplateService
         };
 
         _context.CompanyTemplates.Add(template);
-        await _context.SaveChangesAsync();
+        try { await _context.SaveChangesAsync(); }
+        catch
+        {
+            try { await _storage.DeleteAsync(relativePath); }
+            catch (Exception cleanup) { _logger.LogWarning(cleanup, "Orphaned template upload requires cleanup."); }
+            throw;
+        }
 
         _logger.LogInformation("Đã tải lên và lưu cấu hình template mới: {Name} ({FileName})", template.Name, template.TemplateFileName);
 
@@ -195,26 +193,10 @@ public class TemplateService : ITemplateService
         var template = await _context.CompanyTemplates.FindAsync(id);
         if (template == null) return null;
 
-        var candidates = new[]
-        {
-            template.TemplateFilePath,
-            Path.Combine(_environment.ContentRootPath, template.TemplateFilePath),
-            Path.Combine(AppContext.BaseDirectory, template.TemplateFilePath),
-            Path.Combine(Directory.GetCurrentDirectory(), template.TemplateFilePath),
-            Path.Combine(Directory.GetCurrentDirectory(), "backend", "ShoeExportInvoice.Api", template.TemplateFilePath),
-            Path.Combine(_environment.ContentRootPath, "Templates", Path.GetFileName(template.TemplateFilePath)),
-            Path.Combine(AppContext.BaseDirectory, "Templates", "Shipment_Template.xlsx"),
-            Path.Combine(Directory.GetCurrentDirectory(), "Templates", "Shipment_Template.xlsx"),
-            Path.Combine(Directory.GetCurrentDirectory(), "backend", "ShoeExportInvoice.Api", "Templates", "Shipment_Template.xlsx")
-        };
-
-        string? foundPath = candidates.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p) && File.Exists(p));
-        if (foundPath == null) return null;
-
-        var bytes = await File.ReadAllBytesAsync(foundPath);
+        var bytes = await _storage.ReadAsync(template.TemplateFilePath);
+        if (bytes == null) return null;
         var fileName = !string.IsNullOrWhiteSpace(template.TemplateFileName)
-            ? template.TemplateFileName
-            : Path.GetFileName(foundPath);
+            ? template.TemplateFileName : Path.GetFileName(template.TemplateFilePath);
 
         return (bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
@@ -272,3 +254,4 @@ public class TemplateService : ITemplateService
         };
     }
 }
+

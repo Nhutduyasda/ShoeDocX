@@ -390,7 +390,7 @@ public class OcrExtractionTests
         await context.Database.EnsureCreatedAsync();
 
         var folderA = new MasterDataFolder { Name = "Partner KM3" };
-        var folderB = new MasterDataFolder { Name = "Partner 5BUY" };
+        var folderB = new MasterDataFolder { Name = "Partner 5BUY", DefaultPairsPerCarton = 24 };
         context.MasterDataFolders.AddRange(folderA, folderB);
         await context.SaveChangesAsync();
 

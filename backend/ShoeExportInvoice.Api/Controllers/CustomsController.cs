@@ -58,9 +58,15 @@ public class CustomsController : ControllerBase
             var reconciliation = await _customsService.ReconcileAsync(parsedDeclaration, orderId);
             return Ok(reconciliation);
         }
+        catch (CustomsParseException ex)
+        {
+            return BadRequest(new { code = "CUSTOMS_PARSE_VALIDATION_FAILED", message = ex.Message,
+                details = ex.Details, traceId = HttpContext.TraceIdentifier });
+        }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new { code = "CUSTOMS_VALIDATION_FAILED", message = ex.Message,
+                details = Array.Empty<CustomsParseIssueDto>(), traceId = HttpContext.TraceIdentifier });
         }
         catch (Exception ex)
         {
@@ -134,6 +140,11 @@ public class CustomsController : ControllerBase
         catch (KeyNotFoundException knf)
         {
             return NotFound(new { message = knf.Message });
+        }
+        catch (CustomsParseException ex)
+        {
+            return BadRequest(new { code = "CUSTOMS_PARSE_VALIDATION_FAILED", message = ex.Message,
+                details = ex.Details, traceId = HttpContext.TraceIdentifier });
         }
         catch (InvalidOperationException ex)
         {

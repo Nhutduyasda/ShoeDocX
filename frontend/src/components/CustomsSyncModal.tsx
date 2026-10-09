@@ -20,7 +20,7 @@ import {
   FileExcelOutlined,
   AuditOutlined,
 } from '@ant-design/icons';
-import { customsApi, type ConfirmSyncResponse } from '../api/customsApi';
+import { customsApi, type ConfirmSyncResponse, type CustomsApiError, type CustomsParseIssue } from '../api/customsApi';
 import type {
   SavedShipmentSummary,
   CustomsReconciliationResult,
@@ -46,6 +46,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
   const [confirming, setConfirming] = useState<boolean>(false);
   const [reconciliation, setReconciliation] = useState<CustomsReconciliationResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<CustomsParseIssue[]>([]);
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -56,6 +57,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
     setConfirming(false);
     setReconciliation(null);
     setErrorMsg(null);
+    setErrorDetails([]);
     setIsDragging(false);
     onClose();
   };
@@ -71,19 +73,21 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
       setFile(selectedFile);
       setLoading(true);
       setErrorMsg(null);
+      setErrorDetails([]);
       setReconciliation(null);
 
       try {
         const res = await customsApi.parseAndCompare(selectedFile, targetOrder?.id);
         setReconciliation(res);
       } catch (err: unknown) {
-        const error = err as { response?: { data?: { message?: string; detail?: string } }; message?: string };
+        const error = err as { response?: { data?: CustomsApiError }; message?: string };
         const msg =
           error.response?.data?.message ||
           error.response?.data?.detail ||
           error.message ||
           'Không thể xử lý file tờ khai hải quan. Vui lòng kiểm tra định dạng file.';
         setErrorMsg(msg);
+        setErrorDetails(error.response?.data?.details ?? []);
       } finally {
         setLoading(false);
       }
@@ -123,8 +127,8 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
   const isEffectivelyMatched = Boolean(reconciliation?.isFullyMatched);
 
   const handleConfirmSync = async () => {
-    if (!reconciliation || !reconciliation.isOrderFound || !reconciliation.matchedOrder) {
-      message.error('Không tìm thấy đơn hàng tương ứng để đồng bộ.');
+    if (!reconciliation?.isFullyMatched || reconciliation.isInvoiceMismatch || !reconciliation.matchedOrder) {
+      setErrorMsg('Cần chọn đúng tờ khai và khắc phục các sai lệch trước khi thông quan.');
       return;
     }
 
@@ -161,8 +165,9 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
       }
       handleClose();
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string } }; message?: string };
-      message.error(
+      const error = err as { response?: { data?: CustomsApiError }; message?: string };
+      setErrorDetails(error.response?.data?.details ?? []);
+      setErrorMsg(
         error.response?.data?.message || 'Có lỗi xảy ra khi xác nhận đồng bộ tờ khai hải quan.'
       );
     } finally {
@@ -201,6 +206,22 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
           </span>
         );
     }
+  };
+
+  const formatMoney = (value: number) => value.toLocaleString('vi-VN', {
+    minimumFractionDigits: 2, maximumFractionDigits: 4,
+  });
+
+  const renderPriceComparison = (invoice: number, customs: number, known = true) => {
+    const matched = Math.round(invoice * 10000) === Math.round(customs * 10000);
+    return (
+      <div className="text-xs space-y-1">
+        <div className={known && !matched ? 'text-rose-700 font-semibold' : 'text-slate-700'}>
+          Tờ khai: <span className="font-mono">{known ? `${formatMoney(customs)} USD` : 'Chưa có'}</span>
+        </div>
+        <div className="text-slate-600">INV: <span className="font-mono">{formatMoney(invoice)} USD</span></div>
+      </div>
+    );
   };
 
   const columns: ColumnsType<CustomsComparisonRow> = [
@@ -274,34 +295,17 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
     {
       title: 'Đơn giá DAP',
       key: 'priceDap',
-      width: 130,
+      width: 175,
       align: 'right',
-      render: (_, record) => {
-        const isMatched = record.invoicePriceDap === record.customsPriceDap;
-        return (
-          <div className="font-mono text-xs">
-            <span className={isMatched ? 'text-slate-700' : 'text-rose-600 font-bold'}>
-              ${record.customsPriceDap.toFixed(2)}
-            </span>
-            {!isMatched && (
-              <span className="text-slate-400 text-[11px] block line-through">
-                ${record.invoicePriceDap.toFixed(2)}
-              </span>
-            )}
-          </div>
-        );
-      },
+      render: (_, record) => renderPriceComparison(record.invoicePriceDap, record.customsPriceDap),
     },
     {
       title: 'Đơn giá CMT',
       key: 'priceCmt',
-      width: 110,
+      width: 175,
       align: 'right',
-      render: (_, record) => (
-        <div className="font-mono text-xs text-slate-600">
-          ${record.customsPriceCmt.toFixed(2)}
-        </div>
-      ),
+      render: (_, record) => renderPriceComparison(record.invoicePriceCmt, record.customsPriceCmt,
+        record.customsHasCmt || record.customsPriceCmt !== 0),
     },
     {
       title: 'Trạng thái đối soát',
@@ -465,8 +469,25 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
           <Alert
             type="error"
             showIcon
-            message="Lỗi đối soát tờ khai"
-            description={errorMsg}
+            message={reconciliation ? 'Chưa thể xác nhận thông quan' : 'Không thể xử lý tờ khai'}
+            description={
+              <div className="space-y-2">
+                <div>{errorMsg}</div>
+                {errorDetails.map((issue, index) => (
+                  <div key={index} className="rounded border border-rose-200 bg-white/70 p-3 space-y-1 text-sm">
+                    <div className="font-semibold">{issue.styleCode ? `Mã hàng ${issue.styleCode}` : 'Dữ liệu tờ khai'}
+                      {issue.lineNumber ? ` • Dòng hàng ${issue.lineNumber}` : ''}</div>
+                    <div>{issue.reason}</div>
+                    {issue.quantity != null && issue.unitPrice != null && issue.expectedAmount != null && (
+                      <div>{issue.quantity.toLocaleString('vi-VN')} đôi × {formatMoney(issue.unitPrice)} USD = <strong>{formatMoney(issue.expectedAmount)} USD</strong></div>
+                    )}
+                    {issue.actualAmount != null && <div>Trị giá trên tờ khai: <strong>{formatMoney(issue.actualAmount)} USD</strong></div>}
+                    {issue.field === 'numberFormat' && issue.rawValue && <div>Giá trị trong file: <strong>{issue.rawValue}</strong></div>}
+                    <div className="text-xs text-slate-600">Vị trí trong Excel: sheet {issue.sheet}, dòng {issue.row}, cột {issue.column}.</div>
+                  </div>
+                ))}
+              </div>
+            }
             className="rounded-lg"
             action={
               <Button size="small" icon={<ReloadOutlined />} onClick={() => fileInputRef.current?.click()}>
@@ -497,6 +518,7 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
                   setReconciliation(null);
                   setFile(null);
                   setErrorMsg(null);
+                  setErrorDetails([]);
                   setTimeout(() => fileInputRef.current?.click(), 100);
                 }}
               >
@@ -568,10 +590,10 @@ export const CustomsSyncModal: React.FC<CustomsSyncModalProps> = ({
             {/* Banner cảnh báo sai lệch số hóa đơn (nếu có) */}
             {reconciliation.isInvoiceMismatch && (
               <Alert
-                type="error"
+                type="warning"
                 showIcon
                 icon={<CloseCircleOutlined />}
-                message="Cảnh báo: Sai lệch Số Hóa đơn (Invoice Mismatch)"
+                message="Tờ khai thuộc hóa đơn khác với INV đang chọn"
                 description={
                   <div className="space-y-1.5 mt-1">
                     <div className="text-xs font-semibold text-rose-800">

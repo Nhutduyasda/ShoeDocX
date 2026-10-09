@@ -151,6 +151,9 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
     }
 
     public async Task<ExportFileResult> ExportMergeAsync(MergeShipmentRequestDto request, CancellationToken cancellationToken)
+        => await _db.ExecuteWithRetryAsync(() => ExportMergeCoreAsync(request, cancellationToken));
+
+    private async Task<ExportFileResult> ExportMergeCoreAsync(MergeShipmentRequestDto request, CancellationToken cancellationToken)
     {
         var preview = await PreviewMergeAsync(request, cancellationToken);
         if (!preview.IsExportable)
@@ -210,6 +213,9 @@ public sealed class ShipmentDispatchService : IShipmentDispatchService
     }
 
     public async Task<ExportFileResult> ExportSplitZipAsync(SplitShipmentRequestDto request, CancellationToken cancellationToken)
+        => await _db.ExecuteWithRetryAsync(() => ExportSplitZipCoreAsync(request, cancellationToken));
+
+    private async Task<ExportFileResult> ExportSplitZipCoreAsync(SplitShipmentRequestDto request, CancellationToken cancellationToken)
     {
         var sourceIds = request.SourceDocuments.Count > 0 ? request.SourceDocuments.Select(d => d.DocumentId).ToList()
             : request.SourceDocument != null ? [request.SourceDocument.DocumentId] : [];

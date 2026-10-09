@@ -1,6 +1,12 @@
 import axios from 'axios';
 import { message } from 'antd';
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    suppressErrorToast?: boolean;
+  }
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 let unauthorizedEventDispatched = false;
 
@@ -41,7 +47,7 @@ apiClient.interceptors.response.use(
       'Đã xảy ra lỗi khi kết nối máy chủ';
     
     // In file download or special status codes, caller might handle it
-    if (status !== 401 && error.config?.responseType !== 'blob') {
+    if (status !== 401 && error.config?.responseType !== 'blob' && !error.config?.suppressErrorToast) {
       message.error(errorMsg);
     } else if (isLoginRequest && error.config?.responseType !== 'blob') {
       message.error(errorMsg);

@@ -36,6 +36,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const [form] = Form.useForm();
   const [loading, setLoading] = React.useState(false);
   const isEdit = !!product;
+  const selectedFolderId = Form.useWatch('folderId', form);
+  const packingFolder = selectedFolderId ? findFolder(folders, selectedFolderId) : null;
 
   const formatTreeSelect = (nodes: MasterDataFolder[]): any[] => {
     return nodes.map((node) => ({
@@ -59,7 +61,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           unitPriceDAP_Go: product.unitPriceDAP_Go ?? undefined,
           hsCode: product.hsCode,
           unit: product.unit,
-          pairPerCarton: product.pairPerCarton,
+          pairPerCarton: (product.folderId ? findFolder(folders, product.folderId)?.defaultPairsPerCarton : undefined) ?? product.pairPerCarton,
           folderId: product.folderId ?? undefined,
         });
       } else {
@@ -103,7 +105,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         unitPriceDAP_Go: values.unitPriceDAP_Go || null,
         hsCode: values.hsCode?.trim() || '64041990',
         unit: values.unit?.trim() || 'PRS',
-        pairPerCarton: values.pairPerCarton || 12,
+        pairPerCarton: packingFolder?.defaultPairsPerCarton ?? values.pairPerCarton ?? 12,
         folderId: values.folderId ?? null,
       };
 
@@ -206,13 +208,14 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               name="pairPerCarton"
               label={<span className="text-xs font-medium text-slate-700">Số đôi / Thùng (Pair/CTN) *</span>}
               rules={[{ required: true, message: 'Vui lòng nhập quy cách đóng gói' }]}
-              extra={<span className="text-[11px] text-slate-400">KM III: 12 đôi | Đối tác khác: 24 đôi</span>}
+              extra={<span className="text-[11px] text-slate-400">{packingFolder ? `Cố định theo thư mục ${packingFolder.name}. Đổi quy cách tại cấu hình thư mục.` : 'Chọn thư mục để áp dụng quy cách đóng gói.'}</span>}
             >
               <InputNumber
                 className="w-full font-mono text-xs"
                 min={1}
                 max={1000}
                 placeholder="12"
+                disabled={!!packingFolder}
               />
             </Form.Item>
           </Col>

@@ -29,7 +29,12 @@ public class SequenceService : ISequenceService
     }
 
     /// <inheritdoc/>
-    public async Task<int[]> GetNextSequenceNumbersAsync(int count = 1)
+    public Task<int[]> GetNextSequenceNumbersAsync(int count = 1) =>
+        _context.Database.CurrentTransaction != null
+            ? GetNextSequenceNumbersCoreAsync(count)
+            : _context.ExecuteWithRetryAsync(() => GetNextSequenceNumbersCoreAsync(count));
+
+    private async Task<int[]> GetNextSequenceNumbersCoreAsync(int count)
     {
         if (count <= 0) throw new ArgumentOutOfRangeException(nameof(count), "Số lượng phải lớn hơn 0.");
         if (count > 100) throw new ArgumentOutOfRangeException(nameof(count), "Không thể cấp quá 100 số cùng lúc.");
@@ -79,7 +84,12 @@ public class SequenceService : ISequenceService
         }
     }
 
-    public async Task<int[]> ReservePartnerSequenceNumbersAsync(int folderId, int count = 1, int? requestedStart = null)
+    public Task<int[]> ReservePartnerSequenceNumbersAsync(int folderId, int count = 1, int? requestedStart = null) =>
+        _context.Database.CurrentTransaction != null
+            ? ReservePartnerSequenceNumbersCoreAsync(folderId, count, requestedStart)
+            : _context.ExecuteWithRetryAsync(() => ReservePartnerSequenceNumbersCoreAsync(folderId, count, requestedStart));
+
+    private async Task<int[]> ReservePartnerSequenceNumbersCoreAsync(int folderId, int count, int? requestedStart)
     {
         if (folderId <= 0) throw new ArgumentOutOfRangeException(nameof(folderId));
         if (count is <= 0 or > 100) throw new ArgumentOutOfRangeException(nameof(count));
@@ -176,7 +186,11 @@ public class SequenceService : ISequenceService
             }
 
             if (ownedTransaction != null) await ownedTransaction.CommitAsync();
-            _context.ChangeTracker.Clear();
+            // Only the partner sequence was changed by raw SQL. Keep source
+            // warehouse batches tracked so export can persist their new status.
+            foreach (var entry in _context.ChangeTracker.Entries<MasterDataFolder>()
+                         .Where(entry => entry.Entity.Id == folderId).ToList())
+                entry.State = EntityState.Detached;
             return Enumerable.Range(first, count).ToArray();
         }
         finally
@@ -202,6 +216,18 @@ public class SequenceService : ISequenceService
 
     /// <inheritdoc/>
     public async Task SetNextSequenceNumberAsync(int nextNumber)
+    {
+        if (_context.Database.CurrentTransaction != null)
+            await SetNextSequenceNumberCoreAsync(nextNumber);
+        else
+            await _context.ExecuteWithRetryAsync(async () =>
+            {
+                await SetNextSequenceNumberCoreAsync(nextNumber);
+                return true;
+            });
+    }
+
+    private async Task SetNextSequenceNumberCoreAsync(int nextNumber)
     {
         if (nextNumber <= 0) throw new ArgumentOutOfRangeException(nameof(nextNumber), "Số thứ tự phải lớn hơn 0.");
 

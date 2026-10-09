@@ -518,6 +518,7 @@ export interface CustomsComparisonRow {
   customsPriceDap: number;
   invoicePriceCmt: number;
   customsPriceCmt: number;
+  customsHasCmt: boolean;
   isMatched: boolean;
   isPriceMatched: boolean;
   statusText: string;

@@ -32,7 +32,8 @@ public class CustomsClearanceSyncTests : IDisposable
         _connection.Open();
 
         _dbOptions = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(_connection)
+            .UseSqlite(_connection, sql => sql.ExecutionStrategy(dependencies =>
+                new SqlServerRetryingExecutionStrategy(dependencies)))
             .Options;
 
         using var context = new AppDbContext(_dbOptions);
@@ -147,6 +148,91 @@ public class CustomsClearanceSyncTests : IDisposable
         Assert.Equal("45428-2LX", item3.StyleCode);
         Assert.Equal(ProcessType.GoKhongMay, item3.ProcessType);
         Assert.Equal(996, item3.Quantity);
+    }
+
+    [Theory]
+    [InlineData("vi-VN", false)]
+    [InlineData("en-US", false)]
+    [InlineData("vi-VN", true)]
+    public void ParseDeclarationFile_NativeVnaccsGroupedAmount_PreservesQuantityPriceAndHeader(string culture, bool numericAmount)
+    {
+        var previousCulture = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new(culture);
+            using var context = new AppDbContext(_dbOptions);
+            var service = new CustomsDeclarationService(context, NullLogger<CustomsDeclarationService>.Instance, new DummyWebHostEnvironment());
+            using var stream = CreateGroupedAmountDeclaration(numericAmount);
+            var parsed = service.ParseDeclarationFile(stream, "native.xlsx");
+            Assert.Equal("KMIII-NEW2026-0079", parsed.InvoiceNo);
+            Assert.Equal(8866m, parsed.TotalDap);
+            Assert.Equal("HQHGCT", parsed.CustomsOffice);
+            Assert.Equal(118, parsed.PackageQty);
+            var item = Assert.Single(parsed.Items);
+            Assert.Equal("BM5879-063", item.StyleCode);
+            Assert.Equal(1705, item.Quantity);
+            Assert.Equal(5.2m, item.UnitPriceDap);
+            Assert.Equal(8866m, item.AmountDap);
+            Assert.Equal(3.57m, item.UnitPriceCmt);
+            Assert.Equal("PR", item.Unit);
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = previousCulture; }
+    }
+
+    [Fact]
+    public void ParseDeclarationFile_NativeVnaccsIncorrectAmount_IsStillRejected()
+    {
+        using var context = new AppDbContext(_dbOptions);
+        var service = new CustomsDeclarationService(context, NullLogger<CustomsDeclarationService>.Instance, new DummyWebHostEnvironment());
+        using var stream = CreateGroupedAmountDeclaration(false, "8.867");
+        var error = Assert.Throws<CustomsParseException>(() => service.ParseDeclarationFile(stream, "incorrect.xlsx"));
+        var issue = Assert.Single(error.Details);
+        Assert.Equal(244, issue.Row);
+        Assert.Equal(6, issue.Column);
+        Assert.Equal(8867m, issue.ActualAmount);
+        Assert.Equal(8866m, issue.ExpectedAmount);
+    }
+
+    private static MemoryStream CreateGroupedAmountDeclaration(bool numericAmount, string amount = "8.866")
+    {
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.Worksheets.Add("TKX");
+        sheet.Cell(7, 3).Value = "Tên cơ quan Hải quan tiếp nhận tờ khai";
+        sheet.Cell(7, 10).Value = "HQHGCT";
+        sheet.Cell(8, 3).Value = "Ngày đăng ký";
+        sheet.Cell(8, 6).Value = "23/09/2026 17:28:44";
+        sheet.Cell(40, 3).Value = "Số lượng";
+        sheet.Cell(40, 8).Value = "118";
+        sheet.Cell(40, 13).Value = "PK";
+        sheet.Cell(49, 12).Value = "Số hóa đơn";
+        sheet.Cell(49, 16).Value = "A";
+        sheet.Cell(49, 17).Value = "-";
+        sheet.Cell(49, 18).Value = "KMIII-NEW2026-0079";
+        sheet.Cell(53, 12).Value = "Tổng trị giá hóa đơn";
+        sheet.Cell(53, 17).Value = "DAP - USD";
+        sheet.Cell(53, 20).Value = "-";
+        sheet.Cell(53, 21).Value = "8.866,0";
+        sheet.Cell(236, 3).Value = "<04>";
+        sheet.Cell(238, 3).Value = "Mã số hàng hóa";
+        sheet.Cell(238, 6).Value = "64061090";
+        sheet.Cell(239, 3).Value = "Mô tả hàng hóa";
+        sheet.Cell(239, 6).Value = "BM5879-063 (KM3.PO7.26)#&Mũ giày (đơn giá gia công: 3.57usd/đôi).#&VN";
+        sheet.Cell(242, 15).Value = "Số lượng (1)";
+        sheet.Cell(242, 17).Value = "1.705";
+        sheet.Cell(242, 25).Value = "PR";
+        sheet.Cell(244, 3).Value = "Trị giá hóa đơn";
+        if (numericAmount) sheet.Cell(244, 6).Value = 8866d;
+        else sheet.Cell(244, 6).Value = amount;
+        sheet.Cell(244, 15).Value = "Đơn giá hóa đơn";
+        sheet.Cell(244, 18).Value = "5,2";
+        sheet.Cell(246, 4).Value = "Trị giá tính thuế (S)";
+        sheet.Cell(246, 7).Value = "228.964.450";
+        sheet.Cell(247, 15).Value = "Đơn giá tính thuế";
+        sheet.Cell(247, 18).Value = "134.290";
+        var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        stream.Position = 0;
+        return stream;
     }
 
     [Fact]

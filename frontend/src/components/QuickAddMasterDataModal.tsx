@@ -67,7 +67,7 @@ export const QuickAddMasterDataModal: React.FC<QuickAddMasterDataModalProps> = (
         unitPriceDAP_Go: values.unitPriceDAP_Go > 0 ? values.unitPriceDAP_Go : null,
         hsCode: values.hsCode?.trim() || '64041990',
         unit: values.unit?.trim() || 'đôi',
-        pairPerCarton: values.pairPerCarton || 12,
+        pairPerCarton: folderId ? defaultPairsPerCarton : values.pairPerCarton || 12,
       };
 
       const created = await productMasterApi.create(payload);
@@ -135,9 +135,11 @@ export const QuickAddMasterDataModal: React.FC<QuickAddMasterDataModalProps> = (
               <Form.Item
                 label={<span className="font-semibold text-xs text-slate-700">Quy cách (Đôi / Thùng)</span>}
                 name="pairPerCarton"
+                extra={folderId ? 'Cố định theo quy cách của thư mục đối tác.' : undefined}
                 rules={[{ required: true, message: 'Nhập quy cách đóng gói' }]}
               >
                 <InputNumber
+                  disabled={!!folderId}
                   min={1}
                   max={1000}
                   className="w-full font-mono text-right"

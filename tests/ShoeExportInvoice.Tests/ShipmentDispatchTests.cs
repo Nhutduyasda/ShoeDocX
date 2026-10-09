@@ -19,7 +19,9 @@ public sealed class ShipmentDispatchTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _connection.OpenAsync();
-        _db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        _db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(_connection, sql => sql.ExecutionStrategy(dependencies =>
+                new SqlServerRetryingExecutionStrategy(dependencies))).Options);
         await _db.Database.EnsureCreatedAsync();
         _service = new ShipmentDispatchService(_db, new FakeExcel(), new FakeSequence(),
             NullLogger<ShipmentDispatchService>.Instance, new HttpContextAccessor());
@@ -343,8 +345,12 @@ public sealed class ShipmentDispatchTests : IAsyncLifetime
     public async Task Split_Should_Generate_Consecutive_Invoices_Zip_And_Traceability()
     {
         var id = await SeedBatchAsync(("A", 24, ProcessType.Standard));
-        var result = await _service.ExportSplitZipAsync(new() { SourceBatchId = id, SubInvoices =
+        var service = new ShipmentDispatchService(_db, new FakeExcel(),
+            new SequenceService(_db, NullLogger<SequenceService>.Instance),
+            NullLogger<ShipmentDispatchService>.Instance, new HttpContextAccessor());
+        var result = await service.ExportSplitZipAsync(new() { SourceBatchId = id, SubInvoices =
             [new() { Items = [Item("A", 12)] }, new() { Items = [Item("A", 12)] }] }, default);
+        _db.ChangeTracker.Clear();
         using var archive = new ZipArchive(new MemoryStream(result.Content), ZipArchiveMode.Read);
         Assert.Equal(2, archive.Entries.Count);
         Assert.Equal(2, await _db.ShipmentOrders.CountAsync());

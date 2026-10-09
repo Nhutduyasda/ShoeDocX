@@ -345,13 +345,66 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         AssignTenantIds();
+        var (folderIds, changedFolderIds) = GetPackingPolicyTargets();
+        if (folderIds.Count > 0) MasterDataFolders.Where(f => folderIds.Contains(f.Id)).Load();
+        if (changedFolderIds.Count > 0) ProductMasters.Where(p => p.FolderId.HasValue && changedFolderIds.Contains(p.FolderId.Value)).Load();
+        ApplyFolderPackingPolicy();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
-    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         AssignTenantIds();
-        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        var (folderIds, changedFolderIds) = GetPackingPolicyTargets();
+        if (folderIds.Count > 0) await MasterDataFolders.Where(f => folderIds.Contains(f.Id)).LoadAsync(cancellationToken);
+        if (changedFolderIds.Count > 0) await ProductMasters.Where(p => p.FolderId.HasValue && changedFolderIds.Contains(p.FolderId.Value)).LoadAsync(cancellationToken);
+        ApplyFolderPackingPolicy();
+        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private (List<int> FolderIds, List<int> ChangedFolderIds) GetPackingPolicyTargets()
+    {
+        var changedFolders = ChangeTracker.Entries<MasterDataFolder>()
+            .Where(e => e.State == EntityState.Modified && e.Property(f => f.DefaultPairsPerCarton).IsModified)
+            .Select(e => e.Entity.Id).ToList();
+        var ids = ChangeTracker.Entries<ProductMaster>()
+            .Where(e => e.State is EntityState.Added or EntityState.Modified && e.Entity.FolderId.HasValue)
+            .Select(e => e.Entity.FolderId!.Value).Concat(changedFolders).Distinct().ToList();
+        return (ids, changedFolders);
+    }
+
+    private void ApplyFolderPackingPolicy()
+    {
+        // One authoritative packing size per folder, including imports and bulk moves.
+        var folders = ChangeTracker.Entries<MasterDataFolder>()
+            .Where(e => e.State != EntityState.Deleted && e.Entity.Id > 0).Select(e => e.Entity).ToDictionary(f => f.Id);
+        foreach (var entry in ChangeTracker.Entries<ProductMaster>())
+        {
+            if (entry.State == EntityState.Deleted) continue;
+            var product = entry.Entity;
+            var folder = product.Folder;
+            if (product.FolderId.HasValue && folders.TryGetValue(product.FolderId.Value, out var assigned)) folder = assigned;
+            if (folder == null || (!product.FolderId.HasValue && Entry(folder).State != EntityState.Added)) continue;
+            if (product.PairPerCarton != folder.DefaultPairsPerCarton)
+            {
+                product.PairPerCarton = folder.DefaultPairsPerCarton;
+                product.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+    }
+
+    public async Task<int> RepairFolderPackingAsync(CancellationToken cancellationToken = default)
+    {
+        var mismatches = await ProductMasters.Include(p => p.Folder)
+            .Where(p => p.Folder != null && p.PairPerCarton != p.Folder.DefaultPairsPerCarton)
+            .ToListAsync(cancellationToken);
+        foreach (var product in mismatches)
+        {
+            product.PairPerCarton = product.Folder!.DefaultPairsPerCarton;
+            product.UpdatedAt = DateTime.UtcNow;
+        }
+        if (mismatches.Count > 0) await SaveChangesAsync(cancellationToken);
+        return mismatches.Count;
     }
 
     private void AssignTenantIds()

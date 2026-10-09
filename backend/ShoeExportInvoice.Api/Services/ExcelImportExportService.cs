@@ -1162,7 +1162,7 @@ public class ExcelImportExportService : IExcelImportExportService
             string hs = mapping.HsCodeCol.HasValue && mapping.HsCodeCol.Value > 0 ? row.Cell(mapping.HsCodeCol.Value).GetString()?.Trim() ?? "64041990" : "64041990";
             string unit = mapping.UnitCol.HasValue && mapping.UnitCol.Value > 0 ? row.Cell(mapping.UnitCol.Value).GetString()?.Trim() ?? defaultUnit : defaultUnit;
             int ppc = defaultPpc;
-            if (mapping.PairsPerCartonCol.HasValue && mapping.PairsPerCartonCol.Value > 0 &&
+            if (targetFolder == null && mapping.PairsPerCartonCol.HasValue && mapping.PairsPerCartonCol.Value > 0 &&
                 int.TryParse(row.Cell(mapping.PairsPerCartonCol.Value).GetString()?.Trim(), out var pVal) && pVal > 0)
             {
                 ppc = pVal;
@@ -1324,7 +1324,7 @@ public class ExcelImportExportService : IExcelImportExportService
 
                 // Quy cách đóng gói (PairsPerCarton): mặc định từ folder (12 hoặc 24)
                 int pairCtn = defaultPpc;
-                if (mapping.PairsPerCartonCol.HasValue && mapping.PairsPerCartonCol.Value > 0)
+                if (targetFolder == null && mapping.PairsPerCartonCol.HasValue && mapping.PairsPerCartonCol.Value > 0)
                 {
                     var pairText = row.Cell(mapping.PairsPerCartonCol.Value).GetString()?.Trim();
                     if (int.TryParse(pairText, out var pVal) && pVal > 0)

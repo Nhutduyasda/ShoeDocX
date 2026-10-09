@@ -32,7 +32,7 @@ public class AuditRegressionTests
     public async Task UpdateShipment_UsesRouteIdAndOverwritesClientPricingFromContractMasterData()
     {
         using var db = MemoryDb();
-        var folder = new MasterDataFolder { Name = "Contract A", ContractNo = "A" };
+        var folder = new MasterDataFolder { Name = "Contract A", ContractNo = "A", DefaultPairsPerCarton = 24 };
         db.Add(folder);
         await db.SaveChangesAsync();
         db.Add(new ProductMaster

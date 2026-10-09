@@ -14,6 +14,7 @@ public static class DbInitializer
             await context.Database.EnsureCreatedAsync();
             await EnsureDefaultTenantWorkspaceAsync(context, logger);
             await EnsureDefaultCompanyTemplateAsync(context, logger);
+            logger.LogInformation("Đồng bộ quy cách folder cho {Count} mã Master Data.", await context.RepairFolderPackingAsync());
             return;
         }
 
@@ -22,6 +23,7 @@ public static class DbInitializer
             await context.Database.MigrateAsync();
             await EnsureDefaultTenantWorkspaceAsync(context, logger);
             await EnsureDefaultCompanyTemplateAsync(context, logger);
+            logger.LogInformation("Đồng bộ quy cách folder cho {Count} mã Master Data.", await context.RepairFolderPackingAsync());
             return;
         }
 

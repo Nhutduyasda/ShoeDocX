@@ -202,77 +202,81 @@ public class ShipmentsController : ControllerBase
 
         try
         {
-            ShipmentSizeBreakdownValidator.Validate(request.Items);
-            await ApplyAuthoritativeMasterDataAsync(request);
-            var partnerFolder = await _context.MasterDataFolders
-                .AsNoTracking()
-                .FirstAsync(f => f.Id == request.ContractFolderId!.Value);
-            await using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-            // Phân loại items theo loại công đoạn
-            var goItems = request.Items.Where(i => i.ProcessType == ProcessType.GoKhongMay).ToList();
-            var standardItems = request.Items.Where(i => i.ProcessType == ProcessType.Standard).ToList();
-
-            bool hasBothTypes = goItems.Count > 0 && standardItems.Count > 0;
-
-            if (hasBothTypes)
+            var originalInvoiceNo = request.InvoiceNo;
+            return await _context.ExecuteWithRetryAsync<IActionResult>(async () =>
             {
-                // Cấp phát nguyên tử trong DB để hai phiên xuất đồng thời không thể nhận cùng số.
-                var requestedStart = request.StartInvoiceNumber ?? _sequenceService.ExtractSequenceNumber(request.InvoiceNo);
-                var reserved = await _sequenceService.ReservePartnerSequenceNumbersAsync(partnerFolder.Id, 2, requestedStart);
-                int firstSeq = reserved[0], secondSeq = reserved[1];
+                request.InvoiceNo = originalInvoiceNo;
+                ShipmentSizeBreakdownValidator.Validate(request.Items);
+                await ApplyAuthoritativeMasterDataAsync(request);
+                var partnerFolder = await _context.MasterDataFolders
+                    .AsNoTracking()
+                    .FirstAsync(f => f.Id == request.ContractFolderId!.Value);
+                await using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+                // Phân loại items theo loại công đoạn
+                var goItems = request.Items.Where(i => i.ProcessType == ProcessType.GoKhongMay).ToList();
+                var standardItems = request.Items.Where(i => i.ProcessType == ProcessType.Standard).ToList();
 
-                int standardSeq, goSeq;
-                if (request.Priority == ExportSequencePriority.GoFirst)
+                bool hasBothTypes = goItems.Count > 0 && standardItems.Count > 0;
+
+                if (hasBothTypes)
                 {
-                    goSeq = firstSeq;
-                    standardSeq = secondSeq;
-                }
-                else
-                {
-                    // Mặc định: StandardFirst (Thành hình trước, Gò sau)
-                    standardSeq = firstSeq;
-                    goSeq = secondSeq;
-                }
+                    // Cấp phát nguyên tử trong DB để hai phiên xuất đồng thời không thể nhận cùng số.
+                    var requestedStart = request.StartInvoiceNumber ?? _sequenceService.ExtractSequenceNumber(request.InvoiceNo);
+                    var reserved = await _sequenceService.ReservePartnerSequenceNumbersAsync(partnerFolder.Id, 2, requestedStart);
+                    int firstSeq = reserved[0], secondSeq = reserved[1];
 
-                string goInvoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, goSeq);
-                string standardInvoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, standardSeq);
-                string goFileName = PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, goSeq);
-                string standardFileName = PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, standardSeq);
+                    int standardSeq, goSeq;
+                    if (request.Priority == ExportSequencePriority.GoFirst)
+                    {
+                        goSeq = firstSeq;
+                        standardSeq = secondSeq;
+                    }
+                    else
+                    {
+                        // Mặc định: StandardFirst (Thành hình trước, Gò sau)
+                        standardSeq = firstSeq;
+                        goSeq = secondSeq;
+                    }
 
-                // Tạo 2 request riêng cho mỗi loại hàng
-                var goRequest = CloneRequestWithItems(request, goItems, goInvoiceNo);
-                var standardRequest = CloneRequestWithItems(request, standardItems, standardInvoiceNo);
+                    string goInvoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, goSeq);
+                    string standardInvoiceNo = PartnerDocumentPatternFormatter.InvoiceNo(partnerFolder.InvoiceNoPattern, standardSeq);
+                    string goFileName = PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, goSeq);
+                    string standardFileName = PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, standardSeq);
 
-                // Lưu CẢ HAI đơn hàng thực tế vào DB với trạng thái Exported (Chờ thông quan)
-                    await SaveOrUpdateShipmentInternalAsync(goRequest, ShipmentStatus.Exported);
-                    await SaveOrUpdateShipmentInternalAsync(standardRequest, ShipmentStatus.Exported);
+                    // Tạo 2 request riêng cho mỗi loại hàng
+                    var goRequest = CloneRequestWithItems(request, goItems, goInvoiceNo);
+                    var standardRequest = CloneRequestWithItems(request, standardItems, standardInvoiceNo);
+
+                    // Lưu CẢ HAI đơn hàng thực tế vào DB với trạng thái Exported (Chờ thông quan)
+                        await SaveOrUpdateShipmentInternalAsync(goRequest, ShipmentStatus.Exported);
+                        await SaveOrUpdateShipmentInternalAsync(standardRequest, ShipmentStatus.Exported);
 
 
-                // Xuất 2 file và đóng gói ZIP (thứ tự ưu tiên theo cấu hình)
-                var zipBytes = request.Priority == ExportSequencePriority.GoFirst
-                    ? await _excelService.ExportSplitToZipAsync(goRequest, goFileName, standardRequest, standardFileName)
-                    : await _excelService.ExportSplitToZipAsync(standardRequest, standardFileName, goRequest, goFileName);
+                    // Xuất 2 file và đóng gói ZIP (thứ tự ưu tiên theo cấu hình)
+                    var zipBytes = request.Priority == ExportSequencePriority.GoFirst
+                        ? await _excelService.ExportSplitToZipAsync(goRequest, goFileName, standardRequest, standardFileName)
+                        : await _excelService.ExportSplitToZipAsync(standardRequest, standardFileName, goRequest, goFileName);
 
-                // Thông tin tổng kết để frontend hiển thị
-                var exportResult = new ExportResultDto
-                {
-                    HasTwoFiles = true,
-                    GoFileName = goFileName,
-                    GoInvoiceNo = goInvoiceNo,
-                    GoTotalQuantity = goItems.Sum(i => i.Quantity),
-                    GoSequenceNumber = goSeq,
-                    StandardFileName = standardFileName,
-                    StandardInvoiceNo = standardInvoiceNo,
-                    StandardTotalQuantity = standardItems.Sum(i => i.Quantity),
-                    StandardSequenceNumber = standardSeq,
-                };
+                    // Thông tin tổng kết để frontend hiển thị
+                    var exportResult = new ExportResultDto
+                    {
+                        HasTwoFiles = true,
+                        GoFileName = goFileName,
+                        GoInvoiceNo = goInvoiceNo,
+                        GoTotalQuantity = goItems.Sum(i => i.Quantity),
+                        GoSequenceNumber = goSeq,
+                        StandardFileName = standardFileName,
+                        StandardInvoiceNo = standardInvoiceNo,
+                        StandardTotalQuantity = standardItems.Sum(i => i.Quantity),
+                        StandardSequenceNumber = standardSeq,
+                    };
 
-                // Đặt tên file ZIP theo thứ tự ưu tiên
-                string zipName = $"{Path.GetFileNameWithoutExtension(PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, firstSeq))}-{secondSeq}.zip";
+                    // Đặt tên file ZIP theo thứ tự ưu tiên
+                    string zipName = $"{Path.GetFileNameWithoutExtension(PartnerDocumentPatternFormatter.FileName(partnerFolder.FileNamePattern, firstSeq))}-{secondSeq}.zip";
 
-                Response.Headers["X-Export-Info"] = JsonSerializer.Serialize(exportResult, new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    Response.Headers["X-Export-Info"] = JsonSerializer.Serialize(exportResult, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
                 });
                 Response.Headers["Access-Control-Expose-Headers"] = "X-Export-Info";
 
@@ -329,6 +333,7 @@ public class ShipmentsController : ControllerBase
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     fileName);
             }
+            });
         }
         catch (InvalidOperationException ex)
         {
@@ -425,9 +430,9 @@ public class ShipmentsController : ControllerBase
 
         try
         {
-            await using var transaction = await _context.Database.BeginTransactionAsync();
+            // A single SaveChangesAsync atomically saves the header and items and
+            // works with SQL Server's retry strategy without a user transaction.
             var shipment = await SaveOrUpdateShipmentInternalAsync(request);
-            await transaction.CommitAsync();
 
             return CreatedAtAction(nameof(GetShipmentById), new { id = shipment.Id }, new
             {
@@ -484,9 +489,8 @@ public class ShipmentsController : ControllerBase
 
         try
         {
-            await using var transaction = await _context.Database.BeginTransactionAsync();
+            // SaveChangesAsync owns the transaction, including item replacement.
             var shipment = await SaveOrUpdateShipmentInternalAsync(request);
-            await transaction.CommitAsync();
 
             return Ok(new
             {

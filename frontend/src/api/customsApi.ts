@@ -50,6 +50,28 @@ export interface ConfirmSyncResponse {
   statusName: string;
 }
 
+export interface CustomsParseIssue {
+  sheet: string;
+  row: number;
+  column: number;
+  lineNumber?: number | null;
+  styleCode?: string | null;
+  field: string;
+  reason: string;
+  rawValue?: string | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+  actualAmount?: number | null;
+  expectedAmount?: number | null;
+}
+
+export interface CustomsApiError {
+  code?: string;
+  message?: string;
+  detail?: string;
+  details?: CustomsParseIssue[];
+}
+
 export const customsApi = {
   /**
    * Upload file tờ khai VNACCS (.xls hoặc .xlsx), bóc tách và đối soát chéo với đơn hàng
@@ -71,6 +93,7 @@ export const customsApi = {
       formData,
       {
         params,
+        suppressErrorToast: true,
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -117,6 +140,7 @@ export const customsApi = {
       '/customs/confirm-sync',
       formData,
       {
+        suppressErrorToast: true,
         headers: {
           'Content-Type': 'multipart/form-data',
         },

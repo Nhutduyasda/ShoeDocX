@@ -4,6 +4,7 @@ import type { User, LoginRequest, Department } from '../types/auth';
 import { authApi } from '../api/authApi';
 import { message } from 'antd';
 import { resetUnauthorizedHandling } from '../api/client';
+import { requestInvoiceDraftLeave } from '../services/invoiceDraftStore';
 
 interface AuthContextType {
   user: User | null;
@@ -39,8 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const logout = useCallback(() => {
-    void authApi.logout();
-    clearLocalSession();
+    requestInvoiceDraftLeave(() => { void authApi.logout(); clearLocalSession(); });
   }, [clearLocalSession]);
 
   // Fetch current user on mount if token exists

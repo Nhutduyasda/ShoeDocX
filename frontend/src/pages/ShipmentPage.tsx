@@ -18,6 +18,7 @@ import {
   Radio,
   Empty,
   Dropdown,
+  Alert,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -58,6 +59,8 @@ import { templateApi } from '../api/templateApi';
 import { hasCompletedTour, startOnboardingTour } from '../services/tourService';
 import { customsApi } from '../api/customsApi';
 import { useAuth } from '../contexts/AuthContext';
+import { useInvoiceDrafts } from '../hooks/useInvoiceDrafts';
+import { serverFingerprint, canResumeServerDraft, type InvoiceDraftData } from '../services/invoiceDraftStore';
 import { canUnlockClearedShipment, isKeToanUser } from '../types/auth';
 import type { NavTabKey } from '../layouts/AppLayout';
 import type { WarehouseBatchSummary } from '../types/warehouse';
@@ -126,7 +129,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   // Quản lý Đối tác / Hồ sơ Khách hàng (Partner Workspace Presets)
   const [partnerFolders, setPartnerFolders] = useState<MasterDataFolder[]>([]);
   const [editingOrderId, setEditingOrderId] = useState<number | undefined>();
-  const [readOnly, setReadOnly] = useState(false);
+  const [serverReadOnly, setReadOnly] = useState(false);
+  const [draftConflict, setDraftConflict] = useState('');
+  const [draftListVisible, setDraftListVisible] = useState(false);
+  const draftRestoredRef = useRef(false);
+  const restoreGenerationRef = useRef(0);
+  const serverBaselineRef = useRef<string | undefined>(undefined);
+  const draftCompletedRef = useRef(false);
+  const exportedOrdersRef = useRef<InvoiceDraftData['exportedOrders']>(undefined);
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
 
   // Biểu mẫu xuất Excel (Bring Your Own Template - BYOT)
@@ -139,7 +149,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       const data = await templateApi.getAll();
       setTemplates(data);
       const defaultTpl = data.find((t) => t.isDefault) || data[0];
-      if (defaultTpl) {
+      if (defaultTpl && !draftRestoredRef.current) {
         setSelectedTemplateId((prev) => prev || defaultTpl.id);
       }
     } catch (err) {
@@ -214,11 +224,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     }
   };
 
-  const handleAutoSwitchPartner = () => {
+  const handleAutoSwitchPartner = async () => {
+    if (readOnly) return;
     if (!suggestionBannerData || !suggestionBannerData.suggestedPartnerFolderId) return;
     const targetId = suggestionBannerData.suggestedPartnerFolderId;
     const targetPartner = partnerFolders.find((f) => f.id === targetId);
     if (!targetPartner) return;
+
+    if (!await beginPartnerDraft()) return;
 
     // 1. Cập nhật Đối tác & Header
     setSelectedPartnerId(targetPartner.id);
@@ -394,6 +407,61 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   const [batchPrintType, setBatchPrintType] = useState<'INV' | 'PKL' | 'ALL'>('ALL');
   const [batchPrinting, setBatchPrinting] = useState<boolean>(false);
 
+  function captureDraft(): InvoiceDraftData {
+    const fields = form.getFieldsValue(true);
+    return { fields: { ...fields, invoiceDate: fields.invoiceDate?.format?.('YYYY-MM-DD') ?? fields.invoiceDate },
+      items, partnerId: selectedPartnerId, templateId: selectedTemplateId,
+      warehouseBatchId: activeWarehouseBatchId, orderId: editingOrderId,
+      serverBaseline: serverBaselineRef.current, completed: draftCompletedRef.current, exportedOrders: exportedOrdersRef.current,
+      priority: exportPriority, startNumber: startInvoiceNum, sequence: sequenceInfo };
+  }
+  function restoreDraft(data: InvoiceDraftData) {
+    const generation = ++restoreGenerationRef.current;
+    draftRestoredRef.current = true;
+    draftCompletedRef.current = Boolean(data.completed);
+    exportedOrdersRef.current = data.exportedOrders;
+    serverBaselineRef.current = data.serverBaseline;
+    form.setFieldsValue({ ...data.fields, invoiceDate: data.fields.invoiceDate ? dayjs(String(data.fields.invoiceDate)) : null });
+    setItems(data.items); setSelectedPartnerId(data.partnerId); setSelectedTemplateId(data.templateId);
+    setActiveWarehouseBatchId(data.warehouseBatchId); setEditingOrderId(data.orderId);
+    setExportPriority(data.priority); setStartInvoiceNum(data.startNumber); setSequenceEditValue(data.startNumber);
+    setSequenceInfo(data.sequence ?? null); setReadOnly(false);
+    setDraftConflict(data.completed ? 'Bản này đã xuất thành công. Hãy mở hóa đơn đã lưu trong Lịch sử hoặc sao chép thành bản mới.' : '');
+    if (data.orderId && !data.completed) {
+      setDraftConflict('Đang kiểm tra hóa đơn đã lưu. Bản đang soạn vẫn được giữ trên máy.');
+      void shipmentApi.getShipmentById(data.orderId).then(order => {
+        if (restoreGenerationRef.current !== generation) return;
+        if (!canResumeServerDraft(data, order, order.status === ShipmentStatus.Cleared))
+          setDraftConflict('Hóa đơn trên hệ thống đã thay đổi hoặc bị khóa. Bạn có thể xem hoặc sao chép bản đang soạn thành INV mới.');
+        else setDraftConflict('');
+      }).catch(() => { if (restoreGenerationRef.current === generation) setDraftConflict('Chưa kiểm tra được hóa đơn trên hệ thống. Hãy giữ bản này, thử mở lại khi có mạng hoặc sao chép thành INV mới.'); });
+    }
+  }
+  const draft = useInvoiceDrafts(user?.id, captureDraft, restoreDraft, !isKeToan);
+  const readOnly = serverReadOnly || draft.locked || Boolean(draftConflict);
+  async function beginPartnerDraft() {
+    if (!await draft.fresh(true)) return false;
+    ++restoreGenerationRef.current;
+    draftRestoredRef.current = true;
+    serverBaselineRef.current = undefined; draftCompletedRef.current = false; exportedOrdersRef.current = undefined;
+    setEditingOrderId(undefined); setActiveWarehouseBatchId(null); setReadOnly(false); setDraftConflict('');
+    return true;
+  }
+  useEffect(() => {
+    const guard = (event: Event) => {
+      if (!isSubmittingRef.current) return;
+      event.preventDefault();
+      if (event instanceof CustomEvent && event.detail) event.detail.blocked = true;
+      message.info('Đang lưu hoặc xuất hóa đơn. Hãy chờ hoàn tất trước khi chuyển màn hình.');
+    };
+    const unload = (event: BeforeUnloadEvent) => {
+      if (isSubmittingRef.current) { event.preventDefault(); event.returnValue = ''; }
+    };
+    window.addEventListener('invoice-draft:before-leave', guard);
+    window.addEventListener('beforeunload', unload);
+    return () => { window.removeEventListener('invoice-draft:before-leave', guard); window.removeEventListener('beforeunload', unload); };
+  }, []);
+
   const currentFolderName = useMemo(() => {
     if (selectedOrderIds.length === 0) return '';
     const firstOrder = savedShipments.find((s) => s.id === selectedOrderIds[0]);
@@ -435,6 +503,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleSaveSizeBreakdown = (updatedJson: string) => {
+    if (readOnly) return;
     setItems((prev) => {
       const next = [...prev];
       if (next[sizeModalIndex]) {
@@ -494,6 +563,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   async function loadSequence() {
     try {
       const info = await shipmentApi.getSequence();
+      if (draftRestoredRef.current) return;
       setSequenceInfo(info);
       const currentInvoice = form.getFieldValue('invoiceNo');
       if (!currentInvoice || currentInvoice === 'KMHD-NEW2026-0233') {
@@ -553,7 +623,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       const roots = flatten(tree);
       setPartnerFolders(roots);
 
-      if (roots.length > 0 && !selectedPartnerId) {
+      if (roots.length > 0 && !selectedPartnerId && !draftRestoredRef.current) {
         const km3 = roots.find((r) => r.name.toLowerCase().includes('kingmaker')) || roots[0];
         setSelectedPartnerId(km3.id);
         const curCustomer = form.getFieldValue('customerName');
@@ -605,7 +675,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     message.success(`Đã áp dụng cấu hình đối tác: ${partner.name} (${partner.defaultPairsPerCarton} đôi/thùng)`);
   };
 
-  const handlePartnerSelect = (targetId: number) => {
+  const handlePartnerSelect = async (targetId: number) => {
+    if (readOnly) return;
+    draft.changed();
     if (targetId === selectedPartnerId) return;
     const targetPartner = partnerFolders.find((f) => f.id === targetId);
     if (!targetPartner) return;
@@ -617,22 +689,21 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         content: (
           <div className="text-xs text-slate-600 space-y-2 mt-2">
             <p>
-              Đổi sang đối tác <strong>{targetPartner.name}</strong> sẽ xóa toàn bộ {items.length} dòng hàng hiện tại để tránh lẫn lộn mã hàng, đơn giá và quy cách đóng thùng.
+              Bản hiện tại với {items.length} dòng hàng sẽ được giữ trong “INV đang soạn”. Hệ thống mở bản mới cho đối tác <strong>{targetPartner.name}</strong> để tránh lẫn mã hàng, đơn giá và quy cách đóng thùng.
             </p>
             <p className="text-rose-600 font-medium">
               Bạn có chắc chắn muốn chuyển đổi không?
             </p>
           </div>
         ),
-        okText: 'Đồng ý chuyển đổi & Xóa hàng cũ',
-        okButtonProps: { danger: true },
+        okText: 'Giữ bản cũ & Chuyển đối tác',
         cancelText: 'Hủy bỏ',
-        onOk: () => {
-          applyPartnerPreset(targetPartner, true);
+        onOk: async () => {
+          if (await beginPartnerDraft()) applyPartnerPreset(targetPartner, true);
         },
       });
     } else {
-      applyPartnerPreset(targetPartner, false);
+      if (await beginPartnerDraft()) applyPartnerPreset(targetPartner, false);
     }
   };
 
@@ -649,7 +720,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   }
 
   const buildRequestData = async (): Promise<CreateShipmentRequest | null> => {
-    if (readOnly) { message.warning("Đơn đã thông quan, chỉ được xem và tải chứng từ."); return null; }
+    if (readOnly) { message.warning(draftConflict || (draft.locked ? 'Bản này đang được sửa ở tab khác. Hãy sao chép thành INV mới để nhập riêng.' : 'Đơn đã bị khóa, chỉ được xem và tải chứng từ.')); return null; }
     try {
       const values = await form.validateFields();
       if (items.length === 0) {
@@ -753,10 +824,15 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     }
   };
 
-  const handleGenerateInvoiceNo = async () => {
+  const handleGenerateInvoiceNo = async (forNewDraft = false) => {
+    if (readOnly && !forNewDraft) return;
+    const generation = restoreGenerationRef.current;
+    const invoiceBefore = form.getFieldValue('invoiceNo');
+    const stillCurrent = () => generation === restoreGenerationRef.current && form.getFieldValue('invoiceNo') === invoiceBefore;
     try {
       if (selectedPartnerId) {
         const partner = await masterDataFolderApi.getById(selectedPartnerId);
+        if (!stillCurrent()) return;
         const invoiceNo = formatInvoiceNo(partner.invoiceNoPattern, partner.currentSequenceNumber);
         const previewFileName = formatPartnerFileName(partner.fileNamePattern, partner.currentSequenceNumber);
         setPartnerFolders((prev) => prev.map((p) => p.id === partner.id ? { ...p, ...partner } : p));
@@ -768,12 +844,14 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         return;
       }
       const info = await shipmentApi.getSequence();
+      if (!stillCurrent()) return;
       setSequenceInfo(info);
       setStartInvoiceNum(info.nextNumber);
       setSequenceEditValue(info.nextNumber);
       form.setFieldsValue({ invoiceNo: info.previewInvoiceNo });
       message.info(`Đã điền số hóa đơn tiếp theo: ${info.previewInvoiceNo}`);
     } catch {
+      if (!stillCurrent()) return;
       const year = dayjs().year();
       const randomSeq = Math.floor(100 + Math.random() * 900);
       const newInvoiceNo = `KMHD-NEW${year}-0${randomSeq}`;
@@ -785,13 +863,19 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleResetToNewOrder = async () => {
+    if (saving || exporting || !await draft.fresh()) return;
+    restoreGenerationRef.current++;
+    serverBaselineRef.current = undefined;
+    draftCompletedRef.current = false;
+    exportedOrdersRef.current = undefined;
+    setDraftConflict('');
     setReadOnly(false);
     setEditingOrderId(undefined);
     setActiveWarehouseBatchId(null);
     setItems([]);
     form.resetFields();
-    await handleGenerateInvoiceNo();
     form.setFieldValue('invoiceDate', dayjs());
+    await handleGenerateInvoiceNo(true);
     message.success('Đã làm sạch bảng để sẵn sàng lập hóa đơn mới!');
   };
 
@@ -802,6 +886,31 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       setExporting(true);
       const result = await shipmentApi.exportShipmentExcel(req);
       const { blob, contentType, exportSummary } = result;
+      // Export may create one or two orders. Retain the full working copy but prevent another create.
+      draftCompletedRef.current = true;
+      setDraftConflict('INV đã xuất và lưu thành công. Mở hóa đơn trong Lịch sử để sửa hoặc sao chép thành bản mới.');
+      await draft.recordResult({ completed: true }, req.invoiceNo);
+      draft.changed();
+
+      // The export endpoint returns invoice numbers; resolve their real IDs using existing APIs.
+      try {
+        const invoiceNumbers = exportSummary?.hasTwoFiles
+          ? [exportSummary.standardInvoiceNo, exportSummary.goInvoiceNo]
+          : [exportSummary?.singleInvoiceNo ?? req.invoiceNo];
+        const history = await shipmentApi.getShipments();
+        exportedOrdersRef.current = history.filter(order => invoiceNumbers.includes(order.invoiceNo))
+          .map(order => ({ id: order.id, invoiceNo: order.invoiceNo }));
+        if (!exportSummary?.hasTwoFiles && exportedOrdersRef.current.length === 1) {
+          const saved = exportedOrdersRef.current[0];
+          setEditingOrderId(saved.id);
+          serverBaselineRef.current = serverFingerprint(await shipmentApi.getShipmentById(saved.id));
+          if (form.getFieldValue('invoiceNo') === req.invoiceNo) form.setFieldValue('invoiceNo', saved.invoiceNo);
+          draftCompletedRef.current = false; setDraftConflict('');
+          await draft.recordResult({ orderId: saved.id, serverBaseline: serverBaselineRef.current,
+            completed: false, exportedOrders: exportedOrdersRef.current }, req.invoiceNo, saved.invoiceNo);
+        } else await draft.recordResult({ completed: true, exportedOrders: exportedOrdersRef.current }, req.invoiceNo);
+        draft.changed();
+      } catch { /* Keep the completed snapshot read-only if the new order cannot be verified. */ }
 
       const isZip = contentType.includes('zip');
 
@@ -817,8 +926,6 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
           };
           setPartnerFolders((prev) => prev.map((p) => p.id === partner.id ? { ...p, ...partner } : p));
           setSequenceInfo(nextInfo);
-          setStartInvoiceNum(nextInfo.nextNumber);
-          form.setFieldValue('invoiceNo', nextInfo.previewInvoiceNo);
         } catch { /* Ignored */ }
       }
 
@@ -983,6 +1090,18 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         savedInvoiceNo = saved.invoiceNo;
         setEditingOrderId(saved.id);
       }
+      if (savedId) {
+        if (form.getFieldValue('invoiceNo') === req.invoiceNo) form.setFieldValue('invoiceNo', savedInvoiceNo);
+        try {
+          const serverOrder = await shipmentApi.getShipmentById(savedId);
+          serverBaselineRef.current = serverFingerprint(serverOrder);
+        } catch {
+          serverBaselineRef.current = undefined;
+          setDraftConflict('Đã lưu hóa đơn nhưng chưa kiểm tra được dữ liệu mới. Hãy mở lại bản này khi có mạng trước khi lưu tiếp.');
+        }
+        await draft.recordResult({ orderId: savedId, serverBaseline: serverBaselineRef.current, completed: false }, req.invoiceNo, savedInvoiceNo);
+        draft.changed();
+      }
 
       await loadShipmentsHistory();
 
@@ -1096,6 +1215,9 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   async function handleLoadHistoricalOrder(id: number) {
+    if (saving || exporting) return;
+    const existingDraft = draft.findOrder(id);
+    if (existingDraft) { if (await draft.open(existingDraft)) setActiveTab('create'); return; }
     if (isKeToan) {
       message.warning('Tài khoản Kế toán chỉ có quyền tra cứu và tải Excel đối soát.');
       return;
@@ -1103,7 +1225,15 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     try {
       message.loading({ content: 'Đang tải lại dữ liệu đơn hàng...', key: 'load-order' });
       const order = await shipmentApi.getShipmentById(id);
+      if (!await draft.fresh()) return;
+      ++restoreGenerationRef.current;
+      draftRestoredRef.current = true;
+      serverBaselineRef.current = serverFingerprint(order);
+      draftCompletedRef.current = false;
+      exportedOrdersRef.current = undefined;
+      setDraftConflict('');
       setEditingOrderId(order.id);
+      setActiveWarehouseBatchId(null);
       setSelectedPartnerId(order.contractFolderId ?? null);
       setReadOnly(Boolean(order.isLocked || order.status === ShipmentStatus.Cleared));
       form.setFieldsValue({
@@ -1134,10 +1264,11 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
             unitPriceDAP: i.unitPriceDAP,
             unit: i.unit || pm?.unit || 'đôi',
             pairPerCarton: i.pairPerCarton || pm?.pairPerCarton || 12,
+            sizeBreakdownJson: i.sizeBreakdownJson,
           };
         });
         setItems(reloadedItems);
-      }
+      } else setItems([]);
       // Đồng bộ sequence states từ đơn hàng cũ được nạp
       const seq = extractSequenceNumber(order.invoiceNo);
       if (seq) {
@@ -1233,11 +1364,13 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleClearAllItems = () => {
+    if (readOnly) return;
     setItems([]);
     message.success('Đã xóa sạch danh sách mặt hàng.');
   };
 
   const handleProductSelect = (index: number, styleCode: string) => {
+    if (readOnly) return;
     const cleanCode = styleCode.trim().toUpperCase();
     // Ưu tiên tra cứu trong thư mục đối tác đang chọn
     let p = selectedPartnerId
@@ -1280,6 +1413,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
   };
 
   const handleProcessTypeChange = (index: number, newProcessType: typeof ProcessType[keyof typeof ProcessType]) => {
+    if (readOnly) return;
     const next = [...items];
     const item = next[index];
     const p = products.find((x) => x.styleCode.trim().toUpperCase() === item.styleCode.trim().toUpperCase());
@@ -1304,6 +1438,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
     field: K,
     value: CreateShipmentItem[K]
   ) => {
+    if (readOnly) return;
     const next = [...items];
     next[index] = { ...next[index], [field]: value };
     setItems(next);
@@ -1561,6 +1696,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
         return (
           <div className="space-y-1">
             <AutoComplete
+              disabled={readOnly}
               value={val}
               options={sortedProducts.map((p) => {
                 const isCurrentPartner = selectedPartnerId && p.folderId === selectedPartnerId;
@@ -1613,6 +1749,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       width: 170,
       render: (val: string, _, index) => (
         <Input
+          disabled={readOnly}
           size="middle"
           value={val}
           placeholder="Mô tả hàng hóa..."
@@ -1713,6 +1850,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
       width: 150,
       render: (val: ProcessType, _, index) => (
         <Select
+          disabled={readOnly}
           value={normalizeProcessType(val)}
           onChange={(proc) => handleProcessTypeChange(index, proc)}
           className="w-full text-xs"
@@ -2229,6 +2367,33 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
   return (
     <div className="enterprise-page">
+      {!isKeToan && <div className="mb-3 flex flex-wrap items-center gap-3">
+        <Button icon={<HistoryOutlined />} disabled={saving || exporting} onClick={() => { draft.refresh(); setDraftListVisible(true); }}>INV đang soạn</Button>
+        <span className="text-xs text-slate-500" role="status">{draft.error ? 'Chưa tự lưu được' : !draft.ready ? 'Đang mở bản đang soạn…' : draft.locked ? 'Bản này đang mở ở tab khác — chỉ xem' : draft.savedAt ? `Đã tự lưu trên máy lúc ${dayjs(draft.savedAt).format('HH:mm:ss DD/MM/YYYY')}` : 'Tự lưu trên máy khi bạn nhập dữ liệu'}</span>
+        {(draft.locked || draftConflict) && <Button disabled={saving || exporting} onClick={draft.copyCurrent}>Sao chép thành INV mới</Button>}
+      </div>}
+      {draft.error && <Alert className="mb-3" type="error" showIcon message={draft.error} />}
+      {draft.damaged > 0 && <Alert className="mb-3" type="warning" showIcon message={`${draft.damaged} bản đang soạn chưa đọc được. Dữ liệu gốc vẫn được giữ trên máy; các bản khác vẫn sử dụng được.`} />}
+      {draftConflict && <Alert className="mb-3" type="warning" showIcon message={draftConflict} />}
+      <Modal title="INV đang soạn trên máy này" open={draftListVisible} onCancel={() => setDraftListVisible(false)} footer={null} width={900}>
+        <p className="mb-3 text-slate-500">Các bản đang soạn chỉ được lưu trên trình duyệt và tài khoản hiện tại.</p>
+        {draft.damaged > 0 && <Alert type="warning" showIcon message={`${draft.damaged} bản chưa đọc được. Dữ liệu gốc vẫn được giữ trên máy; các bản khác vẫn sử dụng được.`} />}
+        <Button className="mb-3" icon={<PlusOutlined />} onClick={() => { void handleResetToNewOrder(); setDraftListVisible(false); }}>Tạo INV mới</Button>
+        <Table rowKey="id" size="small" dataSource={draft.drafts} pagination={{ pageSize: 8 }} columns={[
+          { title: 'Số INV', render: (_, d) => String(d.data.fields.invoiceNo || 'Chưa nhập số INV') },
+          { title: 'Đối tác', render: (_, d) => String(d.data.fields.customerName || 'Chưa chọn') },
+          { title: 'Dòng / Đôi', render: (_, d) => `${d.data.items.length} / ${d.data.items.reduce((n, i) => n + (i.quantity || 0), 0).toLocaleString('vi-VN')}` },
+          { title: 'Sửa gần nhất', render: (_, d) => dayjs(d.updatedAt).format('HH:mm DD/MM/YYYY') },
+          { title: 'Thao tác', render: (_, d) => <Space>
+            <Button size="small" onClick={async () => { if (await draft.open(d)) { setDraftListVisible(false); setActiveTab('create'); } }}>Tiếp tục</Button>
+            <Button size="small" onClick={async () => { if (await draft.open(d, true)) { setDraftListVisible(false); setActiveTab('create'); } }}>Sao chép</Button>
+            <Button size="small" danger onClick={() => Modal.confirm({ title: 'Xóa bản đang soạn?', content: 'Chỉ xóa bản trên máy; hóa đơn đã lưu trên hệ thống vẫn được giữ.', okText: 'Xóa bản', cancelText: 'Hủy', onOk: async () => {
+              if (d.id === draft.id) await handleResetToNewOrder();
+              await draft.remove(d.id);
+            } })}>Xóa</Button>
+          </Space> },
+        ]} />
+      </Modal>
       {activeNavTab === 'history' || activeTab === 'history' || isKeToan ? (
         /* ================= MÀN HÌNH LỊCH SỬ CHỨNG TỪ ================= */
         <div className="space-y-6">
@@ -2566,7 +2731,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                   <Select
                     disabled={readOnly}
                     value={selectedTemplateId ?? undefined}
-                    onChange={(val) => setSelectedTemplateId(val)}
+                    onChange={(val) => { draft.changed(); setSelectedTemplateId(val); }}
                     className="w-full text-xs font-medium min-w-0"
                     size="middle"
                     placeholder="-- Chọn Biểu mẫu --"
@@ -2600,6 +2765,8 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
               form={form}
               layout="vertical"
               onValuesChange={(changedValues) => {
+                draftRestoredRef.current = true;
+                draft.changed();
                 if ('invoiceNo' in changedValues) {
                   handleInvoiceNoChange(changedValues.invoiceNo || '');
                 }
@@ -2637,7 +2804,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
                         <Tooltip title="Gợi ý số Invoice tiếp theo">
                           <ReloadOutlined
                             className="text-slate-400 hover:text-blue-600 cursor-pointer"
-                            onClick={handleGenerateInvoiceNo}
+                            onClick={() => { void handleGenerateInvoiceNo(); }}
                           />
                         </Tooltip>
                       }

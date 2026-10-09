@@ -15,6 +15,7 @@ import { LoginPage } from './pages/LoginPage';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { getAllowedTabsForUser, getDefaultTabForUser } from './types/auth';
 import { enterpriseTheme } from './theme/themeConfig';
+import { requestInvoiceDraftLeave } from './services/invoiceDraftStore';
 
 const MainApp: React.FC = () => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -39,7 +40,7 @@ const MainApp: React.FC = () => {
     ? selectedTab
     : defaultTab;
 
-  const handleNavigate = (tab: NavTabKey) => {
+  const handleNavigate = (tab: NavTabKey) => requestInvoiceDraftLeave(() => {
     if (!allowedTabs.includes(tab)) {
       setSelectedTab(defaultTab);
       return;
@@ -50,16 +51,16 @@ const MainApp: React.FC = () => {
         shipmentPageRef.current?.openOcrModal();
       }, 50);
     }
-  };
+  });
 
-  const handleOpenOrder = (id: number) => {
+  const handleOpenOrder = (id: number) => requestInvoiceDraftLeave(() => {
     setOrderIdToLoad(id);
     setSelectedTab('shipment');
     setTimeout(() => {
       shipmentPageRef.current?.loadHistoricalOrder(id);
       setOrderIdToLoad(null);
     }, 50);
-  };
+  });
 
   if (loading) {
     return (
@@ -99,6 +100,7 @@ const MainApp: React.FC = () => {
 
       {(currentTab === 'shipment' || currentTab === 'history' || currentTab === 'ocr') && (
         <ShipmentPage
+          key={user?.id}
           ref={shipmentPageRef}
           activeNavTab={currentTab}
           onTabChange={handleNavigate}

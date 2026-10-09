@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" role="img" aria-labelledby="title desc">
+  <title id="title">ShoeDocX document workflow</title>
+  <desc id="desc">Conceptual illustration, not an application screenshot. Warehouse slips lead to OCR, human review, dispatch and Excel documents.</desc>
+  <rect width="1200" height="430" rx="22" fill="#0f172a"/>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <text x="48" y="60" fill="#5eead4" font-size="16" letter-spacing="3">SHOEDOCX / DOCUMENT AUTOMATION</text>
+    <text x="48" y="111" fill="#f8fafc" font-size="36" font-weight="700">From warehouse slips to export documents.</text>
+    <text x="48" y="146" fill="#cbd5e1" font-size="19">Assisted extraction. Human review. Validated dispatch.</text>
+    <g fill="#172554" stroke="#3b82f6" stroke-width="1.5">
+      <rect x="48" y="193" width="195" height="133" rx="12"/>
+      <rect x="275" y="193" width="195" height="133" rx="12"/>
+      <rect x="502" y="193" width="195" height="133" rx="12"/>
+      <rect x="729" y="193" width="195" height="133" rx="12"/>
+      <rect x="956" y="193" width="195" height="133" rx="12" fill="#134e4a" stroke="#2dd4bf"/>
+    </g>
+    <g fill="#93c5fd" font-size="15" font-weight="700">
+      <text x="68" y="223">01 / INPUT</text><text x="295" y="223">02 / EXTRACT</text><text x="522" y="223">03 / VERIFY</text><text x="749" y="223">04 / DISPATCH</text><text x="976" y="223" fill="#5eead4">05 / DOCUMENTS</text>
+    </g>
+    <g fill="#f8fafc" font-size="21" font-weight="600">
+      <text x="68" y="263">Warehouse slips</text><text x="295" y="263">OCR assistance</text><text x="522" y="263">Human review</text><text x="749" y="263">Merge or split</text><text x="976" y="263">INV + PKL</text>
+    </g>
+    <g fill="#cbd5e1" font-size="15">
+      <text x="68" y="296">Photos or manual entry</text><text x="295" y="296">Candidate rows</text><text x="522" y="296">Reconcile quantities</text><text x="749" y="296">Validate allocations</text><text x="976" y="296">Excel / ZIP downloads</text>
+    </g>
+    <g fill="#5eead4" font-size="25"><text x="248" y="268">→</text><text x="475" y="268">→</text><text x="702" y="268">→</text><text x="929" y="268">→</text></g>
+    <text x="48" y="379" fill="#94a3b8" font-size="15">CONCEPTUAL WORKFLOW • Not an application screenshot • No customer data</text>
+  </g>
+</svg>

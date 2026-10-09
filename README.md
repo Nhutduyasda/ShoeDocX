@@ -1,267 +1,236 @@
-# Hệ Thống Tự Động Hóa Xuất Hóa Đơn (INV) & Đóng Gói (PKL) Giày Xuất Khẩu
+<div align="center">
 
-Hệ thống web ứng dụng nội bộ chuẩn Enterprise B2B SaaS phục vụ tự động hóa toàn diện quy trình lập hóa đơn thương mại quốc tế (Commercial Invoice - INV) và bảng kê chi tiết đóng gói (Packing List - PKL) cho ngành sản xuất gia công giày dép xuất khẩu, thay thế hoàn toàn việc nhập liệu thủ công bằng Excel.
+# ShoeDocX
 
----
+**From Warehouse Slips to Export Documents — A Smarter, Faster Workflow.**
 
-## 🌟 Tính Năng Nổi Bật
+Invoice & Packing List Automation for Footwear Manufacturing
 
-### 1. Quản lý Danh mục Hàng hóa (Master Data)
-- Quản lý mã hình thể gốc (`StyleCode`), mô tả hải quan, đơn giá gia công CMT, đơn giá DAP, mã HS code (`64041990`), đơn vị tính và quy cách đóng gói (`PairPerCarton`).
-- Hỗ trợ **nhập/xuất file Excel danh mục** hàng nghìn mã với cơ chế xác thực dữ liệu chặt chẽ và báo lỗi chi tiết theo từng dòng.
-- Giao diện bảng phân trang, tìm kiếm thời gian thực, lọc và chỉnh sửa nhanh.
+Turn photographed warehouse slips and manually entered quantities into reviewed shipment data,
+Commercial Invoices and Packing Lists. Built for the handoff between warehouse,
+export-import and accounting teams, with React and ASP.NET Core.
 
-### 2. Lập Hóa Đơn & Phân Rã Đóng Gói Tự Động (Core Business Logic)
-- **Tự động phân rã kiện hàng theo quy cách động**:
-  - Lấy động số đôi/thùng (`PairPerCarton`) từ từng mã hàng (không hardcode 12 đôi/thùng).
-  - Tự động chia **thùng chẵn** (`FullCartons = Quantity / pairsPerCarton`) và **thùng lẻ** (`Quantity % pairsPerCarton > 0`).
-  - Đánh số dải kiện lũy kế liên tục trên toàn lô hàng (ví dụ: `1-3`, `4-339`, `340-340`...).
-- **Tính toán trọng lượng thông minh**:
-  - Trọng lượng Net: Tính theo tỷ lệ thùng thực tế `(Quantity / pairsPerCarton) * 3.2`.
-  - Trọng lượng Gross: Quy tròn lên (`Math.Ceiling`) cộng thêm trọng lượng vỏ thùng carton (0.1 kg/thùng).
-- **Hỗ trợ quy trình công nghệ**: Tự động nhận diện công đoạn **"Gò không may"** (`ProcessType = GoKhongMay`, gán hậu tố mã `.G`) và **"Thành hình"** (`Standard`).
+![.NET 8](https://img.shields.io/badge/.NET-8-512BD4?style=flat-square)
+![React 19](https://img.shields.io/badge/React-19-087EA4?style=flat-square)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square)
+![SQL Server](https://img.shields.io/badge/SQL_Server-CC2927?style=flat-square)
 
-### 3. Xuất File Excel 3 Sheet Hoàn Chỉnh từ Mẫu Thực Tế
-- Mở trực tiếp file mẫu của công ty (`Templates/Shipment_Template.xlsx`), **bảo tồn 100% định dạng, độ rộng cột, font chữ, header thông tin doanh nghiệp và chân trang ký tên**.
-- **Sheet "INV"**: Điền thông tin hóa đơn (J4, J5, J6), điều kiện giao nhận (E9, E10, I9, I10), bảng mặt hàng từ dòng 13, tính thành tiền và tổng cộng.
-- **Sheet "PKL"**: Bảng phân rã đóng gói chi tiết từ dòng 12, giữ nguyên đường viền kẻ bảng và công thức tính.
-- **Sheet danh mục ("Sheet2")**: Trích xuất bảng Master Data tương ứng cho đợt hàng xuất.
+[Preview](#product-preview) · [Features](#key-features) · [Engineering](#engineering-challenges-and-solutions) · [Run locally](#getting-started) · [Developer](#about-the-developer)
 
-### 4. Nhập Liệu Siêu Tốc & Dán Nhanh từ Clipboard (Quick Paste)
-- **AutoComplete thông minh**: Gợi ý mã có sẵn trong Master Data kèm tự động điền đơn giá và quy cách đóng thùng.
-- **Phím tắt Enter**: Nhấn `Enter` ở ô số lượng để tự động thêm dòng mới và focus con trỏ tiếp tục gõ.
-- **Dán nhanh từ Clipboard (Quick Paste)**: Hỗ trợ copy nguyên bảng từ Excel hoặc tin nhắn Zalo dán thẳng vào ứng dụng. Tự động bóc tách mã, số lượng và nhận diện công đoạn Gò không may.
+</div>
 
-### 5. Vision AI OCR Bóc Tách Ảnh Phiếu Kho (Image-to-Data)
-- Tích hợp **Google Gemini Vision API (`gemini-1.5-flash`)** / **OpenAI GPT-4o-mini Vision**.
-- **3 phương thức nạp ảnh**: Kéo thả ảnh, chọn file từ máy, hoặc **nhấn `Ctrl + V` dán trực tiếp ảnh chụp màn hình Zalo/Snipping Tool**.
-- **Đối soát tổng số đôi tự động**:
-  - So sánh tổng nhận diện (`CalculatedTotal`) với số ghi dưới đáy phiếu (`ReportedTotal`).
-  - Badge xanh: `Khớp 100% số tổng phiếu kho (6,348 đôi)`.
-  - Cảnh báo đỏ: Cảnh báo chi tiết số đôi chênh lệch để kiểm tra lại trước khi áp dụng.
-- **Chế độ mô phỏng (Demo Fallback)**: Tự động chạy chế độ mô phỏng thông minh khi chưa có API Key, cho phép kiểm thử toàn diện quy trình mà không bị gián đoạn.
+![Conceptual workflow: warehouse slips, OCR assistance, human review, shipment dispatch and Excel documents](docs/assets/workflow.svg)
 
-### 6. Quản Lý Lịch Sử Hóa Đơn & Tái Xuất
-- Tự động lưu vết lô hàng vào cơ sở dữ liệu SQLite mỗi khi xuất file Excel.
-- Tab **"Lịch sử Hóa đơn"**: Xem danh sách các lần xuất trước đây.
-- Nút **"Tải lại Excel"**: Tải trực tiếp file Excel từ đơn hàng cũ.
-- Nút **"Mở lại dữ liệu" (Load into Editor)**: Tải toàn bộ dữ liệu đơn hàng cũ lên lưới làm việc để chỉnh sửa hoặc tái xuất.
+## Product Preview
 
----
+The illustration above describes the implemented workflow; it is **not an application screenshot**.
+The current interface is primarily Vietnamese and includes an overview, product catalog,
+shipment editor, OCR review dialogs, merge preview, split allocation matrix and invoice history.
 
-## 🏗️ Kiến Trúc Công Nghệ
+**Screenshot gallery pending:** authenticated screens have not been captured in a clean demo environment.
+See the [capture checklist](docs/assets/README.md) for the required views and privacy checks.
 
-| Thành phần | Công nghệ sử dụng |
-| :--- | :--- |
-| **Backend** | ASP.NET Core 8 Web API, Entity Framework Core 8, SQLite |
-| **Xử lý Excel** | ClosedXML (OpenXML standard) |
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Ant Design 5 |
-| **Thiết kế UI/UX** | Clean Slate Minimalist & Modern (Linear / Vercel design system) |
-| **Thị giác AI / OCR** | Google Gemini Vision API / OpenAI GPT-4o-mini Vision |
-| **Containerization** | Docker, Docker Compose, Nginx Alpine Reverse Proxy |
+## The Problem
 
----
+Footwear export documentation crosses several formats: photographed or handwritten warehouse slips,
+Excel product lists, Commercial Invoices (INV) and Packing Lists (PKL). Staff must read style codes,
+re-enter quantities, reconcile totals, look up prices and carton specifications, then prepare documents.
 
-## 🚀 Hướng Dẫn Chạy Dự Án
+Small batches may need consolidation; large batches may need several invoices. A correct grand total
+alone is insufficient: each style and production process must also balance across the resulting shipments.
+Repeated copying and spreadsheet corrections make this handoff difficult to review consistently.
 
-### Cách 1: Chạy bằng Docker Compose (Khuyên dùng - 1 Lệnh Duy Nhất)
+## The Solution
 
-Yêu cầu: Máy tính đã cài đặt [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+ShoeDocX connects assisted extraction, human review, master data and document preparation in one workflow.
+OCR provides a starting point; users review rows and discrepancies before dispatch. The API validates
+allocations, applies catalog data and produces template-based Excel files while recording shipments.
 
-1. Clone repository và mở thư mục dự án:
-   ```bash
-   git clone <repository-url>
-   cd clever-faraday
-   ```
+| Manual workflow | ShoeDocX workflow |
+| --- | --- |
+| Read each photo and type every line | Extract candidate rows from images, then review and correct them |
+| Look up prices and packing in separate files | Enrich rows from partner/contract master data |
+| Recalculate merge/split totals in Excel | Preview merges and validate each style/process allocation |
+| Rebuild invoice and packing tables | Generate INV/PKL workbooks from configured templates |
+| Track previous exports in scattered files | Find saved shipments, reopen eligible records and re-export |
 
-2. Tạo file `.env` từ `.env.example` và cấu hình khóa JWT mạnh:
-   - Khóa JWT là bắt buộc; API key OCR là tùy chọn:
-     ```env
-     JWT_KEY=replace-with-a-random-secret-at-least-32-bytes
-     OPENAI_API_KEY=
-     ```
-   - Để tạo tài khoản quản trị lần đầu, bật `BOOTSTRAP_ADMIN_ENABLED=true`, đặt tên đăng nhập và mật khẩu mạnh trong `.env`, khởi động một lần rồi tắt lại.
+These mechanisms are intended to reduce repetitive input and improve document preparation consistency.
+No measured time savings or customer outcomes are claimed.
 
-3. Khởi chạy toàn bộ hệ thống:
-   ```bash
-   docker compose up -d --build
-   ```
+## Key Features
 
-4. Truy cập hệ thống:
-   - **Giao diện người dùng (Web App)**: [http://localhost:5173](http://localhost:5173)
-   - **Backend API Swagger**: [http://localhost:5270/swagger](http://localhost:5270/swagger)
+| Capability | Implemented behavior |
+| --- | --- |
+| **OCR-assisted extraction** | Upload or paste images; scan multiple images/documents; normalize style codes; compare extracted and reported totals; review before applying data. Requires an OpenAI key. |
+| **Human verification** | Discrepancy indicators and reasoned manual confirmation with audit records. Confirmation does not supply missing master data or remove other export checks. |
+| **Invoice & packing automation** | Document and packing previews, product-specific pairs per carton, full/partial carton breakdowns, carton ranges and weight formulas; template-based INV/PKL Excel output. |
+| **Shipment merge & split** | Merge selected sources under a compatible contract; allocate into 2–10 logical invoices; validate per-style/process quantities and totals; reserve document numbers; download Excel or ZIP output. |
+| **Master data** | Product codes/descriptions, prices, process-specific values and packing specifications; partner/contract folders; Excel import preview, row-level errors and export. |
+| **History & working drafts** | Load saved shipments, edit eligible records and re-export. Browser drafts retain unfinished work and check server changes before overwriting; drafts stay on the current browser. |
+| **Access & traceability** | Identity-backed login, cookie JWT, departmental API permissions, warehouse handoff, cleared-record edit/delete guards, shipment-source relations and business audits. |
 
----
+**Dispatch detail:** standard and GoKhongMay production processes remain separate. A merge can produce
+multiple workbooks, and a logical split can create additional physical documents when it contains both processes.
+Auto-balancing currently prefers **12 pairs per carton**; final document packing uses product master data.
 
-### Cách 2: Chạy Phát Triển Cục Bộ (Local Development)
+Additional implemented modules cover customs-file comparison and archiving, accounting settlement,
+BOM calculation, materials and production planning. See the [feature evidence and limitations](docs/FEATURES.md).
 
-#### Yêu cầu môi trường:
-- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- [Node.js 18+](https://nodejs.org/) & npm
+## How It Works
 
-#### Bước 1: Chạy Backend API (.NET 8)
-```bash
-# Di chuyển vào thư mục backend
-cd backend/ShoeExportInvoice.Api
-
-# Khởi chạy server API (PowerShell, mặc định port 5270)
-$env:Jwt__Key="replace-with-a-random-secret-at-least-32-bytes"
-dotnet run --urls "http://localhost:5270"
+```mermaid
+flowchart LR
+    A[Warehouse slip images] --> B[OCR extraction]
+    B --> C[Human review and quantity checks]
+    D[Manual entry or quick paste] --> E[Shipment editor]
+    C --> E
+    W[Submitted warehouse batches] --> F[Select sources]
+    E --> F
+    M[Product and contract master data] --> E
+    M --> G[Validation and packing calculation]
+    F --> H{Dispatch choice}
+    H --> I[Single shipment]
+    H --> J[Merge selected sources]
+    H --> K[Split allocation matrix]
+    I --> G
+    J --> G
+    K --> G
+    G --> L[Save shipments and generate INV / PKL]
+    L --> N[Download Excel or ZIP]
+    L --> O[Shipment history]
 ```
-*Cơ sở dữ liệu SQLite `shoe_export.db` sẽ được tự động migrate. Hệ thống không còn tạo tài khoản hoặc mật khẩu mặc định.*
 
-#### Bước 2: Chạy Frontend (React + Vite)
-Mở một terminal mới:
-```bash
-# Di chuyển vào thư mục frontend
-cd frontend
+## Technology Stack
 
-# Cài đặt thư viện dependencies
-npm install
+Versions below describe the checked-in manifests, rather than a claim to use the latest releases.
 
-# Khởi chạy máy chủ phát triển Vite
-npm run dev
+| Layer | Technology |
+| --- | --- |
+| API & identity | ASP.NET Core / .NET 8, ASP.NET Core Identity, JWT bearer authentication |
+| Persistence | Entity Framework Core 8, SQL Server; SQLite for isolated backend tests |
+| Web application | React 19, TypeScript 6, Vite 8, Ant Design 6, Tailwind CSS 3, Axios |
+| Spreadsheet processing | ClosedXML 0.104.2, Open XML, ExcelDataReader 3.9 |
+| Vision extraction | OpenAI integration; model and endpoint are configurable |
+| Containers | Docker Compose, multi-stage builds, Nginx API proxy |
+| Automated checks | xUnit, Microsoft.NET.Test.Sdk, coverlet collector; Node test runner for drafts |
+
+## System Architecture
+
+```mermaid
+flowchart TB
+    U[Browser: React and TypeScript] --> P[Vite dev proxy or Nginx]
+    P --> A[ASP.NET Core API and authorization]
+    A --> O[OCR service]
+    O --> V[OpenAI vision API]
+    A --> S[Shipment and dispatch services]
+    A --> M[Master data and template services]
+    S --> E[Excel generation with ClosedXML]
+    M --> E
+    A --> D[EF Core and SQL Server]
+    E --> T[Excel templates]
+    A --> F[Customs attachments and template files]
+    E --> R[Excel or ZIP response]
+    R --> U
 ```
-Mở trình duyệt tại [http://localhost:5173](http://localhost:5173).
 
----
+The browser handles editing and review; the API enforces business rules, authorization and persistence.
+Images are sent to the configured OCR provider. SQL Server stores business records, while templates and
+customs attachments use filesystem storage. Excel/ZIP downloads are generated by backend services.
+See [architecture and template details](docs/ARCHITECTURE.md).
 
-## 🐳 Triển Khai Production Bằng Docker & Docker Compose
+## Engineering Challenges and Solutions
 
-Hệ thống đã được đóng gói hoàn chỉnh bằng Docker với kiến trúc Multi-stage build siêu nhẹ, Nginx Reverse Proxy và Volume lưu trữ bền vững.
+| Challenge | Technical approach | Result in the implementation |
+| --- | --- | --- |
+| Multiple tables or batches in one photograph | Parse separate documents, retain source identifiers, normalize codes and reconcile each document | Users select and review individual documents instead of accepting one flattened total |
+| OCR quantities disagree with the slip | Compare reported and calculated totals; expose discrepancies and audit explicit confirmation | Mismatches remain visible and merge reconciliation can block export |
+| Split totals match but individual products do not | Rebuild source quantities and compare allocations by normalized style **and process**, plus the grand total | Overallocating one product cannot compensate for underallocating another |
+| Numbering and persisted exports must stay together | Use sequence reservations, serializable dispatch transactions, retry execution and rollback on failure | Dispatch numbering, shipment records and source status updates share a transaction boundary |
+| Existing Excel layouts must remain useful | Load templates, use configurable cell mappings, extend rows and write totals/formulas; remove stamps/drawings | Documents retain template-based structure without promising complete visual preservation |
+| Work is interrupted or a saved shipment changes | Store drafts by user/backend; compare server baseline; retain edits made during delayed saves | Drafts survive interruptions and conflicting server changes can block overwrites |
 
-### 1. Chuẩn bị file biến môi trường (`.env`)
-Sao chép từ file mẫu `.env.example` hoặc tạo file `.env` tại thư mục gốc:
+The [audit](docs/AUDIT.md) identifies the implementation evidence. These mechanisms do not establish
+production performance or independent security certification.
+
+## Getting Started
+
+**Prerequisites:** Git, Docker with Compose, and a reachable SQL Server instance.
+Compose starts the web/API containers; it does **not** provision SQL Server.
+
 ```bash
+git clone https://github.com/Nhutduyasda/ShoeDocX.git
+cd ShoeDocX
 cp .env.example .env
 ```
-Nội dung file `.env`:
-```env
-# Port truy cập giao diện Web (Nginx Frontend)
-WEB_PORT=80
 
-# Port truy cập Backend API (Tùy chọn)
-BACKEND_PORT=5270
+On PowerShell, use `Copy-Item .env.example .env`. In `.env`, configure:
 
-# OpenAI API Key dùng cho tính năng Vision OCR
-OPENAI_API_KEY=sk-proj-...
+- `SQLSERVER_CONNECTION_STRING` for your own development database.
+- `JWT_KEY` with a random secret of at least 32 bytes.
+- `WEB_PORT=5173` for the local URL below.
+- `OPENAI_API_KEY` with your key, or leave it empty for manual entry without OCR.
+- For first administrator creation, set `BOOTSTRAP_ADMIN_ENABLED=true` and supply a unique username
+  and strong password. Disable bootstrap after creation and recreate the backend container.
 
-# Bắt buộc: bí mật ký JWT, tối thiểu 32 byte và không đưa vào Git
-JWT_KEY=replace-with-a-random-secret-at-least-32-bytes
-
-# Chỉ bật cho lần tạo quản trị viên đầu tiên, sau đó đổi thành false
-BOOTSTRAP_ADMIN_ENABLED=true
-BOOTSTRAP_ADMIN_USERNAME=admin
-BOOTSTRAP_ADMIN_PASSWORD=replace-with-a-strong-unique-password
-```
-
-### 2. Khởi chạy toàn bộ hệ thống
-Tại thư mục gốc dự án, chạy lệnh:
 ```bash
 docker compose up -d --build
 ```
 
-### 3. Kiểm tra trạng thái và logs
-```bash
-# Xem trạng thái containers
-docker compose ps
+Open [http://localhost:5173](http://localhost:5173). The API is at
+[http://localhost:5270/api](http://localhost:5270/api) (a route prefix, not a landing page).
+Swagger is available only when the API runs in Development mode.
 
-# Xem logs thời gian thực
-docker compose logs -f
+For native development, use .NET 8 and Node 22.12+; see [SETUP.md](docs/SETUP.md) for secrets,
+administrator setup, storage, OCR configuration and known container limitations.
+Instructions were checked against configuration; a complete local stack was not started during this audit.
 
-# Xem riêng logs backend
-docker compose logs -f backend
-```
+## Testing & Quality
 
-### 4. Dừng hoặc khởi động lại hệ thống
-```bash
-# Dừng các containers
-docker compose down
-
-# Khởi động lại
-docker compose restart
-```
-
-### 5. Truy cập ứng dụng:
-- **Giao diện Web**: [http://localhost](http://localhost) (hoặc `http://<IP_Server>:<WEB_PORT>`).
-- **Dữ liệu SQLite**: Tự động lưu trữ bền vững tại thư mục `./data/shoe_export.db` trên máy host.
-- **Mẫu Excel**: Có thể thay thế file template trực tiếp tại thư mục `./Templates/Shipment_Template.xlsx` mà không cần build lại container.
-
-## 🔑 Cấu Hình OCR Vision API
-
-## Phân quyền và bảo vệ dữ liệu nghiệp vụ
-
-- **Kho** tạo/sửa lô nháp và bàn giao lô cho XNK.
-- **XNK** tiếp nhận lô, tạo hóa đơn và đồng bộ hồ sơ hải quan.
-- **Kế toán** lập và chốt kỳ quyết toán; XNK không thể chốt qua API.
-- **Admin** thực hiện các override nhạy cảm có lý do và audit. Hồ sơ đã thông quan không được hard-delete.
-- API xóa toàn bộ shipment và các API xuất chứng từ từ payload tùy ý đã bị ngừng. Báo cáo chính thức phải xuất từ bản ghi đã lưu.
-
-File tờ khai mặc định được lưu tại `data/customs` trong volume bền vững. Khi nâng cấp từ bản cũ, sao lưu dữ liệu rồi chạy API với tham số `--migrate-customs-storage`; file nguồn trong `Uploads/Customs` được giữ lại để đối chiếu.
-
-JWT được đặt trong cookie `HttpOnly`, `SameSite=Strict`; logout revoke token hiện tại. Thay đổi department hoặc vô hiệu user có hiệu lực trên request kế tiếp.
-
-Hệ thống hỗ trợ 2 cách cấu hình API Key:
-
-### Cách 1: Cấu hình trong `appsettings.json`
-Mở file `backend/ShoeExportInvoice.Api/appsettings.json`:
-```json
-{
-  "OcrSettings": {
-    "Provider": "Gemini",
-    "GeminiApiKey": "AIzaSyYourGeminiApiKeyHere",
-    "GeminiModel": "gemini-1.5-flash",
-    "OpenAIApiKey": "",
-    "OpenAIModel": "gpt-4o-mini"
-  }
-}
-```
-
-### Cách 2: Sử dụng biến môi trường (Environment Variable)
-- Với Windows PowerShell:
-  ```powershell
-  $env:GEMINI_API_KEY="AIzaSyYourGeminiApiKeyHere"
-  ```
-- Với Docker Compose: đặt `GEMINI_API_KEY=...` trong file `.env`.
-
-> **Mẹo lấy Google Gemini API Key miễn phí**:
-> 1. Truy cập [Google AI Studio](https://aistudio.google.com/).
-> 2. Đăng nhập tài khoản Google và bấm **"Get API key"** $\rightarrow$ **"Create API key"**.
-> 3. Copy key và dán vào cấu hình trên.
-
----
-
-## 📁 Cấu Trúc File Mẫu Excel (`Shipment_Template.xlsx`)
-
-File mẫu được lưu trữ tại:
-- `Templates/Shipment_Template.xlsx` (hoặc `Templates/KM3-26-DH233.xlsx`)
-- `backend/ShoeExportInvoice.Api/Templates/Shipment_Template.xlsx`
-
-### Quy định tọa độ ghi dữ liệu:
-1. **Sheet "INV" (Commercial Invoice)**:
-   - `J4`: Số hóa đơn (`InvoiceNo`)
-   - `J5`: Ngày lập hóa đơn dạng text (vd: `SEP 09, 2026`)
-   - `J6`: Số hợp đồng (`ContractNo`)
-   - `E9`: Tên khách hàng (`CustomerName`)
-   - `E10`: Địa chỉ giao hàng (`Address`)
-   - `I9`: Điều kiện giao hàng (`DeliveryTerms`, vd: `DAP`)
-   - `I10`: Điều kiện thanh toán (`PaymentTerms`, vd: `T/T`)
-   - Dòng 13 trở đi: Chi tiết mặt hàng (STT, Mã đầy đủ, Đơn vị, Số lượng, Đơn giá CMT, Đơn giá DAP, Thành tiền).
-2. **Sheet "PKL" (Packing List)**:
-   - Dòng 12 trở đi: Phân rã kiện đóng gói (Dải số kiện, Phân loại, Mã hàng, Quy cách, Số kiện, Số đôi/kiện, Tổng số đôi, Net Weight, Gross Weight).
-3. **Sheet "Sheet2"**: Danh mục Master Data tương ứng cho đợt xuất.
-
----
-
-## 🧪 Chạy Kiểm Thử Tự Động (Unit Tests)
-
-Dự án trang bị bộ test tự động kiểm tra toàn diện thuật toán chia kiện, công thức trọng lượng và bóc tách OCR:
 ```bash
 dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj
+cd frontend
+npm run test:drafts
+npm run build
 ```
-Kết quả kiểm thử: **4/4 Tests Passed 100%**.
 
----
+Backend test sources cover packing, OCR parsing/reconciliation, dispatch allocations, Excel import,
+authorization, tenant filtering, customs workflows, BOM and save retries. Many use SQLite or test doubles;
+they do not establish SQL Server integration or live vision-provider accuracy.
+Frontend automated tests focus on draft persistence and conflict handling; broader UI checks are manual.
 
-## 📄 Bản Quyền & Giấy Phép
-Phát triển bởi đội ngũ Kỹ thuật & Tự động hóa Doanh nghiệp. Dự án dành cho mục đích nội bộ quản lý xuất nhập khẩu.
+See [validation results](docs/VALIDATION.md) for actual execution outcomes and remaining gaps.
+Coverage tooling is present, but no measured coverage percentage is claimed.
+
+## Project Status & Roadmap
+
+**Available in source:** document generation, reviewed OCR, merge/split UI and API, source traceability,
+history, master data and departmental access controls.
+
+**Partial / experimental:** 12-pair split auto-balancing despite configurable final packing;
+AI-assisted template mapping with demo credits. Arbitrary-template reliability and commercial billing are unverified.
+
+**Planned or awaiting verification:** quantity-threshold merge/split suggestions from the dispatch roadmap,
+privacy-safe screenshots, real-image browser acceptance tests and complete SQL Server/container verification.
+No production deployment URL or customer acceptance evidence was established in this audit.
+
+The [original dispatch roadmap](ROADMAP_SHIPMENT_DISPATCH_RULES.md) preserves business requirements.
+Its historical labels and proposed API names should be read alongside the [current feature matrix](docs/FEATURES.md).
+
+## About the Developer
+
+**Duy Nguyen** builds practical software for business workflows. ShoeDocX presents work across
+.NET APIs, React interfaces, spreadsheet automation and the validation needed to connect operational data
+with export documents.
+
+[GitHub](https://github.com/Nhutduyasda) · [Portfolio](https://duy-works.vercel.app/) ·
+[LinkedIn](https://www.linkedin.com/in/nhut-duy-nguyen-67a0673b9/)
+
+## Contact & Collaboration
+
+For custom business web applications, Excel/document automation, OCR-assisted workflows,
+.NET / React development or integration improvements, connect with Duy through the profiles above.
+
+## License
+
+No license file was found at the audited baseline. The earlier README described internal business use.
+Public visibility does not establish an open-source license; contact the owner about reuse or licensing terms.

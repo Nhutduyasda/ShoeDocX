@@ -18,15 +18,19 @@ No test count is a coverage percentage. Backend tests include SQLite and mocked-
 - No complete app startup or authenticated screenshots: localhost SQL Server TCP port 1433 was not reachable; no Docker CLI was available.
 - Compose and native setup instructions were traced through configuration, not validated through a complete first-run stack.
 - The existing backend Dockerfile retains a legacy default; Compose supplies its SQL Server override. The frontend image uses Node 20 Alpine; actual container build compatibility was not checked.
-- GitHub profile resolved through the web reader. Repository web retrieval failed there; the Git remote was successfully checked separately. Portfolio retrieval was unavailable; LinkedIn returned 999. Those user-supplied contact URLs remain unchanged, with accessibility unverified where blocked.
+- Final direct HTTP checks returned 200 for all four badges, the GitHub profile and the portfolio. LinkedIn returned 999, so its accessibility remains unverified. Earlier web-reader retrieval was partly blocked; user-supplied contact URLs remain unchanged.
 - Existing business templates and backups were not copied into preview assets. Added illustration contains no business records, identities, keys or account details.
 - No license file found; no license or production deployment claim was introduced.
 
 ## Documentation checks
 
 - Eight Markdown documents checked: balanced code fences, existing relative file/image targets and matching heading anchors; no structural errors found.
-- Both Mermaid blocks checked for the simple flowchart/edge syntax used here. Live GitHub diagram rendering remains to be checked.
+- Both Mermaid blocks checked for the simple flowchart/edge syntax used here. Live GitHub diagram rendering remains unverified: the unauthenticated browser returned a 404 for the repository branch, although authenticated Git access and PR creation succeeded.
 - README parsed into an HTML preview with the bundled Markdown parser. The remote browser could not reach the local preview server, so a local browser rendering check was unavailable.
 - Workflow SVG rasterized and visually inspected: readable labels, intact arrows, navy/blue/teal colors and explicit conceptual-illustration labeling. SVG is approximately 3 KB with no external resources or scripts.
 - `git diff --check` passed. Only README, Markdown documentation and the SVG are included in the proposed change; application code/configuration and the original roadmap remain untouched.
-- External contact links were attempted as documented above. Local access URLs remain configuration-derived, not a successful availability check. Badge availability and complete GitHub rendering remain unverified until remote review.
+- External link outcomes are documented above. Local access URLs remain configuration-derived, not a successful availability check. Complete GitHub rendering still requires an authenticated review.
+
+## Review delivery
+
+Documentation branch: `docs/portfolio-readme-redesign`. [Draft pull request #5](https://github.com/Nhutduyasda/ShoeDocX/pull/5) targets `main`; no merge was performed.

@@ -1,10 +1,10 @@
 # ShoeDocX — Gate 2: Deterministic Excel Template Projector
 
-**Status:** APPROVED FOR IMPLEMENTATION (not implemented yet)
+**Status:** APPROVED FOR IMPLEMENTATION (not implemented yet; non-draft PR)
 **Date:** 2026-10-14
 **Gate 1 accepted baseline:** `942981364648027205f3f3684aabf7614ee8d671`
 **Working branch:** `codex/universal-doc-engine-gate-2`
-**Planned PR base:** `codex/universal-doc-engine-gate-1` (stacked; Gate 1 PR #6 remains unmerged)
+**PR base:** `main` (Gate 1 PR #6 merged into main as `823e7d276468c8ff64711f755c21fdd9cf3250cd`)
 
 ## Purpose
 Prove that a validated, reviewed `CanonicalDocument` from Gate 1 can populate a customer's explicit `.xlsx` template without silently altering formulas, layout, or data. This is the deterministic foundation for future learn-by-example / visual mapping; it does NOT implement OCR, AI template inference, user-configurable UI, production APIs, or public SaaS.
@@ -14,7 +14,7 @@ Prove that a validated, reviewed `CanonicalDocument` from Gate 1 can populate a 
 - No database migrations, persistence, auth, DI/Program.cs, file-system storage, cloud, payment, AI calls or deployment.
 - Gate 1's `DocumentValidator` and `ExportEligibilityPolicy` are the authoritative policy. A projector must refuse a document for which `CanExport` is false. It must not accept caller-provided precomputed eligibility alone.
 - Use finite in-memory input/output streams and ensure the source workbook is never modified. No external reference fetches or workbook code execution.
-- Preserve the ability to continue Gate 1 review without changing PR #6.
+- Gate 1 is merged into main; do not change its approved legacy-safe behavior. Gate 2 implementation is on PR #7, not Draft.
 
 ## Explicit mapping format
 Do NOT interpret arbitrary `ExcelMapping.Destination` strings as raw Excel addresses without a validated grammar. Gate 1 currently allows free-form strings such as `Items.Amount`; design a backward-compatible, versionable, typed layout/mapping definition for Gate 2, tied to `FieldReference` and `FieldScope`.
@@ -55,7 +55,7 @@ All tests must create their own .xlsx workbooks in memory or use synthetic test 
 1. Verify and report base SHA/branch; do not accidentally branch from `main` while Gate 1 is unmerged.
 2. Baseline and post-change `dotnet build` and `dotnet test` with .NET 8 SDK; targeted Gate 1+2 and full suite; report any pre-existing failures separately.
 3. Detailed file list, API/contracts, supported and unsupported Excel features, security limits, test results (pass/fail/skip), examples from synthetic templates.
-4. Draft PR targeting `codex/universal-doc-engine-gate-1`, never `main`, and no merge/deploy.
+4. Existing non-draft PR #7 targeting `main`; owner authorizes merge ONLY after successful Gate 2 verification and no newly failing regressions. Otherwise leave PR open. No deploy.
 5. Gate 2 verdict: PASS/PARTIAL/FAIL; do not start Gate 3.
 
 ## Non-goals

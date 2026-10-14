@@ -1,0 +1,17 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  ShoeExportInvoice.Api -> /workspace/scratch/1d14db9c5e8a/ShoeDocX/backend/ShoeExportInvoice.Api/bin/Debug/net8.0/ShoeExportInvoice.Api.dll
+  ShoeExportInvoice.Tests -> /workspace/scratch/1d14db9c5e8a/ShoeDocX/tests/ShoeExportInvoice.Tests/bin/Debug/net8.0/ShoeExportInvoice.Tests.dll
+Test run for /workspace/scratch/1d14db9c5e8a/ShoeDocX/tests/ShoeExportInvoice.Tests/bin/Debug/net8.0/ShoeExportInvoice.Tests.dll (.NETCoreApp,Version=v8.0)
+VSTest version 17.11.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+System.NullReferenceException: Object reference not set to an instance of an object.
+   at Microsoft.VisualStudio.TestPlatform.CrossPlatEngine.Hosting.DotnetTestHostManager.<GetTestHostProcessStartInfo>g__IsRunningWithDotnetMuxer|48_0(String currentProcessPath) in /_/src/Microsoft.TestPlatform.TestHostProvider/Hosting/DotnetTestHostManager.cs:line 536
+   at Microsoft.VisualStudio.TestPlatform.CrossPlatEngine.Hosting.DotnetTestHostManager.GetTestHostProcessStartInfo(IEnumerable`1 sources, IDictionary`2 environmentVariables, TestRunnerConnectionInfo connectionInfo) in /_/src/Microsoft.TestPlatform.TestHostProvider/Hosting/DotnetTestHostManager.cs:line 436
+   at Microsoft.VisualStudio.TestPlatform.CrossPlatEngine.Client.ProxyOperationManager.SetupChannel(IEnumerable`1 sources, String runSettings) in /_/src/Microsoft.TestPlatform.CrossPlatEngine/Client/ProxyOperationManager.cs:line 226
+   at Microsoft.VisualStudio.TestPlatform.CrossPlatEngine.Client.ProxyExecutionManager.InitializeTestRun(TestRunCriteria testRunCriteria, IInternalTestRunEventsHandler eventHandler) in /_/src/Microsoft.TestPlatform.CrossPlatEngine/Client/ProxyExecutionManager.cs:line 182
+Results File: /workspace/scratch/1d14db9c5e8a/ShoeDocX/tests/ShoeExportInvoice.Tests/TestResults/gate2-full-isolated.trx
+
+Test Run Aborted.

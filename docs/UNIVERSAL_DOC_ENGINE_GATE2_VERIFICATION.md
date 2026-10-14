@@ -98,3 +98,61 @@ class Sink : IMessageSink, IDisposable {
 ## Acceptance decision
 
 Implementation and supplementary synthetic workbook assertions pass. Standard test execution remains blocked. **PARTIAL / NOT MERGE READY**. Leave PR #7 open and non-draft; rerun mandatory commands in a working standard .NET 8 test environment, compare the exact baseline failed-test set, and merge only when the owner's acceptance conditions are fulfilled.
+
+
+## Follow-up: standard isolation verification (2026-10-14)
+
+Read the latest owner review: https://github.com/Nhutduyasda/ShoeDocX/pull/7#issuecomment-6163481195 . The reviewed implementation remains `37f858633166a90a49e442ccbc71008cf3374f54`; baseline remains accepted main `823e7d276468c8ff64711f755c21fdd9cf3250cd`. This follow-up changes documentation/evidence only, with no application, tests, dependencies or CI modifications.
+
+Environment: the same Ubuntu 24.04 linux-x64 host, .NET SDK 8.0.426 / runtime 8.0.32 / VSTest 17.11.1. PATH and DOTNET_ROOT explicitly reference the installed SDK. Baseline and feature use identical SDK, runsettings and command patterns in separate checkouts.
+
+Commands executed in **both** baseline and feature checkouts:
+
+```sh
+dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter "FullyQualifiedName~UniversalDocEngine" --logger "trx;LogFileName=<label>-isolated.trx" -- RunConfiguration.InIsolation=true
+dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --logger "trx;LogFileName=<label>-full-isolated.trx" -- RunConfiguration.InIsolation=true
+```
+
+Direct standard VSTest also attempted on feature:
+
+```sh
+dotnet vstest tests/ShoeExportInvoice.Tests/bin/Debug/net8.0/ShoeExportInvoice.Tests.dll --InIsolation --TestCaseFilter:FullyQualifiedName~UniversalDocEngine --Logger:"trx;LogFileName=gate2-vstest-isolated.trx"
+```
+
+All five attempts returned exit code 1, matched one test assembly and then **aborted before executing any tests**. TRX result summary says Failed with total/executed/passed/failed counters all zero; those zero failed-test counters do not indicate a passing run.
+
+Isolation bypassed the original `TestEngine.ShouldRunInProcess` failure but exposed a second host problem:
+
+```text
+System.NullReferenceException
+Microsoft.VisualStudio.TestPlatform.CrossPlatEngine.Hosting.DotnetTestHostManager
+  .<GetTestHostProcessStartInfo>g__IsRunningWithDotnetMuxer|48_0(String currentProcessPath)
+  DotnetTestHostManager.cs:536
+GetTestHostProcessStartInfo:436
+ProxyOperationManager.SetupChannel:226
+ProxyExecutionManager.InitializeTestRun:182
+```
+
+The upstream VSTest v17.11.1 implementation at https://github.com/microsoft/vstest/blob/v17.11.1/src/Microsoft.TestPlatform.TestHostProvider/Hosting/DotnetTestHostManager.cs obtains `currentProcessPath` from `GetCurrentProcessFileName()` then unconditionally calls `.EndsWith` in `IsRunningWithDotnetMuxer`. This stack is consistent with a null process path on this host. It occurs before the custom dotnet host-path branch, so merely passing a custom host path would not bypass that call. No runner binaries or tests were patched.
+
+Raw logs, original TRX files and SHA-256 manifest are in `docs/verification/gate2-isolation-20261014/`.
+
+### Independent-host attempt
+
+- No GitHub workflow run exists for either reviewed HEAD or baseline; no workflow files are present in the repository checkout. No accessible Windows host, Docker or Podman runtime is available in this session.
+- Applied the Vercel Sandbox skill to attempt a short-lived, nonpersistent independent Linux VM. A scoped create request using an existing account project returned **403 Forbidden: not authorized for the requested scope**. No sandbox was created. No Vercel CLI or alternate Vercel credential is available here. Independent testing therefore could not be executed.
+- CI configuration was not created or changed, as separately required by the owner. No infrastructure or application deployment occurred.
+
+### Supplementary workbook/regression recheck
+
+The documented direct xUnit fallback was rerun against the unchanged reviewed assemblies. It is explicitly supplementary, not a replacement for standard VSTest:
+
+| Scope | Passed | Failed | Skipped |
+|---|---:|---:|---:|
+| UniversalDocEngine (85 Gate 1 + 54 Gate 2) | 139 | 0 | 0 |
+| Accepted baseline full suite | 272 | 10 | 0 |
+| Reviewed feature full suite | 326 | 10 | 0 |
+
+Compared exact failed-test identities **and their first failure messages**: equal. No new legacy failures appeared in supplementary execution. The same synthetic Excel integrity assertions pass again: reopened workbooks, relative/absolute/mixed formulas, footer/totals after expansion, typed values, Unicode/literal text, styles, merges, worksheets and template/review identity safety.
+
+**Decision remains PARTIAL / DO NOT MERGE.** Standard tests still execute zero tests, and an independent standard runner is inaccessible. To unblock, provide an accessible clean .NET 8 Windows/CI runner with repository access, or separately authorize a concrete test-only CI workflow. Existing PR #7 remains open, non-draft, targeting main. No Gate 3 work.

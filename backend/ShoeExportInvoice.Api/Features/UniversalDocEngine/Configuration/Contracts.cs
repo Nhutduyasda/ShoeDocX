@@ -21,4 +21,4 @@ public sealed record ValidationPolicy(ImmutableArray<ArithmeticCheck> Arithmetic
     ImmutableArray<CrossFootCheck> CrossFoot, bool RequireEvaluatedChecks = true,
     bool RequireHumanApproval = true, bool RequireWarningAcknowledgement = true);
 public sealed record ExcelMapping(FieldReference Source, string Destination);
-public sealed record ExcelProjectionMap(ImmutableArray<ExcelMapping> Mappings);
+public sealed record ExcelProjectionMap(ImmutableArray<ExcelMapping> Mappings, string? ApprovedLayoutFingerprint = null);

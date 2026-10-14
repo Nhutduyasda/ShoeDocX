@@ -1,0 +1,12 @@
+{
+  "feature-targeted.log": "c2dedb006846fab30e459f4e9dcdde67834c4195f3abea2b6a364715e95375f6",
+  "feature-full.log": "a2e6c33d001314541f3c85fdfa1e925dbc31299c08125dde038512be45c82e58",
+  "direct-vstest-targeted.log": "76caac683d56798b3fb66d231857e7313e9603b1dd5420f0f72b5affed61bf05",
+  "baseline-targeted.log": "e75f49b808d614fe967c1b7ec32a822dbb7ddfb721c6de6737852066f4bfcc09",
+  "baseline-full.log": "d84973daa0893df38643713f168cb15c0cc9c84a16a0dfc53562dbbe3edc437c",
+  "feature-targeted.trx": "f352d63d2c92e844018c7d15ce1de24d58e39f4e102faf72101e60f7836b8ff4",
+  "feature-full.trx": "b73f54aed135da272fce443692dc09db98d07d7df461862c31a0cd2bf4914d20",
+  "direct-vstest-targeted.trx": "3bf0227e190b95050e805b9f77b2c0dc6f177e000eb4dd163721de456773876c",
+  "baseline-targeted.trx": "b5a95555dbb29c01ca1c927f88d891aa3173a349a0fa565e646b4072dbdf11fb",
+  "baseline-full.trx": "952861bdc6854e67dee793f93cebc88ae778d57df0e0d4ccd4eb4b146ab36670"
+}

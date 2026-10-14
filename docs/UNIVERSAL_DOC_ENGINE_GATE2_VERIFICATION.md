@@ -1,5 +1,7 @@
 # Gate 2 verification — 2026-10-14
 
+**Final decision: PASS.** The final standard CI evidence below supersedes the earlier Work-host PARTIAL investigations, retained as history.
+
 ## Verified Git baseline
 
 - Starting feature HEAD: `c6e70b4e08d290db2b089642f8910acbf5cbbfc0`.
@@ -167,3 +169,25 @@ The owner explicitly authorized a minimal test-only GitHub Actions workflow for 
 Full legacy console output and raw TRX stay in temporary runner storage and are never uploaded or printed because legacy assertions may contain template values. Artifacts contain counts, test identities and SHA-256 hashes of complete normalized failure messages. Normalization removes only checkout prefixes, line-ending differences and random UUIDs. No application/test assertions were changed; all new Gate 2 scenarios remain synthetic. The comparison guards were exercised locally with synthetic Python/TRX data; no further local VSTest experiments were performed.
 
 CI result and merge decision remain pending until both runner jobs finish and their exact tested HEAD is verified.
+
+
+## Final independent standard CI result — PASS
+
+- Run: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38532488449
+- Ubuntu job: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38532488449/job/115747399683
+- Windows job: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38532488449/job/115747399577
+- Tested HEAD: `9588439290c13431057374cedf3cd1281a2b2ef9`.
+- Both jobs and the overall run concluded **success**.
+
+| Host | Baseline targeted P/F/S | Gate 2 targeted P/F/S | Baseline full P/F/S | Gate 2 full P/F/S |
+|---|---|---|---|---|
+| Ubuntu 24.04 | 85/0/0 | 139/0/0 | 272/10/0 | 326/10/0 |
+| Windows Server 2022 | 85/0/0 | 139/0/0 | 280/2/0 | 334/2/0 |
+
+Standard API and test-project builds passed on both checkouts/platforms. All 139 UniversalDocEngine tests also passed within each full suite. Baseline full inventory is 282 and feature inventory 336; all 54 added Gate 2 cases pass. Failure identity and full normalized message SHA-256 comparisons passed independently on each OS. No new legacy failure was introduced. The two Windows failures are the existing hard-coded Book1/Workbook1 developer-machine fixture paths. Ubuntu additionally retains the eight baseline fixed-capacity stream failures listed above. Test assertions and application/legacy source were not modified during CI troubleshooting.
+
+The first CI run (https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38532029670) correctly rejected the hosted default SDK 10 selection. The harness now writes an SDK 8.0.426 global.json in the disposable workspace parent, outside both source checkouts. The next run (https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38532151382) obtained all targeted passes but initially treated xUnit's recorded `[FAIL]` RunInfo diagnostics as infrastructure errors. The final harness accepts those diagnostics only if they name an actually recorded failed test; all other error diagnostics still fail, and complete test inventories, counters and exit codes remain mandatory. No application/test behavior was weakened.
+
+Sanitized artifacts in the successful run contain complete test identities/outcomes, counts, runner counters and full normalized error-message hashes. Raw legacy workbook values, raw test console output and full legacy TRX are not published. All new Gate 2 workbook fixtures remain synthetic and in memory.
+
+**Gate 2 PASS:** explicit mapping, source immutability, typed values, literal unsafe text, template/layout/review binding, eligibility enforcement, row expansion, relative/absolute/mixed formulas, styles, merged footer, multi-sheet integrity and negative cases pass through standard VSTest on both platforms. Supported/unsupported feature boundaries remain as documented. The final documentation-only HEAD is also required to pass the same workflow before merge. No deploy, migration, unrelated business logic or Gate 3 work.

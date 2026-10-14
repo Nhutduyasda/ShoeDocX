@@ -1,6 +1,6 @@
 # ShoeDocX — Gate 2: Deterministic Excel Template Projector
 
-**Status:** PARTIAL — implementation delivered; mandatory standard VSTest verification blocked; DO NOT MERGE
+**Status:** PASS — standard .NET 8 CI verification passed on Ubuntu and Windows; historical blockers below are superseded by final CI evidence
 **Date:** 2026-10-14
 **Gate 1 accepted baseline:** `942981364648027205f3f3684aabf7614ee8d671`
 **Working branch:** `codex/universal-doc-engine-gate-2`
@@ -89,3 +89,17 @@ A direct xUnit 2.5.3 runner provides supplementary evidence: **85 Gate 1 + 54 Ga
 The three synthetic scenarios cover accounting purchase data, a warehouse receipt with material code/description/unit/quantity/notes/footer, and a separate commercial packing layout with formulas and an untouched reference worksheet. Tests assert concrete typed values, Vietnamese text, unsafe literal strings, formula shifts, totals, styles, independent mapped sheets, footer merges, print orientation, source immutability, semantic repeatability, and explicit negative cases.
 
 **Decision: PARTIAL. PR #7 stays open, non-draft, targeting main. Do not merge until standard .NET 8 testing is successfully executed and its baseline comparison confirms no new failures. No Gate 3 or deployment.**
+
+
+## Final standard CI acceptance — PASS
+
+Standard GitHub-hosted verification completed successfully on both Ubuntu 24.04 and Windows Server 2022 using SDK 8.0.426. Run: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38532488449 . Tested implementation/CI HEAD: `9588439290c13431057374cedf3cd1281a2b2ef9`; accepted baseline: `823e7d276468c8ff64711f755c21fdd9cf3250cd`.
+
+| Host | Baseline engine P/F/S | Feature engine P/F/S | Baseline full P/F/S | Feature full P/F/S |
+|---|---|---|---|---|
+| Ubuntu 24.04 | 85/0/0 | 139/0/0 | 272/10/0 | 326/10/0 |
+| Windows Server 2022 | 85/0/0 | 139/0/0 | 280/2/0 | 334/2/0 |
+
+Every feature failure matches a freshly executed baseline failure by identity and complete normalized message hash on the same host. No new legacy regression, missing/skipped test or runner abort was accepted. All 54 Gate 2 tests and 85 Gate 1 tests pass through standard VSTest in targeted and full runs on both platforms. The synthetic Excel integrity assertions therefore have standard runner evidence, not only fallback evidence.
+
+Linux retains eight pre-existing fixed-capacity stream failures plus two unavailable Windows fixture-path failures; Windows retains only the two fixture-path failures. No legacy source/test changes were made. The earlier PARTIAL decisions are historical and superseded by this PASS. A documentation-only acceptance update is revalidated on its exact PR HEAD before the owner-authorized merge. No deployment or Gate 3.

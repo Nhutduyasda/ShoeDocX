@@ -8,7 +8,7 @@ public class ExportEligibilityTests
     [Fact] public void BlockingErrorsPreventApprovedExport() => Assert.Contains("BLOCKING_ERRORS", Export(Fixture.Approved(Fixture.Document(amount:7))).DenialReasons);
     [Fact] public void AcknowledgementCannotClearBlockingError() => Assert.False(Export(Fixture.Approved(Fixture.Document(amount:7))
         .Acknowledge("amount-check:0")).CanExport);
-    [Fact] public void ValidUnapprovedDataCannotExport() => Assert.False(Export(Fixture.Document().Review(DocumentReviewState.ReadyForApproval)).CanExport);
+    [Fact] public void ValidUnapprovedDataCannotExport() => Assert.False(Export(Fixture.Reviewed()).CanExport);
     [Fact] public void ApprovedAndValidatedCanExport() => Assert.True(Export(Fixture.Approved()).CanExport);
     [Fact] public void EditingInvalidatesExport()
     { var d = Fixture.Approved(); Assert.False(Export(d.Edit(d.Header, d.LineItems)).CanExport); }
@@ -19,7 +19,13 @@ public class ExportEligibilityTests
     [Theory] [InlineData(DocumentReviewState.Draft)] [InlineData(DocumentReviewState.NeedsReview)]
     [InlineData(DocumentReviewState.ReadyForApproval)] [InlineData(DocumentReviewState.Approved)]
     [InlineData(DocumentReviewState.Rejected)] [InlineData((DocumentReviewState)99)]
-    public void UncheckedStatesCannotExport(DocumentReviewState state) => Assert.False(Export(Fixture.Document().Review(state)).CanExport);
+    public void UncheckedStatesCannotExport(DocumentReviewState state)
+    {
+        var d = Fixture.Document();
+        try { d = d.Review(state); }
+        catch (InvalidOperationException) { }
+        Assert.False(Export(d).CanExport);
+    }
     [Fact] public void TenantMismatchRejected() => Assert.Contains(Fixture.Validate(Fixture.Document(tenant:"tenant-b")).Issues,
         i => i.Code == "DOCUMENT_PROFILE_MISMATCH");
     [Fact] public void DifferentTenantsNotInterchangeable()

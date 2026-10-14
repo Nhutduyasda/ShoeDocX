@@ -40,6 +40,7 @@ public sealed record DocumentWorkflowProfile(string ProfileId, string TenantId, 
     ExtractionSchema ExtractionSchema, ImmutableArray<EnrichmentRule> EnrichmentRules,
     ImmutableArray<ComputationRule> ComputationRules, ValidationPolicy ValidationPolicy,
     ExcelProjectionMap ExcelProjectionMap);
+public sealed record HumanReview(string ReviewerId, long DataRevision, int ProfileVersion, string ProfileFingerprint);
 public sealed record HumanApproval(string ReviewerId, long DataRevision, int ProfileVersion, string ProfileFingerprint);
 // Bind approval to configuration content too, guarding against accidental version reuse.
 public static class WorkflowProfileIdentity
@@ -59,42 +60,78 @@ public sealed class CanonicalDocument
     public ImmutableDictionary<string, TypedFieldValue> Header { get; }
     public ImmutableArray<ImmutableDictionary<string, TypedFieldValue>> LineItems { get; }
     public DocumentReviewState ReviewState { get; }
+    public HumanReview? ReviewEvidence { get; }
     public HumanApproval? Approval { get; }
     public ImmutableHashSet<string> AcknowledgedWarnings { get; }
     public CanonicalDocument(string documentId, string tenantId, string profileId, int profileVersion,
         ImmutableDictionary<string, TypedFieldValue> header,
         ImmutableArray<ImmutableDictionary<string, TypedFieldValue>> lineItems)
         : this(documentId, tenantId, profileId, profileVersion, header, lineItems, 1,
-            DocumentReviewState.Draft, null, ImmutableHashSet<string>.Empty) { }
+            DocumentReviewState.Draft, null, null, ImmutableHashSet<string>.Empty) { }
     private CanonicalDocument(string id, string tenant, string profile, int version,
         ImmutableDictionary<string, TypedFieldValue> header,
         ImmutableArray<ImmutableDictionary<string, TypedFieldValue>> lines, long revision,
-        DocumentReviewState state, HumanApproval? approval, ImmutableHashSet<string> warnings)
+        DocumentReviewState state, HumanReview? review, HumanApproval? approval, ImmutableHashSet<string> warnings)
     {
         DocumentId = id; TenantId = tenant; ProfileId = profile; ProfileVersion = version;
         Header = header; LineItems = lines; DataRevision = revision; ReviewState = state;
-        Approval = approval; AcknowledgedWarnings = warnings;
+        ReviewEvidence = review; Approval = approval; AcknowledgedWarnings = warnings;
     }
     public CanonicalDocument Edit(ImmutableDictionary<string, TypedFieldValue> header,
         ImmutableArray<ImmutableDictionary<string, TypedFieldValue>> lines) => new(DocumentId,
         TenantId, ProfileId, ProfileVersion, header, lines, checked(DataRevision + 1),
-        DocumentReviewState.NeedsReview, null, ImmutableHashSet<string>.Empty);
+        DocumentReviewState.NeedsReview, null, null, ImmutableHashSet<string>.Empty);
     public CanonicalDocument WithProfileVersion(int version) => new(DocumentId, TenantId, ProfileId,
         version, Header, LineItems, checked(DataRevision + 1), DocumentReviewState.NeedsReview,
-        null, ImmutableHashSet<string>.Empty);
-    public CanonicalDocument Review(DocumentReviewState state) => new(DocumentId, TenantId,
-        ProfileId, ProfileVersion, Header, LineItems, DataRevision, state, null, AcknowledgedWarnings);
+        null, null, ImmutableHashSet<string>.Empty);
+    // State assignment may start/reopen review or reject, but cannot manufacture completion/approval.
+    // Rejection is terminal for this revision; only a new Edit/profile revision can restart review.
+    public CanonicalDocument Review(DocumentReviewState state)
+    {
+        var allowed = state switch
+        {
+            DocumentReviewState.NeedsReview => ReviewState is DocumentReviewState.Draft
+                or DocumentReviewState.ReadyForApproval or DocumentReviewState.Approved,
+            DocumentReviewState.Rejected => ReviewState is DocumentReviewState.Draft
+                or DocumentReviewState.NeedsReview or DocumentReviewState.ReadyForApproval or DocumentReviewState.Approved,
+            _ => false
+        };
+        if (!allowed) throw new InvalidOperationException($"Unsupported review transition: {ReviewState} -> {state}.");
+        return new(DocumentId, TenantId, ProfileId, ProfileVersion, Header, LineItems, DataRevision,
+            state, null, null, ImmutableHashSet<string>.Empty);
+    }
+    // Reviewer identity is trusted here; integration MUST authenticate/authorize the caller.
+    public CanonicalDocument CompleteReview(string reviewerId, DocumentWorkflowProfile profile)
+    {
+        if (ReviewState != DocumentReviewState.NeedsReview || string.IsNullOrWhiteSpace(reviewerId))
+            throw new InvalidOperationException("A named reviewer and NeedsReview state are required.");
+        EnsureProfileIdentity(profile);
+        return new(DocumentId, TenantId, ProfileId, ProfileVersion, Header, LineItems, DataRevision,
+            DocumentReviewState.ReadyForApproval, new(reviewerId, DataRevision, ProfileVersion,
+                WorkflowProfileIdentity.Fingerprint(profile)), null, AcknowledgedWarnings);
+    }
+    public bool HasCurrentReview(DocumentWorkflowProfile profile) => ReviewEvidence is { } review &&
+        !string.IsNullOrWhiteSpace(review.ReviewerId) && review.DataRevision == DataRevision &&
+        review.ProfileVersion == ProfileVersion && profile.Version == ProfileVersion &&
+        profile.ProfileId == ProfileId && profile.TenantId == TenantId &&
+        review.ProfileFingerprint == WorkflowProfileIdentity.Fingerprint(profile);
+    private void EnsureProfileIdentity(DocumentWorkflowProfile profile)
+    {
+        if (profile.TenantId != TenantId || profile.ProfileId != ProfileId || profile.Version != ProfileVersion)
+            throw new InvalidOperationException("Review/approval profile must match the document identity.");
+    }
     public CanonicalDocument Acknowledge(string checkId) => new(DocumentId, TenantId, ProfileId,
-        ProfileVersion, Header, LineItems, DataRevision, ReviewState, Approval,
+        ProfileVersion, Header, LineItems, DataRevision, ReviewState, ReviewEvidence, Approval,
         AcknowledgedWarnings.Add(checkId));
     public CanonicalDocument Approve(string reviewerId, DocumentWorkflowProfile profile)
     {
         if (ReviewState != DocumentReviewState.ReadyForApproval || string.IsNullOrWhiteSpace(reviewerId))
             throw new InvalidOperationException("A named reviewer and ReadyForApproval state are required.");
-        if (profile.TenantId != TenantId || profile.ProfileId != ProfileId || profile.Version != ProfileVersion)
-            throw new InvalidOperationException("Approval profile must match the document identity.");
+        EnsureProfileIdentity(profile);
+        if (!HasCurrentReview(profile))
+            throw new InvalidOperationException("Current completed review evidence is required before approval.");
         return new(DocumentId, TenantId, ProfileId, ProfileVersion, Header, LineItems, DataRevision,
-            DocumentReviewState.Approved, new(reviewerId, DataRevision, ProfileVersion,
+            DocumentReviewState.Approved, ReviewEvidence, new(reviewerId, DataRevision, ProfileVersion,
                 WorkflowProfileIdentity.Fingerprint(profile)), AcknowledgedWarnings);
     }
 }

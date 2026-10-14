@@ -14,8 +14,11 @@ public sealed class ExportEligibilityPolicy
             result.Checks.Any(c => c.Required && c.Outcome == CheckOutcome.NotEvaluated)) reasons.Add("REQUIRED_CHECK_NOT_EVALUATED");
         if (!Enum.IsDefined(document.ReviewState)) reasons.Add("INVALID_REVIEW_STATE");
         if (document.ReviewState == DocumentReviewState.Rejected) reasons.Add("DOCUMENT_REJECTED");
-        if (document.ReviewState is DocumentReviewState.Draft or DocumentReviewState.NeedsReview)
+        var schemaValid = result.Checks.Any(c => c.Id == "schema" && c.Outcome == CheckOutcome.Passed);
+        if (document.ReviewState is not (DocumentReviewState.ReadyForApproval or DocumentReviewState.Approved))
             reasons.Add("HUMAN_REVIEW_REQUIRED");
+        if (document.ReviewEvidence is null) reasons.Add("REVIEW_EVIDENCE_MISSING");
+        else if (!schemaValid || !document.HasCurrentReview(profile)) reasons.Add("REVIEW_STALE");
         if (document.Header.Values.Concat(document.LineItems.IsDefault ?
             Enumerable.Empty<TypedFieldValue>() : document.LineItems.SelectMany(l => l.Values))
             .Any(v => v.Review == FieldReviewStatus.Rejected)) reasons.Add("FIELD_REJECTED");
@@ -23,11 +26,11 @@ public sealed class ExportEligibilityPolicy
             i.Severity == IssueSeverity.Warning && !document.AcknowledgedWarnings.Contains(i.CheckId)))
             reasons.Add("WARNING_NOT_ACKNOWLEDGED");
         var approval = document.Approval;
-        if (profile.ValidationPolicy.RequireHumanApproval &&
+        if ((profile.ValidationPolicy.RequireHumanApproval || document.ReviewState == DocumentReviewState.Approved) &&
             (approval is null || document.ReviewState != DocumentReviewState.Approved)) reasons.Add("APPROVAL_MISSING");
         if (approval is not null && (approval.DataRevision != document.DataRevision ||
             approval.ProfileVersion != document.ProfileVersion || approval.ProfileVersion != profile.Version ||
-            (result.Checks.Any(c => c.Id == "schema" && c.Outcome == CheckOutcome.Passed) &&
+            (schemaValid &&
              approval.ProfileFingerprint != WorkflowProfileIdentity.Fingerprint(profile))))
             reasons.Add("APPROVAL_STALE");
         return new(reasons.Count == 0, reasons.ToImmutableArray());

@@ -28,6 +28,12 @@ internal static class Fixture
             ImmutableArray.Create(Row(q, price, amount)));
     internal static ValidationResult Validate(CanonicalDocument? d = null, DocumentWorkflowProfile? p = null)
         => new DocumentValidator().Validate(d ?? Document(), p ?? Profile());
+    internal static CanonicalDocument Reviewed(CanonicalDocument? d = null, DocumentWorkflowProfile? p = null)
+    {
+        var document = d ?? Document();
+        if (document.ReviewState == DocumentReviewState.Draft) document = document.Review(DocumentReviewState.NeedsReview);
+        return document.CompleteReview("synthetic-reviewer", p ?? Profile());
+    }
     internal static CanonicalDocument Approved(CanonicalDocument? d = null, DocumentWorkflowProfile? p = null) =>
-        (d ?? Document()).Review(DocumentReviewState.ReadyForApproval).Approve("synthetic-reviewer", p ?? Profile());
+        Reviewed(d, p).Approve("synthetic-reviewer", p ?? Profile());
 }

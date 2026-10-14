@@ -42,7 +42,7 @@ def parse_trx(path):
     assert counters is not None, "TRX counters absent"
     # A failed run is permitted ONLY when it contains normal failed test results.
     assert summary.get("outcome") in ("Completed", "Passed", "Failed"), "Runner aborted"
-    assert not summary.findall(".//t:RunInfo[@outcome='Error']", NS), "Runner infrastructure error"
+    runner_errors = summary.findall(".//t:RunInfo[@outcome='Error']", NS)
     definitions = {}
     for unit in root.findall("t:TestDefinitions/t:UnitTest", NS):
         method = unit.find("t:TestMethod", NS)
@@ -73,6 +73,14 @@ def parse_trx(path):
     assert int(counters.get("failed", "0")) == failed, "Failed count mismatch"
     for key in ("error", "timeout", "aborted", "notRunnable", "notExecuted", "disconnected"):
         assert int(counters.get(key, "0")) == 0, "Runner error counter: " + key
+    for info in runner_errors:
+        text = info.findtext("t:Text", "", NS)
+        # xUnit's standard VSTest adapter logs individual failed tests as RunInfo
+        # Error too. Accept ONLY a [FAIL] diagnostic naming a recorded failed test.
+        # Any other runner error still fails; complete inventories are checked below.
+        recorded_failure = any(value["outcome"] == "Failed" and value["method"] in text
+                               for value in results.values())
+        assert "[xUnit.net" in text and "[FAIL]" in text and recorded_failure, "Runner infrastructure error"
     return {"passed": passed, "failed": failed, "skipped": 0, "total": count, "tests": results}
 
 
@@ -91,6 +99,20 @@ def execute(label, checkout, targeted, temporary):
     result = command(args, checkout)
     trx = temporary / label / "results.trx"
     assert trx.is_file(), label + ": runner did not produce TRX; exit=" + str(result.returncode)
+    raw = ET.parse(trx).getroot()
+    summary = raw.find("t:ResultSummary", NS)
+    diagnostics = {"exit_code": result.returncode,
+                   "summary_outcome": summary.get("outcome") if summary is not None else None,
+                   "counters": summary.find("t:Counters", NS).attrib if summary is not None and summary.find("t:Counters", NS) is not None else {},
+                   "runner_errors": []}
+    for info in raw.findall(".//t:RunInfo[@outcome='Error']", NS):
+        text = info.findtext("t:Text", "", NS)
+        diagnostics["runner_errors"].append({
+            "xunit_failure_diagnostic": "[xUnit.net" in text and "[FAIL]" in text,
+            "exception_types": re.findall(r"\b(?:System\.|Microsoft\.)[A-Za-z0-9_.]+Exception\b", text),
+            "message_sha256": hashlib.sha256(normalized_message(text).encode()).hexdigest()})
+    (EVIDENCE / (label + "-runner.json")).write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
+    print(label + " runner: " + json.dumps(diagnostics), flush=True)
     data = parse_trx(trx)
     expected_exit = 1 if data["failed"] else 0
     assert result.returncode == expected_exit, label + ": exit code disagrees with TRX"

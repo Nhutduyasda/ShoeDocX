@@ -1,6 +1,6 @@
 # ShoeDocX — Gate 2: Deterministic Excel Template Projector
 
-**Status:** APPROVED FOR IMPLEMENTATION (not implemented yet; non-draft PR)
+**Status:** PARTIAL — implementation delivered; mandatory standard VSTest verification blocked; DO NOT MERGE
 **Date:** 2026-10-14
 **Gate 1 accepted baseline:** `942981364648027205f3f3684aabf7614ee8d671`
 **Working branch:** `codex/universal-doc-engine-gate-2`
@@ -60,3 +60,32 @@ All tests must create their own .xlsx workbooks in memory or use synthetic test 
 
 ## Non-goals
 No AI Learn-by-Example, Excel auto-detection, Visual Point-and-Click UI, OCR, dynamic grid, actual customer template uploads, tenant persistence, subscription billing, API integration, or production deployment. These require separate gates and authorization.
+
+
+## Implemented Gate 2 contract (2026-10-14)
+
+- `ExcelTemplateLayout` v1 contains the exact SHA-256 of approved template bytes and explicitly named sheet layouts. Every sheet layout has header A1 destinations and one owned repeating row. The prototype must equal the start row. Multiple independently mapped worksheets are supported.
+- `ExcelProjectionMap.ApprovedLayoutFingerprint` is an optional, backward-compatible constructor parameter. Set it to `layout.Fingerprint()` **before** completing review/approval. Gate 1 hashes this configuration with the profile. Gate 2 compares that approved fingerprint to the actual supplied layout and separately checks the template bytes. Changing either configuration invalidates the old review. Existing legacy free-form destinations are never interpreted as addresses by Gate 2.
+- `ExcelLayoutValidator` checks field references/scope, coordinates, Excel boundaries, duplicate sheets/destinations, collisions, merged edited cells, prototype references, formula overwrite, row limits and unsupported workbook features.
+- `ExcelTemplateProjector.Project(Stream, filename, document, profile, layout)` returns `ExcelProjectionResult` with fresh workbook bytes or structured errors. It recomputes Gate 1 eligibility internally; there is no caller-provided authorization flag. It reads a private bounded copy, restores seekable input position, and never changes input bytes. A non-seekable stream is consumed but never written or closed.
+- Header coordinates use uppercase unqualified A1 grammar, e.g. `J4`, and must precede the repeating region. Columns are typed integers 1–16384. Field type comes from the workflow schema and is checked by Gate 1. Layout version is exactly 1; unsupported versions fail.
+- Header missing-value policy is explicit Blank or Preserve. The repeating row is an explicitly owned region: clear all non-formula sample values, preserve styles, and write mapped values; optional item values become blank. Unmapped static labels must reside outside that row.
+- Row expansion inserts rows before the footer, clones row height/styles and prototype formulas through R1C1 references, and extends footer A1 ranges ending at the prototype through the final item. Formula references in prototype cells may point only at or above the prototype row. References to rows below it fail explicitly.
+- Formula grammar is deliberately limited to A1 references, numeric literals, parentheses, unary signs, arithmetic `+ - * /`, and `SUM(A1:A2)` ranges. Relative, absolute and mixed references are supported. Names, sheet-qualified references, structured references, IF/other functions, array/data-table formulas and workbook extensions are rejected. This restriction applies to every worksheet, including untouched sheets.
+- No server-side formula evaluation is performed. Excel uses Auto calculation on opening; cached formula results are not guaranteed. Semantic determinism concerns values, formulas and styles, not ZIP byte identity.
+- Supported tested fidelity: sheet names, untouched content, additional worksheets, number formats, row height, borders, merges outside edited rows, footer movement and page orientation. Full Excel fidelity is **not** claimed.
+- Only `.xlsx` is accepted. ZIP preflight rejects macro/external-link/connection/embedding/drawing/chart/control/query parts, external relationships, duplicate parts and unsupported worksheet extensions. Tables, pivots, conditional formats, data validation and merges intersecting edited cells are rejected. Images/charts are intentionally outside v1.
+- Limits: 10 MiB input, 50 MiB uncompressed package, 2000 ZIP entries, 1000 generated items globally, per-region maximum up to 1000, 200000 projected repeating cells across sheets, 32767 text characters per cell. Decimal values that cannot round-trip through Excel's 15 significant decimal digits and dates before 1900 fail explicitly. Input XML disables DTD/external resolution.
+- No DI registration, API endpoint, migration, storage integration, OCR, AI, legacy footwear change or deployment was added.
+
+## Verification and gate decision
+
+See `UNIVERSAL_DOC_ENGINE_GATE2_VERIFICATION.md` for commands, reproducible fallback runner and limitations.
+
+.NET 8 SDK 8.0.426 builds the API and test project with zero warnings/errors. Standard targeted and full `dotnet test` attempts fail inside VSTest **before executing tests**. The same failure occurs on the accepted Gate 1 baseline and with SDK 8.0.408. This is a verification blocker, not a passing test run.
+
+A direct xUnit 2.5.3 runner provides supplementary evidence: **85 Gate 1 + 54 Gate 2 = 139 passed, 0 failed, 0 skipped**. Final full-suite comparison: baseline **272 passed / 10 failed / 0 skipped**; feature **326 passed / 10 failed / 0 skipped**; the failed test names match exactly. The ten baseline failures are legacy fixed-capacity stream errors (eight tests) and unavailable hard-coded Windows fixture paths (two tests).
+
+The three synthetic scenarios cover accounting purchase data, a warehouse receipt with material code/description/unit/quantity/notes/footer, and a separate commercial packing layout with formulas and an untouched reference worksheet. Tests assert concrete typed values, Vietnamese text, unsafe literal strings, formula shifts, totals, styles, independent mapped sheets, footer merges, print orientation, source immutability, semantic repeatability, and explicit negative cases.
+
+**Decision: PARTIAL. PR #7 stays open, non-draft, targeting main. Do not merge until standard .NET 8 testing is successfully executed and its baseline comparison confirms no new failures. No Gate 3 or deployment.**

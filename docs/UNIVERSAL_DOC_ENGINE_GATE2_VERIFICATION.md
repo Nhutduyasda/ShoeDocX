@@ -156,3 +156,14 @@ The documented direct xUnit fallback was rerun against the unchanged reviewed as
 Compared exact failed-test identities **and their first failure messages**: equal. No new legacy failures appeared in supplementary execution. The same synthetic Excel integrity assertions pass again: reopened workbooks, relative/absolute/mixed formulas, footer/totals after expansion, typed values, Unicode/literal text, styles, merges, worksheets and template/review identity safety.
 
 **Decision remains PARTIAL / DO NOT MERGE.** Standard tests still execute zero tests, and an independent standard runner is inaccessible. To unblock, provide an accessible clean .NET 8 Windows/CI runner with repository access, or separately authorize a concrete test-only CI workflow. Existing PR #7 remains open, non-draft, targeting main. No Gate 3 work.
+
+
+## Owner-authorized standard CI verification
+
+The owner explicitly authorized a minimal test-only GitHub Actions workflow for PR #7. `.github/workflows/gate2-verification.yml` runs only the existing in-repository Gate 2 PR targeting main, using GitHub-hosted Ubuntu 24.04 and Windows Server 2022 with SDK 8.0.426. Both accepted baseline `823e7d276468c8ff64711f755c21fdd9cf3250cd` and the exact PR HEAD are checked out separately; checkout credentials are not persisted. Workflow permissions are `contents: read` only. No deployment secrets or credentials are used.
+
+`.github/scripts/verify_gate2.py` executes standard API/test-project builds and targeted/full `dotnet test` in both checkouts under identical configuration on each runner. It requires 85 passing baseline engine tests, 139 passing feature engine tests, full-suite inventories of 282/336, matching targeted/full engine identities, and no new failures or changed legacy failure messages. Aborted/empty/incomplete/skipped results, infrastructure errors, build failures and inconsistent exit codes fail the job. Expected legacy failures are compared against the freshly executed baseline rather than a hard-coded allow-list or `continue-on-error`.
+
+Full legacy console output and raw TRX stay in temporary runner storage and are never uploaded or printed because legacy assertions may contain template values. Artifacts contain counts, test identities and SHA-256 hashes of complete normalized failure messages. Normalization removes only checkout prefixes, line-ending differences and random UUIDs. No application/test assertions were changed; all new Gate 2 scenarios remain synthetic. The comparison guards were exercised locally with synthetic Python/TRX data; no further local VSTest experiments were performed.
+
+CI result and merge decision remain pending until both runner jobs finish and their exact tested HEAD is verified.

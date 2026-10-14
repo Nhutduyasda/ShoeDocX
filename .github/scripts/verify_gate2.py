@@ -125,6 +125,10 @@ def main():
     report = {"baseline_sha": BASELINE_SHA, "feature_sha": os.environ.get("VERIFIED_HEAD"),
               "os": platform.platform(), "status": "FAIL", "runs": {}}
     try:
+        # setup-dotnet installs 8 alongside newer hosted SDKs. Pin selection in the
+        # disposable workspace parent, outside both source checkouts.
+        (ROOT / "global.json").write_text(json.dumps({"sdk": {
+            "version": "8.0.426", "rollForward": "disable", "allowPrerelease": False}}), encoding="utf-8")
         report["sdk"] = subprocess.check_output(["dotnet", "--version"], text=True).strip()
         assert report["sdk"] == "8.0.426", "Unexpected SDK"
         for name, expected in (("baseline", BASELINE_SHA), ("feature", report["feature_sha"])):

@@ -33,7 +33,9 @@ def main():
             if name == 'feature':
                 projects += [f'tools/UniversalDocDecoder.{p}/UniversalDocDecoder.{p}.csproj' for p in ('Worker', 'Probe', 'Verifier')]
             for project in projects:
-                result = ci.command(['dotnet', 'build', project], root)
+                args = ['dotnet', 'build', project]
+                if 'UniversalDocDecoder.Worker' in project: args.append('-p:RestoreLockedMode=true')
+                result = ci.command(args, root)
                 warnings = re.findall(r'warning (\w+):', result.stdout)
                 report['builds'][name + ':' + project] = {'exit_code': result.returncode,
                     'warnings': {w: warnings.count(w) for w in set(warnings)}}
@@ -58,9 +60,12 @@ def main():
         rid = 'win-x64' if os.name == 'nt' else 'linux-x64'
         runtime = ci.ROOT / 'isolated-decoder-runtime'
         for project in ('Worker', 'Probe'):
-            result = ci.command(['dotnet', 'publish', f'tools/UniversalDocDecoder.{project}/UniversalDocDecoder.{project}.csproj',
-                                 '-r', rid, '--self-contained', 'true', '-o', str(runtime)], feature)
+            args = ['dotnet', 'publish', f'tools/UniversalDocDecoder.{project}/UniversalDocDecoder.{project}.csproj',
+                    '-r', rid, '--self-contained', 'true', '-o', str(runtime)]
+            if project == 'Worker': args.append('-p:RestoreLockedMode=true')
+            result = ci.command(args, feature)
             assert result.returncode == 0, 'Self-contained publish failed'
+        assert ci.command(['git', 'diff', '--exit-code', '--', 'tools/UniversalDocDecoder.Worker/packages.lock.json'], feature).returncode == 0, 'Worker publish changed lockfile'
         result = ci.command(['dotnet', 'tools/UniversalDocDecoder.Verifier/bin/Debug/net8.0/UniversalDocDecoder.Verifier.dll',
                              str(runtime), 'tools/UniversalDocDecoder.Verifier/fixtures.json', str(ci.EVIDENCE / 'enforcement.json')], feature)
         assert (ci.EVIDENCE / 'enforcement.json').exists(), 'Actual enforcement run produced no evidence'

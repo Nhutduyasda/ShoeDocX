@@ -12,3 +12,5 @@
 .uds-muted,.uds small { color:#617487; font-size:12px }.uds small { display:block }.uds-scroll { overflow:auto }.uds table { width:100%; border-collapse:collapse; text-align:left }.uds th,.uds td { border-bottom:1px solid #e2e8ee; padding:12px; vertical-align:top }.uds td .uds-inline { margin:0; flex-wrap:nowrap }.uds td input { min-width:100px; width:100% }
 .uds-error { padding:16px; background:#fff0ec; border:1px solid #e9b7a8; margin:16px 0; border-radius:6px; color:#8c3422 }.uds-success { color:#21634e; padding:12px; background:#eef8f2 }.uds footer { margin-top:32px; border-top:1px solid #e2e8ee; padding-top:18px }
 @media(max-width:900px) { .uds { padding:16px }.uds-top { flex-direction:column }.uds-steps { grid-template-columns:repeat(2,1fr) }.uds-grid { grid-template-columns:repeat(2,minmax(100px,1fr)) }.uds-panel { padding:18px } }
+.uds .uds-sources article { border: 1px solid #ccd6df; padding: 1rem; margin-top: 1rem; border-radius: .5rem; }
+.uds .uds-sources dd { margin: .2rem 0 .7rem; overflow-wrap: anywhere; font-family: monospace; }

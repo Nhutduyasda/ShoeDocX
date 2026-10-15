@@ -61,6 +61,7 @@ public sealed class InMemoryUniversalDocSessionStore(TimeProvider time) : IUnive
             var after = transition(before);
             // Authorization/expiry is checked again after expensive analysis before linearization.
             Authorized(entry, actor);
+            SourceIntake.RequireBudget(after);
             if (after.Id != before.Id || after.OwnerId != before.OwnerId || after.TenantId != before.TenantId ||
                 after.ExpiresAt != before.ExpiresAt || after.Template.Length > MaximumTemplateBytes)
                 throw new StudioFault(400, "INVALID_SESSION_TRANSITION");

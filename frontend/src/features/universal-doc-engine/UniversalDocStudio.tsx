@@ -48,6 +48,7 @@ export default function UniversalDocStudio() {
   const [api] = useState(() => new StudioApi()); const [bootstrap, setBootstrap] = useState<StudioBootstrap | null>(null);
   const [session, setSession] = useState<StudioSession | null>(null); const [workflow, setWorkflow] = useState('invoice');
   const [file, setFile] = useState<File | null>(null); const [step, setStep] = useState(0);
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   useEffect(() => {
     const abort = new AbortController();
@@ -67,7 +68,7 @@ export default function UniversalDocStudio() {
       <p>Review a template, normalize synthetic observations, and export after human approval.</p></div>
       <div><span>{user?.fullName}</span><a href="/">Legacy workspace</a><button onClick={logout}>Sign out</button></div>
     </header>
-    <p className="uds-banner">Synthetic demo only. No OCR recognition or AI calls. Sessions are private, expire after 20 minutes, and disappear when the backend restarts.</p>
+    <p className="uds-banner">Demo extraction and private document intake. No OCR recognition or AI calls. Sessions expire after 20 minutes and disappear when the backend restarts.</p>
     <nav aria-label="Studio steps" className="uds-steps">{steps.map((name, index) => <button key={name} aria-current={step === index ? 'step' : undefined}
       onClick={() => setStep(index)}><span>{index + 1}</span>{name}</button>)}</nav>
     {error && <div role="alert" className="uds-error">{error}{error.includes('409') && session && <button disabled={busy} onClick={() => void run(async () => { setSession(await api.read(session.id)); })}>Reload server state</button>}</div>}
@@ -96,7 +97,23 @@ export default function UniversalDocStudio() {
         <button disabled={busy || session.mappingState !== 'DraftSuggested'} onClick={() => act('mapping/confirm')}>Confirm mapping as current user</button>
       </>}
       {step === 2 && session && <><h3>Demo Extraction</h3><p>Load the bounded server-owned synthetic fixture through Gate 3B. This does not recognize an image or PDF.</p>
-        <button disabled={busy || session.mappingState !== 'UserConfirmed'} onClick={() => act('extract-demo')}>Run Demo Extraction</button></>}
+        <button disabled={busy || session.mappingState !== 'UserConfirmed'} onClick={() => act('extract-demo')}>Run Demo Extraction</button>
+        <hr /><h3>Document Upload</h3>
+        <p>Admission only — OCR recognition is not yet available. Uploading or removing a source clears extracted data, review and approval. Demo Extraction always uses its separate synthetic fixture.</p>
+        <p className="uds-muted">PNG: 8-bit RGB/RGBA, no metadata or animation. JPEG: baseline single scan. WebP: simple lossy key frame. PDF: strict single blank-page subset only; ordinary content PDFs are currently unsupported. Maximum 1 MiB per file, 4 sources, 2 MiB shared with the template. Images: at most 262,144 pixels.</p>
+        <form className="uds-inline" onSubmit={e => { e.preventDefault(); if (sourceFile) void run(async () => {
+          setSession(await api.uploadSource(session, sourceFile)); setNotice('Source admitted. Not recognized. Previous extraction and approval cleared.');
+        }); }}>
+          <label>Local source document<input aria-label="Source document" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={e => setSourceFile(e.target.files?.[0] || null)} /></label>
+          <button disabled={busy || !sourceFile} type="submit">Upload source</button>
+        </form>
+        <div aria-label="Server source metadata" className="uds-sources">{session.sources.length === 0 ? <p>No source documents admitted.</p> : session.sources.map(source => <article key={source.sourceId}>
+          <h4>{source.mediaType} · {source.byteLength} bytes</h4><p><strong>Admitted — not recognized</strong></p>
+          <dl><dt>Server source ID</dt><dd>{source.sourceId}</dd><dt>SHA-256 of actual bytes</dt><dd>{source.sha256}</dd>
+            <dt>Verified metadata</dt><dd>{source.width !== null ? `${source.width} × ${source.height} pixels` : 'Dimensions unavailable'} · {source.pageCount !== null ? `${source.pageCount} page` : 'Page count unavailable'}</dd>
+            <dt>Uploaded</dt><dd>{new Date(source.uploadedAt).toLocaleString()}</dd></dl>
+          <button disabled={busy} onClick={() => void run(async () => { setSession(await api.deleteSource(session, source.sourceId)); setNotice('Source removed. Previous extraction and approval cleared.'); })}>Remove source</button>
+        </article>)}</div></>}
       {step === 3 && session && <><p>Edits are sent to the backend and invalidate earlier approval. Original synthetic observation evidence remains visible separately.</p>
         <div className="uds-scroll"><table><thead><tr><th>Field</th><th>Current server value</th><th>Source evidence</th></tr></thead><tbody>
           {session.fields.map(field => <FieldEditor key={`${session.dataRevision}:${field.scope}:${field.row}:${field.key}`} field={field} busy={busy}

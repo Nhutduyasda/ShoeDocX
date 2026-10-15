@@ -24,7 +24,10 @@ public sealed record UniversalDocSession(string Id, string OwnerId, string Tenan
     ImmutableArray<byte> Template, string? TemplateSha256, TemplateStructure? Structure,
     MappingSuggestionResult? Suggestions, MappingProposal? Proposal, HumanMappingConfirmation? Confirmation,
     WorkflowMappingState MappingState, ExtractionResult? Extraction, CanonicalDocument? Document,
-    ValidationResult? Validation);
+    ValidationResult? Validation)
+{
+    public ImmutableArray<StudioSource> Sources { get; init; } = ImmutableArray<StudioSource>.Empty;
+}
 public sealed record StudioFieldView(string Scope, string Key, int? Row, string Type, string? Value,
     string Review, string Source, string? SourceId, int? Page, NormalizedRegion? Region,
     ImmutableArray<string> RawObservations);
@@ -36,7 +39,10 @@ public sealed record StudioIssueView(string Code, string? Field, string? RowId, 
 public sealed record StudioSessionView(string Id, long Version, DateTimeOffset ExpiresAt, string Workflow,
     string MappingState, long? MappingRevision, int ProfileVersion, long? DataRevision, string ReviewState,
     ImmutableArray<string> Sheets, ImmutableArray<StudioSuggestion> Suggestions, StudioMapping? Mapping,
-    ImmutableArray<StudioFieldView> Fields, ImmutableArray<StudioIssueView> Issues, bool CanReview, bool CanApprove);
+    ImmutableArray<StudioFieldView> Fields, ImmutableArray<StudioIssueView> Issues, bool CanReview, bool CanApprove)
+{
+    public ImmutableArray<StudioSourceView> Sources { get; init; } = ImmutableArray<StudioSourceView>.Empty;
+}
 public sealed record StudioExport(byte[] Workbook, long SessionVersion)
 {
     public const string ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";

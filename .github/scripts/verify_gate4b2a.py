@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import tempfile
 import verify_gate2 as ci
@@ -90,7 +91,7 @@ def isolation():
 
 def main():
     report = {'gate': '4B.2A', 'baseline_sha': BASELINE, 'feature_sha': os.environ.get('VERIFIED_HEAD'),
-              'os': platform.platform(), 'status': 'FAIL', 'production_ready': False, 'runs': {}}
+              'os': platform.platform(), 'status': 'FAIL', 'production_ready': False, 'runs': {}, 'builds': {}}
     try:
         if os.environ.get('GITHUB_ACTIONS') == 'true':
             (ci.ROOT / 'global.json').write_text(json.dumps({'sdk': {'version': '8.0.426', 'rollForward': 'disable'}}), encoding='utf-8')
@@ -105,6 +106,12 @@ def main():
                 csproj = next((checkout / project).glob('*.csproj'))
                 for operation in ('restore', 'build'):
                     result = ci.command(['dotnet', operation, str(csproj)], checkout)
+                    warnings = re.findall(r'warning (\w+):', result.stdout)
+                    key = name + ':' + project + ':' + operation
+                    report['builds'][key] = {'exit_code': result.returncode,
+                        'warning_occurrences': {code: warnings.count(code) for code in sorted(set(warnings))},
+                        'error_occurrences': len(re.findall(r'error \w+:', result.stdout))}
+                    print(key + ': ' + json.dumps(report['builds'][key]), flush=True)
                     assert result.returncode == 0, name + ': standard ' + operation + ' failed'
         with tempfile.TemporaryDirectory(prefix='gate4b2a-trx-') as directory:
             runs = {}

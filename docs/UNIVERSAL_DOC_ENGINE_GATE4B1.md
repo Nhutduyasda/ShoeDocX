@@ -89,9 +89,9 @@ Fresh Windows / SDK 8.0.424 standard VSTest, no skips or aborts:
 
 | Scope | Starting main passing/failing/skipped | Feature passing/failing/skipped |
 |---|---|---|
-| UniversalDocEngine | 336/0/0 | 392/0/0 |
-| Complete suite | 533/0/0 | 589/0/0 |
-| New Gate 4B.1 cases | — | 56/0/0 |
+| UniversalDocEngine | 336/0/0 | 394/0/0 |
+| Complete suite | 533/0/0 | 591/0/0 |
+| New Gate 4B.1 cases | — | 58/0/0 |
 
 Standard local API build: zero errors; two occurrences of the same NU1900 vulnerability-metadata warning (restore/build). Incremental no-restore fixture build: one NU1900, zero errors. An early overlapping build retried a testhost-locked output file (MSB3026); final builds/tests are sequential and do not retain that warning. TypeScript/Vite build and all 13 existing frontend draft cases pass; the pre-existing legacy bundle-size warning remains.
 
@@ -99,7 +99,18 @@ Tests include real authenticated HTTP for four valid formats; empty, extension/c
 
 Real browser uses the actual existing AuthController/Identity/JWT cookies and production Studio endpoints with disposable synthetic SQLite users. The unmodified Gate 4A suite has 13 checks and three real workbook downloads. The new suite has 11 checks covering actual file selection/upload, backend metadata rendered in the DOM, no OCR claims, phone layout, explicit unsupported PDF, cross-tenant GET/POST/DELETE denial, upload/removal invalidation and subsequent export denial, and deterministic expiry. Clock control exists **only in the separate loopback test executable** and requires authenticated Admin plus CSRF. No production expiry-control endpoint exists. Browser summaries include no tokens, raw request bodies or source contents; screenshots contain only synthetic UI/metadata, with the opaque source ID hidden.
 
-Hosted acceptance is pending on the exact PR HEAD. The narrowly scoped workflow runs Ubuntu 24.04 and Windows Server 2022 / SDK 8.0.426, fresh exact baseline and feature checkouts, standard builds/VSTest, frontend lock install/build/draft tests, working advisory review and both real Chromium suites. Complete inventories, prior test identities, outcome/failure hashes and all 56 new passing cases are checked. Full-suite host-dependent legacy failures may only match that run's exact baseline identities and normalized diagnostic hashes; no fixed failure allowlist or weakened test assertions. Raw TRX/legacy logs stay in temporary runner storage; `contents: read` artifacts contain sanitized counts/identities/hashes, package advisories and synthetic screenshots. The PR must remain open unless both jobs and every mandatory acceptance check pass on the final HEAD.
+The narrowly scoped workflow runs Ubuntu 24.04 and Windows Server 2022 / SDK 8.0.426, fresh exact baseline and feature checkouts, standard builds/VSTest, frontend lock install/build/draft tests, working advisory review and both real Chromium suites. Complete inventories, prior test identities, outcome/failure hashes and all 58 new passing cases are checked. Full-suite host-dependent legacy failures may only match that run's exact baseline identities and normalized diagnostic hashes; no fixed failure allowlist or weakened test assertions. Raw TRX/legacy logs stay in temporary runner storage; `contents: read` artifacts contain sanitized counts/identities/hashes, package advisories and synthetic screenshots. The PR must remain open unless both jobs and every mandatory acceptance check pass on the final HEAD.
+
+Initial hosted [run 38701675577](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38701675577) passed both jobs on implementation SHA `b87bd6c0f8deb3659f108148060d8f09dd5794b1` (before the final two JPEG table-reference attack cases):
+
+| Host | Baseline engine P/F/S | Feature engine P/F/S | Baseline full P/F/S | Feature full P/F/S |
+|---|---|---|---|---|
+| [Ubuntu](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38701675577/job/116311104412) | 336/0/0 | 392/0/0 | 523/10/0 | 579/10/0 |
+| [Windows](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38701675577/job/116311104225) | 336/0/0 | 392/0/0 | 531/2/0 | 587/2/0 |
+
+Both hosted jobs recorded zero build warnings/errors for API/tests/fixture, passed baseline/feature frontend builds and 13 draft tests, live dependency comparisons and both real-browser suites (13 + 11 checks). All engine cases passed. Two old developer-workbook fixture-path failures occur on both hosted systems; Ubuntu also retains eight old stream/export failures. Their exact identities and normalized failure-message hashes matched the fresh baseline; there are no new regressions. They do not reproduce locally. Actions v4 runner deprecation messages are distinct from compiler/build warnings.
+
+Final JPEG validation additionally requires every scan/component table reference to resolve to a declared bounded table; two real HTTP malformed-file cases raise the final local inventories to 394 engine / 591 full / 58 new. The final acceptance source of truth is the **exact final PR HEAD's** `summary.json`, `dependencies.json`, per-run TRX-derived inventories and both browser summaries attached to [PR #11 checks](https://github.com/Nhutduyasda/ShoeDocX/pull/11/checks). They bind starting/final SHAs and actual counts, so this initial run cannot authorize merging a later untested commit. The PR's final report records the final run links and SHA after that acceptance completes.
 
 ## Exact changed files
 

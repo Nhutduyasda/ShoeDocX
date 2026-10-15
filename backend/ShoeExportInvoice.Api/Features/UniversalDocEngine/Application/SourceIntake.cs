@@ -110,7 +110,8 @@ public static class SourceIntake
     private static (int, int) Jpeg(byte[] d)
     {
         Require(d.Length >= 4 && d[0] == 255 && d[1] == 216); int p = 2, w = 0, h = 0, components = 0, markers = 0;
-        bool quantization = false, huffman = false; var componentIds = new HashSet<byte>();
+        var quantization = new HashSet<int>(); var huffman = new HashSet<int>();
+        var requiredQuantization = new HashSet<int>(); var componentIds = new HashSet<byte>();
         while (p < d.Length)
         {
             Require(++markers <= 128 && p + 4 <= d.Length && d[p++] == 255); int marker = d[p++];
@@ -122,7 +123,10 @@ public static class SourceIntake
                 Require(components is 1 or 3 && body.Length == 6 + 3 * components);
                 h = BinaryPrimitives.ReadUInt16BigEndian(body[1..]); w = BinaryPrimitives.ReadUInt16BigEndian(body[3..]);
                 for (int i = 6; i < body.Length; i += 3)
+                {
                     Require(componentIds.Add(body[i]) && body[i + 1] >> 4 is >= 1 and <= 4 && (body[i + 1] & 15) is >= 1 and <= 4 && body[i + 2] <= 3);
+                    requiredQuantization.Add(body[i + 2]);
+                }
             }
             else if (marker == 0xDB)
             {
@@ -130,9 +134,9 @@ public static class SourceIntake
                 while (q < body.Length)
                 {
                     byte info = body[q++]; Require(info <= 3 && body.Length - q >= 64); // Baseline 8-bit tables only.
+                    quantization.Add(info);
                     for (int i = 0; i < 64; i++) Require(body[q++] != 0);
                 }
-                quantization = true;
             }
             else if (marker == 0xC4)
             {
@@ -140,18 +144,21 @@ public static class SourceIntake
                 while (t < body.Length)
                 {
                     Require(body.Length - t >= 17); int info = body[t++]; Require((info & 15) <= 3 && (info >> 4) <= 1);
+                    huffman.Add(info);
                     int count = 0, space = 1;
                     for (int i = 0; i < 16; i++) { int n = body[t++]; count += n; space = space * 2 - n; Require(space >= 0); }
                     Require(count is > 0 and <= 256 && count <= body.Length - t); t += count;
                 }
-                huffman = true;
             }
             else if (marker == 0xDA)
             {
-                Require(w > 0 && h > 0 && quantization && huffman && body.Length == 4 + 2 * components && body[0] == components);
+                Require(w > 0 && h > 0 && requiredQuantization.All(quantization.Contains) && body.Length == 4 + 2 * components && body[0] == components);
                 var scanIds = new HashSet<byte>();
                 for (int i = 1; i < 1 + 2 * components; i += 2)
+                {
                     Require(componentIds.Contains(body[i]) && scanIds.Add(body[i]) && body[i + 1] >> 4 <= 3 && (body[i + 1] & 15) <= 3);
+                    Require(huffman.Contains(body[i + 1] >> 4) && huffman.Contains(0x10 | (body[i + 1] & 15)));
+                }
                 Require(body[^3] == 0 && body[^2] == 63 && body[^1] == 0);
                 p += length; int start = p;
                 // One baseline scan, no progressive/multiscan/embedded metadata. Do not decode entropy or render.

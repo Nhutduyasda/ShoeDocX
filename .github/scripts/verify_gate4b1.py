@@ -11,7 +11,7 @@ import gate4a_checks
 import gate4b1_checks
 
 BASELINE = "89c133429d0c4abecc648cfb0c2ccd0a9a980136"
-NEW_TESTS = 56
+NEW_TESTS = 58
 NEW_CLASS = ci.ENGINE + "Gate4B1Tests."
 
 

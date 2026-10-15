@@ -83,6 +83,7 @@ public class Gate4B1Tests
     [Theory] [InlineData("empty")] [InlineData("extension")] [InlineData("mismatch")] [InlineData("mime")]
     [InlineData("signature")] [InlineData("truncated")] [InlineData("crc")] [InlineData("pdf-action")]
     [InlineData("webp-size")] [InlineData("jpeg-eof")]
+    [InlineData("jpeg-quantization-reference")] [InlineData("jpeg-huffman-reference")]
     public async Task InvalidOrComplexFilesAreRejectedWithoutMutation(string kind)
     {
         await using var host = await StudioHttpHost.Start(); using var c = await Login(host); var s = await New(c);
@@ -99,6 +100,10 @@ public class Gate4B1Tests
             case "pdf-action": filename = "synthetic.pdf"; mime = "application/pdf"; bytes = Encoding.ASCII.GetBytes(Encoding.ASCII.GetString(Pdf()).Replace("/Catalog", "/Catalog /OpenAction /JavaScript")); break;
             case "webp-size": filename = "synthetic.webp"; mime = "image/webp"; bytes = Image("webp"); bytes[4]++; break;
             case "jpeg-eof": filename = "synthetic.jpg"; mime = "image/jpeg"; bytes = Image("jpg")[..^2]; break;
+            case "jpeg-quantization-reference": case "jpeg-huffman-reference":
+                filename = "synthetic.jpg"; mime = "image/jpeg"; bytes = Image("jpg");
+                int table = bytes.AsSpan().IndexOf(new byte[] { 255, kind == "jpeg-quantization-reference" ? (byte)0xDB : (byte)0xC4 });
+                Assert.True(table > 0); bytes[table + 4] = 3; break;
         }
         using var response = await Upload(c, s, bytes, filename, mime); Assert.Contains(response.StatusCode, new[] { HttpStatusCode.BadRequest, HttpStatusCode.UnsupportedMediaType });
         var current = await c.GetFromJsonAsync<StudioSessionView>(Root + s.Id); Assert.Equal(s.Version, current!.Version); Assert.Empty(current.Sources);

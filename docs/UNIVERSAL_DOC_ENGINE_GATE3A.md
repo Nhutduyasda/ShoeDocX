@@ -1,6 +1,6 @@
 # Universal Document Engine — Gate 3A
 
-Status: IMPLEMENTED / CI VERIFICATION PENDING. No merge until Ubuntu and Windows standard CI passes.
+Status: PASS — standard .NET 8 CI passed on Ubuntu and Windows; final documentation-only HEAD is revalidated before merge.
 
 ## Baseline and source recovery
 
@@ -54,7 +54,7 @@ Negative cases include missing/ambiguous labels; human correction; unknown field
 
 The user's Windows local 336/336 baseline report is separate evidence from hosted runners and is not assumed reproducible there. Gate 2 hosted baseline was Ubuntu 326/10 and Windows 334/2; current CI must determine both baseline and feature afresh. Known hosted legacy failures concern fixed-capacity memory streams on Linux and unavailable hard-coded Windows developer fixture paths. No legacy test/source edits to hide these.
 
-Work restore/build attempts encountered unavailable NuGet packages/network; hosted CI is the authoritative standard verification. Results and CI URLs will be recorded once available. Pending CI is not PASS.
+Initial Work NuGet attempts were unavailable/stalled; the API build later succeeded with zero warnings/errors and the test-project build succeeded after one transient concurrent-copy retry warning. No local VSTest acceptance is claimed. Hosted standard CI is the authoritative verification evidence below.
 
 ## Windows Agent handoff
 
@@ -75,8 +75,32 @@ dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filte
 dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --logger 'trx;LogFileName=gate3a-full.trx'
 ```
 
-Use the final pushed/merge SHAs and PR URL from the delivery report. Expected engine count is 185 (139 Gate 1/2 + 46 Gate 3A). Full inventory is 382; locally available old fixtures may yield all passes, while hosted failures are allowed only if reproduced on the same-host baseline. Do not assume unavailable legacy fixture paths were fixed. If a local audit branch already exists, inspect it and use another new audit name rather than forcing/resetting it.
+PR: https://github.com/Nhutduyasda/ShoeDocX/pull/8 . Source repository: https://github.com/Nhutduyasda/ShoeDocX.git . Source branch: `codex/universal-doc-engine-gate-3a`. The implementation SHA verified on both hosts is `e7052a2cf361edcdd0777bb7a1bc229723195c47`; the final pushed/merge SHAs and final PR status are supplied in the delivery report after documentation-only verification and conditional merge. Expected engine count is 185 (139 Gate 1/2 + 46 Gate 3A). Full inventory is 382; locally available old fixtures may yield all passes, while hosted failures are allowed only if reproduced on the same-host baseline. Do not assume unavailable legacy fixture paths were fixed. If a local audit branch already exists, inspect it and use another new audit name rather than forcing/resetting it.
 
 ## Remaining scope and risks
 
 No real AI inference, OCR/PDF extraction, fuzzy label semantics, Learn-by-Example, web UI, upload endpoint, tenant persistence, production integration, deployment, Gate 3B or Gate 4. Deterministic heuristics can miss unformatted/nonadjacent layouts, and multilingual label equivalence depends on the caller-approved vocabulary. Workbook parsing is bounded but ClosedXML is not a hostile-file sandbox; a production integration needs authenticated admission, execution/resource isolation and explicit supported-format policy. No workbook is sent to an external AI provider and no paid AI call is made.
+
+
+## Standard CI evidence and acceptance
+
+Successful implementation run: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38679976266
+
+- Ubuntu: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38679976266/job/116242064904
+- Windows: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38679976266/job/116242064672
+- Exact tested HEAD: `e7052a2cf361edcdd0777bb7a1bc229723195c47`.
+- Exact accepted baseline: `2b0c35281161d07831f5f52b6903dd7edfb3afd8`.
+- SDK 8.0.426 on both GitHub-hosted OSes; standard API/test-project builds succeeded for both baseline and feature.
+
+| Host | Baseline engine P/F/S | Feature engine P/F/S | Baseline full P/F/S | Feature full P/F/S |
+|---|---|---|---|---|
+| Ubuntu 24.04 | 139/0/0 | 185/0/0 | 326/10/0 | 372/10/0 |
+| Windows Server 2022 | 139/0/0 | 185/0/0 | 334/2/0 | 380/2/0 |
+
+All 46 new Gate 3A tests and all 139 Gate 1/2 tests passed in targeted and full standard VSTest runs. Complete inventory checks passed (336 baseline, 382 feature); no skipped or aborted tests accepted. Every remaining feature failure matched the same-host baseline identity and complete normalized message SHA-256. Sanitized result artifacts are attached to the run. Linux's ten existing failures and Windows's two existing failures are the previously documented legacy stream/fixture limitations, not Gate 3A failures; none were hidden or fixed by unrelated source edits.
+
+The Gate 3A CI comparison guards were also exercised with six synthetic Python inventory scenarios: valid results accepted; new failure, changed failure message, missing baseline case, incomplete engine and unrelated new case rejected. No custom direct xUnit runner was used for Gate 3A acceptance.
+
+**Acceptance: PASS.** Supported structural analysis and explainable proposals work; ambiguity/unresolved fields cannot become automatic confirmations; required omissions are rejected; human mapping confirmation binds exact template/profile/revision/mapping; tampering invalidates it; independent Gate 2 validation and Gate 1 business review remain enforced; all three synthetic output scenarios reopen with correct values, formulas, styles, merges and footers. Both standard CI jobs passed and no unrelated production code was changed.
+
+This final documentation-only update is revalidated on its exact PR HEAD before the owner-authorized merge. The final delivery report provides that run URL and exact feature/merge SHA so the Windows Agent can fetch the delivered commits rather than restart implementation. No deployment or Gate 3B/4 work.

@@ -1,6 +1,6 @@
 # Gate 4A — Secure Workflow Orchestration and Isolated Studio
 
-Status: implementation and local Windows security/browser verification passed. Merge remains conditional on successful Windows and Ubuntu CI at the exact final PR HEAD. The PR/delivery report records final hosted runs, feature SHA and merge SHA.
+Status: PASS for local Windows security/browser verification and the initial standard Windows/Ubuntu hosted comparison. This documentation-only acceptance update is revalidated on its exact final PR HEAD before owner-authorized merge. PR #10 and the delivery report record the final run, feature SHA and merge SHA.
 
 Starting baseline: `1d8c535c6a239091942a103d297ee0473c07d1fc`, verified latest GitHub main containing Gates 1–3B. Working branch: `codex/universal-doc-engine-gate-4a` in the existing separate `ShoeDocX-Gate3A` clone. Initial worktree was clean and no existing Gate 4A branch/PR was found. The original old workspace was preserved.
 
@@ -145,6 +145,23 @@ Real browser automation with installed Edge and Playwright 1.62.1 passes 13 acce
 Scoped `gate4a-verification.yml` checks exact PR HEAD and starting baseline on Ubuntu 24.04 and Windows Server 2022, SDK 8.0.426 and Node 22. It performs standard builds/tests, complete TRX inventory/regression checks (280/477 baseline, 336/533 feature), strict source-isolation checks, baseline/feature lockfile install/build/draft tests and the real browser flow against the loopback synthetic Identity/API host. All new security tests must pass. Known hosted legacy failures must match independently executed same-host baseline identities and normalized diagnostic hashes. Zero execution/skips/aborts or changed/missing/unrelated tests fail acceptance.
 
 Browser runtime is installed in runner temporary storage, without changing the frontend lockfile. Only sanitized counts/identities/outcomes/hashes, synthetic UI screenshots and response status paths are uploaded. No cookies, JWTs, CSRF tokens, internal session IDs, real workbook values, raw logs/TRX, provider payloads or deployment secrets are artifacts. The final PR records hosted job URLs/results and conditional merge evidence.
+
+### Initial hosted acceptance
+
+Implementation HEAD `0b5dd4b15c59a9ad9d6e9453fb868942f4c57f42` passed standard run https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38693768628 . Exact baseline remained `1d8c535c6a239091942a103d297ee0473c07d1fc`.
+
+| Host / SDK 8.0.426 | Baseline engine P/F/S | Feature engine P/F/S | Baseline full P/F/S | Feature full P/F/S |
+|---|---|---|---|---|
+| Ubuntu 24.04 | 280/0/0 | 336/0/0 | 467/10/0 | 523/10/0 |
+| Windows Server 2022 | 280/0/0 | 336/0/0 | 475/2/0 | 531/2/0 |
+
+Ubuntu: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38693768628/job/116285479186 . Windows: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38693768628/job/116285479583 . Both standard API/test builds, complete test inventories, all 56 new Gate 4A cases, 280 existing engine cases, frontend baseline/feature builds and draft tests, strict source isolation and real authenticated browser acceptance passed. Each browser run completed 13 checks with zero runtime exceptions. All five mandatory security gates passed for this supported subset.
+
+The ten Ubuntu and two Windows full-suite failures exactly matched their independently executed same-host baseline identities and normalized diagnostic hashes. Windows retains two unavailable developer fixture-path tests; Ubuntu additionally retains eight historical stream failures. None reproduced on the local Windows machine, where all 533 tests passed. No legacy assertions were changed, and no skipped/aborted/zero-execution run was accepted.
+
+The unchanged legacy AuthProvider can emit the existing Ant Design static-message/theme-context warning during login; it did not produce a JavaScript runtime exception or fail the UI flow. Existing npm audit and legacy chunk warnings remain recorded above. No unrelated auth/frontend refactor was introduced to hide them.
+
+Final acceptance/merge record: https://github.com/Nhutduyasda/ShoeDocX/pull/10 . The exact final documentation commit must again pass both hosted jobs before merge. The merged tree is then fetched and compared to the exact CI-tested feature tree. No deployment or Gate 4B work.
 
 ## Limitations and production exclusions
 

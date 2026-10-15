@@ -1,0 +1,61 @@
+name: Gate 4A secure Studio verification
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-4a'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: feature
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 1d8c535c6a239091942a103d297ee0473c07d1fc
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.426'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser test runtime
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/studio-browser" --no-package-lock --no-save playwright@1.62.1
+          node "$RUNNER_TEMP/studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Standard builds, security tests, baseline comparison and real UI
+        shell: bash
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
+          python feature/.github/scripts/verify_gate4a.py
+      - name: Upload sanitized evidence and synthetic UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate4a-verification-${{ matrix.os }}
+          path: verification-evidence/
+          if-no-files-found: error
+          retention-days: 14

@@ -17,6 +17,8 @@ import { getAllowedTabsForUser, getDefaultTabForUser } from './types/auth';
 import { enterpriseTheme } from './theme/themeConfig';
 import { requestInvoiceDraftLeave } from './services/invoiceDraftStore';
 
+const UniversalDocStudio = React.lazy(() => import('./features/universal-doc-engine/UniversalDocStudio'));
+
 const MainApp: React.FC = () => {
   const { isAuthenticated, loading, user } = useAuth();
   const [selectedTab, setSelectedTab] = useState<NavTabKey | null>(null);
@@ -73,6 +75,10 @@ const MainApp: React.FC = () => {
 
   if (!isAuthenticated) {
     return <LoginPage />;
+  }
+
+  if (window.location.pathname.replace(/\/$/, '') === '/universal-doc-studio') {
+    return <React.Suspense fallback={<Spin size="large" />}><UniversalDocStudio /></React.Suspense>;
   }
 
   return (

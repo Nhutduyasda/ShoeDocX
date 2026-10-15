@@ -10,6 +10,7 @@ using System.Threading.RateLimiting;
 using ShoeExportInvoice.Api.Data;
 using ShoeExportInvoice.Api.Models.Entities;
 using ShoeExportInvoice.Api.Services;
+using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -118,6 +119,7 @@ builder.Services.AddAuthentication(options =>
 });
 
 // Dependency Injection Services
+builder.Services.AddUniversalDocEngineGate4A();
 builder.Services.AddHttpClient();
 builder.Services.AddRateLimiter(options =>
 {

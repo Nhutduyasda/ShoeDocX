@@ -1,0 +1,129 @@
+{
+  "status": "PASS",
+  "checks": [
+    "AUTHENTICATED_DIRECT_ROUTE_REFRESH",
+    "ACTUAL_TEMPLATE_ANALYSIS",
+    "MAPPING_CONFIRMATION_REQUIRED",
+    "DEMO_DATA_AND_SOURCE_EVIDENCE_RENDERED",
+    "REAL_XLSX_DOWNLOAD",
+    "CURRENT_APPROVAL_REQUIRED",
+    "REAL_XLSX_DOWNLOAD",
+    "MAPPING_EDIT_INVALIDATES_APPROVAL",
+    "MAPPING_CONFIRMATION_REQUIRED",
+    "CURRENT_APPROVAL_REQUIRED",
+    "CROSS_TENANT_HEADER_ATTACK_404",
+    "FORGED_TENANT_BODY_400",
+    "REAL_XLSX_DOWNLOAD"
+  ],
+  "runtimeErrors": [],
+  "responses": [
+    {
+      "path": "/api/universal-doc/bootstrap",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/bootstrap",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/templates/invoice",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/template",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/export",
+      "status": 409
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/mapping/confirm",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/extract-demo",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/fields",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/review",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/approve",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/export",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/fields",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/export",
+      "status": 409
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/review",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/approve",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/export",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/mapping",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/export",
+      "status": 409
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/mapping/confirm",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/export",
+      "status": 409
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/review",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/approve",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>/export",
+      "status": 200
+    },
+    {
+      "path": "/api/universal-doc/sessions/<session>",
+      "status": 200
+    }
+  ]
+}

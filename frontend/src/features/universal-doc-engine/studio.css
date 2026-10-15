@@ -1,0 +1,14 @@
+.uds { min-height:100vh; background:#f3f5f8; color:#17263c; padding:32px; font:14px/1.5 system-ui,sans-serif }
+.uds * { box-sizing:border-box }.uds h1 { font-size:30px; letter-spacing:-1px; margin:0 }.uds h2 { font-size:21px }.uds h3 { font-size:16px }
+.uds-top { display:flex; justify-content:space-between; gap:24px; margin-bottom:24px }.uds-top>div:last-child { display:flex; align-items:center; gap:16px }
+.uds-eyebrow { color:#46647c; font-size:11px; font-weight:700; letter-spacing:2px }.uds-banner { background:#e8eff6; border:1px solid #d3deea; padding:14px 18px; border-radius:8px }
+.uds-steps { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; margin:24px 0 }.uds-steps button { display:flex; gap:10px; align-items:center; text-align:left; background:white; color:#46647c; border-color:#d8e0e8 }
+.uds-steps button[aria-current] { border-color:#1b6685; background:#e8f3f6; color:#154d64 }.uds-steps span { border:1px solid currentColor; border-radius:50%; width:24px; height:24px; text-align:center; flex-shrink:0 }
+.uds-panel { background:white; border:1px solid #dce3ea; border-radius:12px; padding:28px; min-height:360px }.uds-state { padding:12px 0; color:#46647c }.uds-state button { margin-left:16px }
+.uds button { border:1px solid #1d657f; background:#1d657f; color:white; border-radius:6px; padding:9px 14px; cursor:pointer; font:inherit; margin-right:8px }.uds button:disabled { opacity:.45; cursor:not-allowed }
+.uds button:focus-visible,.uds input:focus-visible,.uds select:focus-visible { outline:3px solid #e4af45; outline-offset:2px }.uds a { color:#1d657f }
+.uds label { display:flex; flex-direction:column; gap:5px }.uds input,.uds select { border:1px solid #c2ced9; border-radius:5px; padding:8px; font:inherit; color:#17263c; background:white; max-width:100% }
+.uds-grid { display:grid; grid-template-columns:repeat(4,minmax(100px,1fr)); gap:16px; max-width:960px; margin:20px 0 }.uds-inline { display:flex; align-items:end; gap:12px; flex-wrap:wrap; margin:20px 0 }
+.uds-muted,.uds small { color:#617487; font-size:12px }.uds small { display:block }.uds-scroll { overflow:auto }.uds table { width:100%; border-collapse:collapse; text-align:left }.uds th,.uds td { border-bottom:1px solid #e2e8ee; padding:12px; vertical-align:top }.uds td .uds-inline { margin:0; flex-wrap:nowrap }.uds td input { min-width:100px; width:100% }
+.uds-error { padding:16px; background:#fff0ec; border:1px solid #e9b7a8; margin:16px 0; border-radius:6px; color:#8c3422 }.uds-success { color:#21634e; padding:12px; background:#eef8f2 }.uds footer { margin-top:32px; border-top:1px solid #e2e8ee; padding-top:18px }
+@media(max-width:900px) { .uds { padding:16px }.uds-top { flex-direction:column }.uds-steps { grid-template-columns:repeat(2,1fr) }.uds-grid { grid-template-columns:repeat(2,minmax(100px,1fr)) }.uds-panel { padding:18px } }

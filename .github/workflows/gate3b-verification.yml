@@ -1,0 +1,53 @@
+name: Gate 3B standard verification
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-3b'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: feature
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 73dc382bb9b61b9d8a87d4a80bab07d478a8cb1c
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.426'
+      - name: Build, execute standard tests, compare baseline
+        shell: bash
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python feature/.github/scripts/test_gate3b_verification.py
+          python feature/.github/scripts/verify_gate3b.py
+      - name: Upload sanitized verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate3b-verification-${{ matrix.os }}
+          path: verification-evidence/
+          if-no-files-found: error
+          retention-days: 14

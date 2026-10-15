@@ -1,0 +1,29 @@
+{
+  "phase": "4B.2B-1",
+  "status": "PARTIAL",
+  "phase2Authorized": false,
+  "os": "Microsoft Windows NT 10.0.26200.0",
+  "workerBuild": "shoedocx-poc1/pdfium-157.0.8100/skia-4.153.1",
+  "confinementChecksCompleted": false,
+  "checks": [
+    {
+      "check": "network",
+      "status": "BLOCKED",
+      "code": "BOOTSTRAP_EXIT_C0000142_",
+      "elapsedMs": 115
+    },
+    {
+      "check": "dependent_decoder_and_resource_tests",
+      "status": "BLOCKED",
+      "code": "NO_UNCONFINED_FALLBACK"
+    }
+  ],
+  "measurements": [],
+  "blockers": [
+    "PDF_CUMULATIVE_EXPANDED_STREAM_ACCOUNTING_UNPROVEN",
+    "PDF_FEATURE_PARSER_IS_CONSERVATIVE_NOT_COMPLETE",
+    "PER_PAGE_CPU_ENFORCEMENT_UNPROVEN",
+    "PARENT_DEATH_AND_DESCENDANT_RECOVERY_ACCEPTANCE_PENDING",
+    "ALL_18_ADVERSARIAL_SCENARIOS_NOT_COMPLETE"
+  ]
+}

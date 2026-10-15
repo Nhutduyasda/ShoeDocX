@@ -157,10 +157,6 @@
     {
       "ref": "SkiaSharp.NativeAssets.Win32/4.153.1",
       "dependsOn": []
-    },
-    {
-      "ref": "UniversalDocDecoder.Protocol/1.0.0",
-      "dependsOn": []
     }
   ]
 }

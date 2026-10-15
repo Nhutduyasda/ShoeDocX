@@ -44,8 +44,10 @@ def inspect(root, output):
                 findings.append({'package': component['name'], 'version': component['version'], **entry})
     dependencies = []
     target = next(iter(assets['targets'].values()))
-    identities = {k.split('/')[0]: k for k in target}
+    component_ids = {c['bom-ref'] for c in components}
+    identities = {k.split('/')[0]: k for k in target if k in component_ids}
     for identity, value in target.items():
+        if identity not in component_ids: continue
         dependencies.append({'ref': identity, 'dependsOn': [identities[n] for n in value.get('dependencies', {}) if n in identities]})
     sbom = {'bomFormat': 'CycloneDX', 'specVersion': '1.5', 'version': 1, 'components': components, 'dependencies': dependencies}
     (output / 'decoder-sbom.cdx.json').write_text(json.dumps(sbom, indent=2), encoding='utf-8')

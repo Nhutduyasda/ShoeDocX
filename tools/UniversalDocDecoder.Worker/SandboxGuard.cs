@@ -18,6 +18,18 @@ internal static class SandboxGuard
         {
             Limits.Require(GetTokenInformation(token, 29, out int appContainer, 4, out _) && appContainer == 1, "SANDBOX_APPCONTAINER_REQUIRED");
             Limits.Require(IsProcessInJob(GetCurrentProcess(), 0, out bool inJob) && inJob, "SANDBOX_JOB_REQUIRED");
+            nint capabilities = Marshal.AllocHGlobal(16384);
+            try
+            {
+                Limits.Require(GetTokenBuffer(token, 30, capabilities, 16384, out _) && Marshal.ReadInt32(capabilities) == 0,
+                    "SANDBOX_ZERO_CAPABILITIES_REQUIRED");
+            }
+            finally { Marshal.FreeHGlobal(capabilities); }
+            Limits.Require(QueryInformationJobObject(0, 9, out var limits, (uint)Marshal.SizeOf<ExtendedLimits>(), 0) &&
+                (limits.Basic.Flags & 0x230e) == 0x230e && limits.Basic.ActiveProcesses == 1 &&
+                limits.ProcessMemory is > 0 and <= Limits.Memory && limits.JobMemory is > 0 and <= Limits.Memory &&
+                limits.Basic.ProcessCpu is > 0 and <= 150_000_000 && limits.Basic.JobCpu is > 0 and <= 150_000_000,
+                "SANDBOX_JOB_LIMITS_REQUIRED");
         }
         finally { CloseHandle(token); }
     }
@@ -52,6 +64,9 @@ internal static class SandboxGuard
 
     [StructLayout(LayoutKind.Sequential)] private struct RLimit { public ulong Current, Maximum; }
     [StructLayout(LayoutKind.Sequential)] private struct ArgCompare { public uint Argument, Operation; public ulong Mask, Value; }
+    [StructLayout(LayoutKind.Sequential)] private struct BasicLimits { public long ProcessCpu, JobCpu; public uint Flags; public nuint MinWorkingSet, MaxWorkingSet; public uint ActiveProcesses; public nuint Affinity; public uint Priority, Scheduling; }
+    [StructLayout(LayoutKind.Sequential)] private struct IoCounters { public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes; }
+    [StructLayout(LayoutKind.Sequential)] private struct ExtendedLimits { public BasicLimits Basic; public IoCounters Io; public nuint ProcessMemory, JobMemory, PeakProcess, PeakJob; }
     [DllImport("libc")] private static extern uint geteuid();
     [DllImport("libc")] private static extern int prctl(int option, ulong arg2, ulong arg3, ulong arg4, ulong arg5);
     [DllImport("libc")] private static extern int setrlimit(int resource, ref RLimit limit);
@@ -67,4 +82,6 @@ internal static class SandboxGuard
     [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsProcessInJob(nint process, nint job, [MarshalAs(UnmanagedType.Bool)] out bool result);
     [DllImport("advapi32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool OpenProcessToken(nint process, uint access, out nint token);
     [DllImport("advapi32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetTokenInformation(nint token, int kind, out int value, int length, out int returned);
+    [DllImport("advapi32.dll", EntryPoint = "GetTokenInformation")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetTokenBuffer(nint token, int kind, nint value, int length, out int returned);
+    [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool QueryInformationJobObject(nint job, int kind, out ExtendedLimits limits, uint length, nint returned);
 }

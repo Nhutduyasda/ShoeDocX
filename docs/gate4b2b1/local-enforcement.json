@@ -10,7 +10,7 @@
       "check": "network",
       "status": "BLOCKED",
       "code": "BOOTSTRAP_EXIT_C0000142_",
-      "elapsedMs": 115
+      "elapsedMs": 188
     },
     {
       "check": "dependent_decoder_and_resource_tests",

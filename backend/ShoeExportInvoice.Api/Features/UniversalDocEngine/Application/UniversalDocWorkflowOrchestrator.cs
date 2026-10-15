@@ -8,7 +8,7 @@ using ShoeExportInvoice.Api.Features.UniversalDocEngine.Validation;
 
 namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 
-public sealed class UniversalDocWorkflowOrchestrator(IUniversalDocCurrentActor currentActor, IUniversalDocSessionStore store)
+public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurrentActor currentActor, IUniversalDocSessionStore store)
 {
     public UniversalDocActor Actor() => currentActor.Resolve();
     public StudioSessionView Create(string workflow)
@@ -209,6 +209,7 @@ public sealed class UniversalDocWorkflowOrchestrator(IUniversalDocCurrentActor c
             .Concat(s.Extraction?.Documents.SelectMany(d => d.Issues).Select(i => new StudioIssueView(i.Code, i.Field?.Key, i.RowId, i.RowPosition)) ?? Enumerable.Empty<StudioIssueView>()).Take(100).ToImmutableArray();
         return new(s.Id, s.Version, s.ExpiresAt, s.Workflow, s.MappingState.ToString(), s.Proposal?.Revision, s.Profile.Version, s.Document?.DataRevision,
             s.Document?.ReviewState.ToString() ?? "NoDocument", s.Structure?.Sheets.Select(x => x.Name).ToImmutableArray() ?? ImmutableArray<string>.Empty,
-            suggestions, mapping, fields.ToImmutable(), issues, actor.CanReview, actor.CanApprove);
+            suggestions, mapping, fields.ToImmutable(), issues, actor.CanReview, actor.CanApprove)
+            { Sources = s.Sources.Select(SourceIntake.View).ToImmutableArray() };
     }
 }

@@ -13,7 +13,7 @@ namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.Api;
 [ServiceFilter(typeof(StudioAdmissionFilter))]
 [RequestSizeLimit(InMemoryUniversalDocSessionStore.MaximumTemplateBytes + 65536)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrator workflow, IAntiforgery antiforgery) : ControllerBase
+public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrator workflow, IAntiforgery antiforgery, TimeProvider time) : ControllerBase
 {
     [HttpGet("bootstrap")]
     public IActionResult Bootstrap()
@@ -31,6 +31,30 @@ public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrato
     public IActionResult Get(string id) => Ok(workflow.Read(id));
     [HttpDelete("sessions/{id}")]
     public IActionResult Delete(string id, StudioVersionRequest request) { workflow.Remove(id, request.ExpectedVersion); return NoContent(); }
+    [HttpGet("sessions/{id}/sources")]
+    public IActionResult Sources(string id)
+    {
+        var session = workflow.Read(id);
+        return Ok(new { session.Id, session.Version, session.ExpiresAt, session.Sources });
+    }
+    [HttpPost("sessions/{id}/sources")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(SourceIntake.MaximumFileBytes + 16384)]
+    [RequestFormLimits(MemoryBufferThreshold = SourceIntake.MaximumFileBytes + 16384,
+        MultipartBodyLengthLimit = SourceIntake.MaximumFileBytes, ValueLengthLimit = 128, ValueCountLimit = 2)]
+    public async Task<IActionResult> AddSource(string id, [FromForm] IFormFile file, [FromForm] long expectedVersion, CancellationToken cancellationToken)
+    {
+        if (Request.Form.Files.Count != 1 || Request.Form.Files[0].Name != "file" ||
+            Request.Form.Keys.Any(k => k != "expectedVersion") || !Request.Form.ContainsKey("expectedVersion") ||
+            Request.Form["expectedVersion"].Count != 1)
+            throw new StudioFault(400, "SOURCE_REQUEST_INVALID");
+        using var input = file.OpenReadStream();
+        var bytes = await SourceIntake.ReadBoundedAsync(input, file.Length, cancellationToken);
+        return Ok(workflow.AddSource(id, expectedVersion, bytes, file.FileName, file.ContentType, time));
+    }
+    [HttpDelete("sessions/{id}/sources/{sourceId}")]
+    public IActionResult DeleteSource(string id, string sourceId, StudioVersionRequest request) =>
+        Ok(workflow.DeleteSource(id, request.ExpectedVersion, sourceId));
     [HttpPost("sessions/{id}/template")]
     [Consumes("multipart/form-data")]
     [RequestFormLimits(MemoryBufferThreshold = InMemoryUniversalDocSessionStore.MaximumTemplateBytes + 65536,

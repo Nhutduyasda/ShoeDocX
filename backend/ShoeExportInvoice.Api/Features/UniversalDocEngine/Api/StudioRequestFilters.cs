@@ -41,7 +41,8 @@ public sealed class StudioAdmissionFilter(StudioRequestAdmission admission, Univ
         {
             workflow.Actor();
             // Authorize a template destination before multipart model binding allocates its buffers.
-            if (context.HttpContext.Request.Path.Value?.EndsWith("/template", StringComparison.Ordinal) == true &&
+            if ((context.HttpContext.Request.Path.Value?.EndsWith("/template", StringComparison.Ordinal) == true ||
+                 context.HttpContext.Request.Path.Value?.EndsWith("/sources", StringComparison.Ordinal) == true) &&
                 context.RouteData.Values["id"] is string id) workflow.Read(id);
             await next();
         }

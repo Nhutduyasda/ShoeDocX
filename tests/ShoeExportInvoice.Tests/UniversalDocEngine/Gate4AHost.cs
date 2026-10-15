@@ -33,7 +33,7 @@ public sealed class StudioHttpHost : IAsyncDisposable
     public string Address { get; private set; } = "";
     public string SigningKey { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     public static async Task<StudioHttpHost> Start(TimeProvider? clock = null,
-        Func<IUniversalDocSessionStore, IUniversalDocSessionStore>? decorate = null, int port = 0)
+        Func<IUniversalDocSessionStore, IUniversalDocSessionStore>? decorate = null, int port = 0, Action<WebApplication>? configure = null)
     {
         var host = new StudioHttpHost();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development",
@@ -86,6 +86,7 @@ public sealed class StudioHttpHost : IAsyncDisposable
             }
         }
         host.App.UseRouting(); host.App.UseRateLimiter(); host.App.UseAuthentication(); host.App.UseAuthorization(); host.App.MapControllers();
+        configure?.Invoke(host.App);
         await host.App.StartAsync();
         host.Address = host.App.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
         return host;

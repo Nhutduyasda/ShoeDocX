@@ -4,12 +4,17 @@ export interface StudioField {
   region: { x: number; y: number; width: number; height: number } | null; rawObservations: string[];
 }
 export interface StudioMapping { sheet: string; startRow: number; headers: Record<string, string>; columns: Record<string, number> }
+export interface StudioSource {
+  sourceId: string; sha256: string; byteLength: number; mediaType: string; uploadedAt: string;
+  width: number | null; height: number | null; pageCount: number | null; status: string;
+}
 export interface StudioSession {
   id: string; version: number; expiresAt: string; workflow: string; mappingState: string;
   mappingRevision: number | null; profileVersion: number; dataRevision: number | null; reviewState: string;
   sheets: string[]; mapping: StudioMapping | null; canReview: boolean; canApprove: boolean;
   suggestions: { scope: string; key: string; status: string; candidates: { sheet: string; labelCell: string; cell: string | null; column: number | null; prototypeRow: number | null }[] }[];
   fields: StudioField[]; issues: { code: string; field: string | null; rowId: string | null; rowPosition: number | null }[];
+  sources: StudioSource[];
 }
 export interface StudioBootstrap { csrfToken: string; workflows: string[]; canReview: boolean; canApprove: boolean }
 
@@ -59,6 +64,13 @@ export class StudioApi {
   }
   async export(session: StudioSession): Promise<Blob> {
     return (await this.request(`/sessions/${session.id}/export`, 'POST', { expectedVersion: session.version })).blob();
+  }
+  async uploadSource(session: StudioSession, file: File): Promise<StudioSession> {
+    const form = new FormData(); form.set('file', file); form.set('expectedVersion', String(session.version));
+    return (await this.request(`/sessions/${session.id}/sources`, 'POST', form)).json();
+  }
+  async deleteSource(session: StudioSession, sourceId: string): Promise<StudioSession> {
+    return (await this.request(`/sessions/${session.id}/sources/${encodeURIComponent(sourceId)}`, 'DELETE', { expectedVersion: session.version })).json();
   }
   async sample(workflow: string): Promise<Blob> { return (await this.request(`/templates/${encodeURIComponent(workflow)}`)).blob(); }
   async remove(session: StudioSession): Promise<void> { await this.request(`/sessions/${session.id}`, 'DELETE', { expectedVersion: session.version }); }

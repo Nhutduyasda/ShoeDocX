@@ -147,7 +147,7 @@ public class ExtractionTests
         var d = Assert.Single(Run(c, observations).Documents);
         Assert.Equal("0008", d.Document.LineItems[0]["material"].Text); Assert.Equal("Vải lót giày", d.Document.LineItems[0]["description"].Text);
         Assert.False(d.Document.LineItems[0].ContainsKey("quantity")); Assert.Equal(0m, d.Document.LineItems[1]["quantity"].Number);
-        Assert.Contains(d.Issues, i => i.Code == "AMBIGUOUS_DECIMAL" && i.CandidateIds.SequenceEqual(new[] { "q1" }));
+        Assert.Contains(d.Issues, i => i.Code == "AMBIGUOUS_DECIMAL" && i.CandidateIds.SequenceEqual(new[] { "q1" }) && i.RowId == "r1" && i.RowPosition == 0);
         Assert.Contains(d.Issues, i => i.Code == "OBSERVED_EMPTY");
         Assert.Contains(d.Validation.Issues, i => i.Code == "REQUIRED_FIELD_MISSING");
         Assert.True(d.RequiresManualCorrection);
@@ -179,6 +179,7 @@ public class ExtractionTests
         Assert.Contains(left.Validation.Issues, i => i.Code == "REQUIRED_FIELD_MISSING"); Assert.False(left.Document.Header.ContainsKey("total"));
         var continued = Assert.Single(result.Documents.Where(d => d.TableGroupId == "continued"));
         Assert.Equal(new int?[] { 3, 4 }, continued.Document.LineItems.Select(r => r["description"].Evidence!.PageNumber));
+        Assert.Contains(continued.Issues, i => i.Code == "NOT_OBSERVED" && i.Field == L("quantity") && i.RowId == "r2" && i.RowPosition == 1);
         Assert.Equal("PACK-002", Assert.Single(result.Documents.Where(d => d.DocumentGroupId == "second")).Document.Header["number"].Text);
     }
 

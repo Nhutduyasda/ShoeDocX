@@ -7,9 +7,9 @@ namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.Extraction;
 public sealed class ExtractionObservationValidator
 {
     internal static ExtractionIssue Issue(string code, string? observation = null, string? group = null,
-        FieldReference? field = null, ImmutableArray<string> candidates = default) =>
+        FieldReference? field = null, ImmutableArray<string> candidates = default, string? rowId = null, int? rowPosition = null) =>
         new(code, "Extraction requires correction: " + code + ".", observation, group, field,
-            candidates.IsDefault ? ImmutableArray<string>.Empty : candidates);
+            candidates.IsDefault ? ImmutableArray<string>.Empty : candidates, rowId, rowPosition);
     private static bool Id(string? value) => !string.IsNullOrWhiteSpace(value) && value.Length <= ExtractionLimits.IdentifierLength;
     private static bool Hash(string? value) => value is { Length: 64 } && value.All(Uri.IsHexDigit);
 

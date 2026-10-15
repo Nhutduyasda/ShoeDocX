@@ -26,7 +26,8 @@ public sealed record NormalizationPolicy(ImmutableArray<FieldNormalizationRule> 
 public enum NormalizedValueState { Value, ObservedEmpty, Invalid, Ambiguous, NotObserved }
 // Diagnostics use fixed messages/codes, never raw document text. Candidate IDs reference the sidecar.
 public sealed record ExtractionIssue(string Code, string Message, string? ObservationId = null,
-    string? GroupId = null, FieldReference? Field = null, ImmutableArray<string> CandidateIds = default);
+    string? GroupId = null, FieldReference? Field = null, ImmutableArray<string> CandidateIds = default,
+    string? RowId = null, int? RowPosition = null);
 public sealed record NormalizedValue(NormalizedValueState State, TypedFieldValue? Value, string? IssueCode);
 public sealed record ExtractedDocument(string SourceId, string DocumentGroupId, string? TableGroupId,
     CanonicalDocument Document, ValidationResult Validation, ImmutableArray<ExtractionIssue> Issues,

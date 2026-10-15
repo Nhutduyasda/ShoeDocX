@@ -1,6 +1,6 @@
 # Universal Document Engine — Gate 3B
 
-Status: local Windows verification passed; hosted baseline comparison and exact-HEAD acceptance are required before merge.
+Status: PASS for the initial standard hosted comparison and local Windows verification. The final PR HEAD is revalidated before the owner-authorized merge; its run and merge SHA are recorded in PR #9 and the delivery report.
 
 Gate 3B is a **provider-neutral extraction normalization engine**, not a completed general-purpose OCR service. All recognition observations in tests are synthetic. No PDF pixels or scanned images were recognized, no AI service was called, and no recognition accuracy is claimed.
 
@@ -34,7 +34,7 @@ Provider document IDs are required. Header observations are document scoped and 
 
 Grouping key is `(source ID, document group ID, table group ID)`. Each independent table emits its own canonical draft. Document-level header observations are shared only within their explicitly identified document; no totals are allocated between tables and rows are never concatenated across tables. If separate tables have separate totals/headers, the provider must identify separate document groups. A continuing table across pages must reuse its table identity and provide global row positions. Page-local positions that collide are rejected rather than guessed. The engine cannot establish that grouping claims match pixels; recognition/grouping accuracy remains a provider and reviewer responsibility.
 
-Output document/table order is ordinal by IDs; line order is explicit row position. Canonical IDs use an unambiguous serialized tuple, avoiding delimiter collisions. All candidates for the same scoped field/row remain unresolved, including identical duplicate observations: neither confidence nor candidate rank selects a winner. Candidate IDs and the full bounded observation sidecar retain raw text, fingerprints, alternatives, pages and regions for trusted review. Do not log/serialize the sidecar into public artifacts.
+Output document/table order is ordinal by IDs; line order is explicit row position. Canonical IDs use an unambiguous serialized tuple, avoiding delimiter collisions. All candidates for the same scoped field/row remain unresolved, including identical duplicate observations: neither confidence nor candidate rank selects a winner. Line-field diagnostics include explicit row ID and position, including when a field has no candidate. Candidate IDs and the full bounded observation sidecar retain raw text, fingerprints, alternatives, pages and regions for trusted review. Do not log/serialize the sidecar into public artifacts.
 
 Every emitted value has its schema type, `FieldSource.Extracted`, `FieldReviewStatus.Unreviewed` and existing `SourceEvidence`. Source fingerprints remain in the sidecar rather than changing the Gate 1 provenance contract. Missing page/region or unknown page bounds generate explicit limitations; positions are never invented. Confidence is optional raw metadata in the documented [0,1] range and never grants correctness or review status.
 
@@ -77,6 +77,17 @@ Raw local TRX/logs remain outside the source tree in the user's temporary `shoed
 `verify_gate3b.py` adapts the existing Gate 3A design, reusing unchanged Gate 2 parsing/privacy guards. It requires baseline inventories 185 engine/382 full and feature inventories 280 engine/477 full, all 95 additions in ExtractionTests passing, every baseline identity preserved, exact full/targeted engine equivalence, no skips/aborts/zero execution, exit/TRX agreement and no new/changed legacy failures. Existing failures must match same-host identities and normalized complete diagnostic hashes. Guard unit tests exercise accepted inventories and rejection of changed/new failures, missing tests, incomplete engine, unrelated additions, zero execution and aborted runners.
 
 The delivery report/PR records actual hosted run URLs, tested feature SHA and conditional merge SHA. Do not mark final acceptance or merge until both hosted comparisons pass on the exact final PR HEAD. No direct-xUnit substitute, force push or weakened legacy assertions.
+
+Initial implementation run: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38682425151, tested SHA `b199ffb40b4ff0041fe4301a5ff77d5de8d8335b`. Both standard jobs succeeded, including nine synthetic CI guard unit tests:
+
+| Host / SDK 8.0.426 | Baseline engine P/F/S | Feature engine P/F/S | Baseline full P/F/S | Feature full P/F/S |
+|---|---|---|---|---|
+| Ubuntu 24.04 | 185/0/0 | 280/0/0 | 372/10/0 | 467/10/0 |
+| Windows Server 2022 | 185/0/0 | 280/0/0 | 380/2/0 | 475/2/0 |
+
+Ubuntu job: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38682425151/job/116249717347 . Windows job: https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38682425151/job/116249717508 . Every new test and every existing engine test passed; legacy failures matched the independently executed same-host baseline by identity and normalized message hash. Hosted Windows retains two unavailable developer fixture-path tests; Ubuntu additionally retains eight historical stream failures. Neither was hidden or reproduced on local Windows (477/477 passed). Final row-specific diagnostic improvements also pass local engine 280/280 and full 477/477 checks and require a new exact-HEAD hosted run before merge.
+
+PR and final acceptance record: https://github.com/Nhutduyasda/ShoeDocX/pull/9 . Review boundaries, safe grouping, exact normalization, provenance limitations, no unrelated modifications and standard baseline comparisons satisfy the supported Gate 3B subset. Final merge remains conditional on successful revalidation of the exact final feature SHA.
 
 ## Future provider integration
 

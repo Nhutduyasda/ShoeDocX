@@ -21,6 +21,11 @@ public static class Gate5AFixtures
     public static void Verify(byte[] bytes)
     {
         using var wb = new XLWorkbook(new MemoryStream(bytes)); var s = wb.Worksheet("Data");
+        if (s.Cell("D5").GetString() == "Đơn vị")
+        { if (s.Cell("D6").GetString() != "cái") throw new InvalidOperationException("SYNTHETIC_UNIT_MISMATCH"); }
+        else if (s.Cell("D6").DataType != XLDataType.Number || s.Cell("D6").GetValue<decimal>() != 9.5m ||
+            s.Cell("D7").GetValue<decimal>() != 10m || s.Cell("B3").GetValue<decimal>() != 19.5m)
+            throw new InvalidOperationException("SYNTHETIC_AMOUNT_MISMATCH");
         if (s.Cell("B1").GetString() != "00123" || s.Cell("A6").GetString() != "00042" || s.Cell("C6").GetValue<decimal>() != 2.5m ||
             s.Cell("C7").GetValue<decimal>() != 3m || s.Cell("E7").FormulaA1 != "C7*2" || s.Cell("E8").FormulaA1 != "SUM(E6:E7)" ||
             s.Cell("C7").Style.NumberFormat.Format != "0.00" || !s.MergedRanges.Any(r => r.RangeAddress.ToString() == "A9:C9") ||

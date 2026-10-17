@@ -88,7 +88,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator
                     if (cell is null || cell.Formula is not null || cell.Merged ||
                         (f.Scope == "LineItem" && !sheet.Tables.Any(t => t.PrototypeRows.Length == 1 && t.PrototypeRows[0] == f.PrototypeRow)))
                         throw new StudioFault(400, "INVALID_SCHEMA_DESTINATION");
-                    selected = new(sheet.Name, cell.Address, f.Label, f.Scope == "Header" ? cell.Address : null,
+                    selected = new(sheet.Name, cell.Address, cell.Label ?? "", f.Scope == "Header" ? cell.Address : null,
                         f.Scope == "LineItem" ? cell.Column : null, f.Scope == "LineItem" ? cell.Row : null,
                         cell.Address, "Explicit user destination on a materialized template cell; not inferred source evidence.");
                     if (!choices.Contains(selected))

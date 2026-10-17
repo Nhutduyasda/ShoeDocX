@@ -25,7 +25,7 @@ try {
   for (let i = 0; i < await destinations.count(); i++) { if (await destinations.nth(i).inputValue() === '') ambiguous++; await destinations.nth(i).selectOption('0'); }
   assert.ok(ambiguous > 0); checks.push('AMBIGUOUS_MAPPING_CORRECTED');
   // Inference order: table columns, followed by header fields. Explicitly choose numeric quantity and printed value.
-  await page.getByLabel('Field type 3', { exact: true }).selectOption('Decimal'); await page.getByLabel('Field type 6', { exact: true }).selectOption('Decimal');
+  await page.getByLabel('Field type 3', { exact: true }).selectOption('Decimal'); await page.getByLabel('Field type 4', { exact: true }).selectOption('Decimal'); await page.getByLabel('Field type 6', { exact: true }).selectOption('Decimal');
   await click('Apply schema corrections'); await click('Confirm mapping as current user'); await state('UserConfirmed');
   checks.push('SCHEMA_AND_MAPPING_EXPLICITLY_CONFIRMED');
   await click('3 Demo extraction'); await page.getByLabel('Sample rows', { exact: true }).fill('2');

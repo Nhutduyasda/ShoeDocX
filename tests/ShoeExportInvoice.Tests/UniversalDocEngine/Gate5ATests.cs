@@ -13,14 +13,14 @@ public class Gate5ATests
     private sealed class Actor : IUniversalDocCurrentActor { public UniversalDocActor Value = new("owner", "tenant", "Admin", DateTimeOffset.UtcNow.AddHours(1)); public UniversalDocActor Resolve() => Value; }
     private sealed class Clock : TimeProvider { public DateTimeOffset Now = DateTimeOffset.UtcNow; public override DateTimeOffset GetUtcNow() => Now; }
     private static ImmutableArray<SchemaFieldCorrection> Corrections(StudioSessionView s) => s.SchemaDraft!.Fields.Select((f, i) => new SchemaFieldCorrection(f.Key, f.Label, f.Scope,
-        f.Label is "Quantity" or "Số lượng" or "Printed value" ? "Decimal" : "Text", false, false, 0)).ToImmutableArray();
+        f.Label is "Quantity" or "Số lượng" or "Printed value" or "Amount" ? "Decimal" : "Text", false, false, 0)).ToImmutableArray();
     private static ManualSample Sample(StudioSessionView s)
     {
         var header = ImmutableDictionary.CreateBuilder<string, string?>(); var first = ImmutableDictionary.CreateBuilder<string, string?>(); var second = ImmutableDictionary.CreateBuilder<string, string?>();
         foreach (var f in s.SchemaDraft!.Fields.Where(f => !f.Omit))
         {
             if (f.Scope == "Header") header[f.Key] = f.Type == "Decimal" ? "19.50" : "00123";
-            else { first[f.Key] = f.Type == "Decimal" ? "2.5" : f.Label is "Product code" or "Mã hàng" ? "00042" : "Vải tổng hợp"; second[f.Key] = f.Type == "Decimal" ? "3" : "00043"; }
+            else { first[f.Key] = f.Type == "Decimal" ? f.Label == "Amount" ? "9.5" : "2.5" : f.Label is "Product code" or "Mã hàng" ? "00042" : f.Label == "Đơn vị" ? "cái" : "Vải tổng hợp"; second[f.Key] = f.Type == "Decimal" ? f.Label == "Amount" ? "10" : "3" : f.Label == "Đơn vị" ? "cái" : "00043"; }
         }
         return new(header.ToImmutable(), ImmutableArray.Create(first.ToImmutable(), second.ToImmutable()));
     }
@@ -47,6 +47,13 @@ public class Gate5ATests
         var structure = new TemplateStructureAnalyzer().Analyze(stream, "x.xlsx").Structure!; var learner = new ExampleSchemaLearner();
         var first = learner.Suggest(structure, bytes, null); Assert.Equal(JsonSerializer.Serialize(first), JsonSerializer.Serialize(learner.Suggest(structure, bytes, null)));
         Assert.Equal(original, bytes); Assert.Contains(first, f => f.Label == "Số phiếu" && f.Status == "Ambiguous" && f.Candidates.Length == 2);
+        using var typed = new XLWorkbook(new MemoryStream(bytes));
+        typed.Worksheet("Data").Cell("B3").Value = new DateTime(2026, 10, 17); typed.Worksheet("Data").Cell("B3").Style.NumberFormat.Format = "yyyy-mm-dd";
+        typed.Worksheet("Data").Cell("D6").Value = true;
+        using var typedBytes = new MemoryStream(); typed.SaveAs(typedBytes); using var typedInput = new MemoryStream(typedBytes.ToArray());
+        var typedStructure = new TemplateStructureAnalyzer().Analyze(typedInput, "typed.xlsx").Structure!;
+        var typedFields = learner.Suggest(typedStructure, typedBytes.ToArray(), null);
+        Assert.Contains(typedFields, f => f.Label == "Printed value" && f.Type == "Date"); Assert.Contains(typedFields, f => f.Label == "Đơn vị" && f.Type == "Boolean");
         Assert.Contains(first, f => f.Label == "Mã hàng" && f.Type == "Text"); Assert.DoesNotContain(first, f => f.Candidates.Any(c => c.Cell == "E6" || c.LabelCell == "A7"));
     }
     [Fact] public void FilledExampleBindsBothHashesAndCannotConfirm()
@@ -139,6 +146,7 @@ public class Gate5ATests
         fields = fields.SetItem(1, fields[1] with { Scope = "Header", Worksheet = "Data", Cell = "B2" });
         fields = fields.SetItem(4, fields[4] with { Omit = true, Candidate = null });
         s = w.CorrectSchema(s.Id, s.Version, fields); Assert.Equal("Header", s.SchemaDraft!.Fields[1].Scope); Assert.True(s.SchemaDraft.Fields[4].Omit);
+        Assert.Equal("sample", s.SchemaDraft.Fields[1].Candidates[s.SchemaDraft.Fields[1].Candidate!.Value].MatchedLabel);
         Assert.Equal("B2", s.Mapping!.Headers[fields[1].Key]); s = w.ConfirmMapping(s.Id, s.Version); Assert.Equal("UserConfirmed", s.SchemaDraft.State);
     }
     [Theory] [InlineData("profile")] [InlineData("example")]

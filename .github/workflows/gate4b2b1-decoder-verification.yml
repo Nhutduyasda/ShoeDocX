@@ -48,6 +48,7 @@ jobs:
           cg="/sys/fs/cgroup/shoedocx-decoder-$(id -u)"
           if sudo sh -c 'echo "+cpu +memory +pids" > /sys/fs/cgroup/cgroup.subtree_control' && sudo mkdir "$cg"; then
             sudo sh -c 'echo "+cpu +memory +pids" > "$1/cgroup.subtree_control"' sh "$cg" || true
+            sudo mkdir "$cg/supervisor"
             sudo chown "$(id -u):$(id -g)" "$cg" "$cg/cgroup.procs" "$cg/cgroup.subtree_control" "$cg/cgroup.threads" || true
           else
             echo 'Delegation unavailable: actual verifier must report BLOCKED; no privileged worker fallback.'
@@ -62,6 +63,16 @@ jobs:
         env:
           VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
+          if [ "${{ runner.os }}" = Linux ]; then
+            cg="/sys/fs/cgroup/shoedocx-decoder-$(id -u)"
+            # Administrative test provisioning only: migrate this trusted shell, never a worker.
+            # Future children start within the delegated tree, so non-root sibling migration is legal.
+            if [ -d "$cg/supervisor" ]; then
+              if ! sudo sh -c 'echo "$1" > "$2/supervisor/cgroup.procs"' sh "$$" "$cg"; then
+                echo 'SUPERVISOR_DELEGATION_MIGRATION_BLOCKED'
+              fi
+            fi
+          fi
           export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
           python feature/.github/scripts/verify_gate4b2b1.py
       - name: Upload sanitized evidence

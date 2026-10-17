@@ -12,6 +12,10 @@ internal sealed class LinuxSandbox : SandboxProcess
         Limits.Require(File.Exists("/usr/bin/bwrap") && geteuid() != 0, "SANDBOX_BWRAP_NONROOT_REQUIRED");
         string parent = "/sys/fs/cgroup/shoedocx-decoder-" + geteuid();
         Limits.Require(Directory.Exists(parent) && File.ReadAllText(Path.Combine(parent, "cgroup.controllers")).Contains("memory"), "SANDBOX_CGROUP_DELEGATION_REQUIRED");
+        // Non-root migration may not pull a process in from outside delegation.
+        string membership = File.ReadAllText("/proc/self/cgroup");
+        Limits.Require(membership.Contains("/shoedocx-decoder-" + geteuid() + "/", StringComparison.Ordinal),
+            "SANDBOX_CGROUP_SUPERVISOR_OUTSIDE_DELEGATION");
         string group = Path.Combine(parent, "job-" + Guid.NewGuid().ToString("N")); Process? process = null; string stage = "CREATE_GROUP";
         try
         {

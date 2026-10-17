@@ -158,5 +158,17 @@
       "ref": "SkiaSharp.NativeAssets.Win32/4.153.1",
       "dependsOn": []
     }
-  ]
+  ],
+  "metadata": {
+    "properties": [
+      {
+        "name": "shoedocx:native-review",
+        "value": "INCOMPLETE"
+      },
+      {
+        "name": "shoedocx:native-review-evidence",
+        "value": "docs/gate4b2b1/recovery-native-review.json"
+      }
+    ]
+  }
 }

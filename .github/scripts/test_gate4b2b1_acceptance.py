@@ -12,6 +12,8 @@ def valid():
         'measurements': [{'fixture': n, 'Measurement': {'PeakMemoryBytes': 10000000, 'CpuMilliseconds': 100,
                          'WallMilliseconds': 200, 'ExitCode': 0, 'InputBytes': 100, 'OutputBytes': 400}} for n in FIXTURES]},
         'native_review': dict(provenance=True, nested_advisories=True, notices=True, runtime_servicing=True, unresolved_high_critical=0)}
+    report['enforcement']['measurements'] += [dict(operation=n, peakMemoryBytes=10000000, cpuMs=100, wallMs=200)
+        for n in ('hang', 'crash', 'memory', 'cpu', 'oversize', 'malformed', 'incomplete', 'metadata', 'hash')]
     return {host: copy.deepcopy(report) for host in HOSTS}
 
 

@@ -49,7 +49,9 @@ def inspect(root, output):
     for identity, value in target.items():
         if identity not in component_ids: continue
         dependencies.append({'ref': identity, 'dependsOn': [identities[n] for n in value.get('dependencies', {}) if n in identities]})
-    sbom = {'bomFormat': 'CycloneDX', 'specVersion': '1.5', 'version': 1, 'components': components, 'dependencies': dependencies}
+    sbom = {'bomFormat': 'CycloneDX', 'specVersion': '1.5', 'version': 1, 'components': components, 'dependencies': dependencies, 'metadata': {'properties': [
+        {'name': 'shoedocx:native-review', 'value': 'INCOMPLETE'},
+        {'name': 'shoedocx:native-review-evidence', 'value': 'docs/gate4b2b1/recovery-native-review.json'}]}}
     (output / 'decoder-sbom.cdx.json').write_text(json.dumps(sbom, indent=2), encoding='utf-8')
     report = {'official_feed': index, 'findings': findings, 'native_files': native,
               'native_nested_component_advisory_coverage': 'INCOMPLETE: package audit is not a native codec CVE proof',

@@ -44,7 +44,7 @@ try
         }
         catch (Exception error)
         {
-            checks.Add(new { check = operation, status = "BLOCKED", code = Safe(error), elapsedMs = watch.ElapsedMilliseconds }); confinement = false;
+            checks.Add(new { check = operation, status = error is ProtocolFault && error.Message == "OS_DENIAL_NOT_DEMONSTRATED" ? "FAIL" : "BLOCKED", code = Safe(error), elapsedMs = watch.ElapsedMilliseconds }); confinement = false;
             // Do not run a decoder outside confinement or pretend dependent checks executed.
             break;
         }

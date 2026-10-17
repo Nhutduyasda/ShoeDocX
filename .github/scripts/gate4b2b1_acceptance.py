@@ -42,6 +42,9 @@ def evaluate(hosts, head):
             if any(c['status'] != 'PASS' for c in checks):
                 reasons.append(host + ':UNPASSED_CHECK')
             measurements = enforcement['measurements']
+            operations = {m.get('operation') for m in measurements}
+            if not {'hang', 'crash', 'memory', 'cpu', 'oversize', 'malformed', 'incomplete', 'metadata', 'hash'} <= operations:
+                reasons.append(host + ':RESOURCE_MEASUREMENTS_ABSENT')
             measured = {m.get('fixture') for m in measurements}
             if not (FIXTURES - {'webp-animation', 'image-truncated', 'pdf-encrypted', 'pdf-action', 'pdf-external', 'pdf-malformed', 'pdf-compressed-quota'}) <= measured:
                 reasons.append(host + ':DECODE_MEASUREMENTS_ABSENT')
@@ -49,6 +52,9 @@ def evaluate(hosts, head):
             for m in measurements:
                 v = m.get('Measurement')
                 if v is None:
+                    if m.get('operation') is not None and not (0 < m['peakMemoryBytes'] <= 256 * 1024 * 1024 and
+                            0 <= m['cpuMs'] <= 15000 and 0 < m['wallMs'] <= 30000):
+                        reasons.append(host + ':PROBE_RESOURCE_BUDGET_INVALID')
                     if m.get('fixture') is not None: reasons.append(host + ':DECODE_MEASUREMENT_MALFORMED')
                     continue
                 if not (0 < v['PeakMemoryBytes'] <= 256 * 1024 * 1024 and

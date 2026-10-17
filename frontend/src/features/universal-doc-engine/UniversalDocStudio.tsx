@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { StudioApi, type StudioBootstrap, type StudioField, type StudioMapping, type StudioSession } from './studioApi';
 import './studio.css';
+import { SchemaEditor, ManualSampleEditor } from './ExampleTemplateEditor';
 
 const steps = ['Session & template', 'Mapping', 'Demo extraction', 'Data review', 'Human approval', 'Excel export'];
 function save(blob: Blob, filename: string) {
@@ -48,6 +49,8 @@ export default function UniversalDocStudio() {
   const [api] = useState(() => new StudioApi()); const [bootstrap, setBootstrap] = useState<StudioBootstrap | null>(null);
   const [session, setSession] = useState<StudioSession | null>(null); const [workflow, setWorkflow] = useState('invoice');
   const [file, setFile] = useState<File | null>(null); const [step, setStep] = useState(0);
+  const [mode, setMode] = useState('demo');
+  const [example, setExample] = useState<File | null>(null);
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   useEffect(() => {
@@ -79,9 +82,10 @@ export default function UniversalDocStudio() {
     <section className="uds-panel" aria-busy={busy}>
       <h2>{step + 1}. {steps[step]}</h2>
       {step === 0 && <>
+        {!session && <label>Template mode<select aria-label="Template mode" value={mode} onChange={e => setMode(e.target.value)}><option value="demo">Synthetic Demo</option><option value="example">Example-Based Template</option></select></label>}
         {!session ? <div className="uds-inline"><label>Supported workflow<select aria-label="Supported workflow" value={workflow} onChange={e => setWorkflow(e.target.value)}>
           {(bootstrap?.workflows || []).map(name => <option key={name}>{name}</option>)}</select></label>
-          <button disabled={busy || !bootstrap} onClick={() => void run(async () => { setSession(await api.create(workflow)); })}>Create private session</button></div>
+          <button disabled={busy || !bootstrap} onClick={() => void run(async () => { setSession(await api.create(mode === 'example' ? 'example-template' : workflow)); })}>Create private session</button></div>
           : <p>Current workflow: {session.workflow}. Upload a supported template, or start with the synthetic sample.</p>}
         <button disabled={busy || !bootstrap} onClick={() => void run(async () => save(await api.sample(session?.workflow || workflow), 'synthetic-template.xlsx'))}>Download synthetic template</button>
         {session && <form className="uds-inline" onSubmit={e => { e.preventDefault(); if (file) void run(async () => { setSession(await api.upload(session, file)); setStep(1); }); }}>
@@ -92,11 +96,16 @@ export default function UniversalDocStudio() {
       {step === 1 && session && <>
         <p>Detected worksheets: {session.sheets.join(', ') || 'Upload a template first'}. Suggestions never constitute confirmation.</p>
         <ul>{session.suggestions.map(s => <li key={`${s.scope}:${s.key}`}><strong>{s.scope}.{s.key}</strong> — {s.status}: {s.candidates.map(c => `${c.sheet}!${c.cell || `column ${c.column}, row ${c.prototypeRow ?? '?'}`}`).join('; ') || 'No candidate'}</li>)}</ul>
-        {session.sheets.length > 0 && <MappingEditor key={`${session.profileVersion}:${session.mappingRevision}`} session={session} busy={busy}
+        {session.schemaDraft && <><SchemaEditor key={session.schemaDraft.revision} session={session} busy={busy} act={act} />
+          <form onSubmit={e => { e.preventDefault(); if (example) void run(async () => { setSession(await api.upload(session, example, 'example')); }); }}>
+            <label>Optional filled example<input aria-label="Filled example" type="file" accept=".xlsx" onChange={e => setExample(e.target.files?.[0] || null)} /></label><button disabled={busy || !example} type="submit">Compare filled example</button>
+          </form><p>Example sheets, cells, styles, formulas and merges must match the template. Examples never confirm a schema.</p></>}
+        {!session.schemaDraft && session.sheets.length > 0 && <MappingEditor key={`${session.profileVersion}:${session.mappingRevision}`} session={session} busy={busy}
           apply={mapping => act('mapping', { ...mapping }, 'PATCH')} />}
-        <button disabled={busy || session.mappingState !== 'DraftSuggested'} onClick={() => act('mapping/confirm')}>Confirm mapping as current user</button>
+        <button disabled={busy || session.mappingState !== 'DraftSuggested' || (!!session.schemaDraft && session.schemaDraft.state !== 'ReadyForConfirmation')} onClick={() => act('mapping/confirm')}>Confirm mapping as current user</button>
       </>}
-      {step === 2 && session && <><h3>Demo Extraction</h3><p>Load the bounded server-owned synthetic fixture through Gate 3B. This does not recognize an image or PDF.</p>
+      {step === 2 && session?.schemaDraft && <ManualSampleEditor key={session.profileVersion} session={session} busy={busy} act={act} />}
+      {step === 2 && session && !session.schemaDraft && <><h3>Demo Extraction</h3><p>Load the bounded server-owned synthetic fixture through Gate 3B. This does not recognize an image or PDF.</p>
         <button disabled={busy || session.mappingState !== 'UserConfirmed'} onClick={() => act('extract-demo')}>Run Demo Extraction</button>
         <hr /><h3>Document Upload</h3>
         <p>Admission only — OCR recognition is not yet available. Uploading or removing a source clears extracted data, review and approval. Demo Extraction always uses its separate synthetic fixture.</p>

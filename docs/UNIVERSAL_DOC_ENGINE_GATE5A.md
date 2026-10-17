@@ -1,0 +1,39 @@
+# Gate 5A — example-based template learning
+
+Status: implementation under verification; not accepted. No decoder integration or OCR. Baseline main `5ff844e3761de65b14acf9a69b8a090d43a40152`. PRs 13 and 14 remain independent and untouched.
+
+## Existing components and additions
+
+Gate 3A already safely reads bounded XLSX packages, analyzes adjacent slots/bold table headings/prototypes, suggests mappings against a supplied schema, validates proposals and issues human confirmation bound to template/profile/proposal hashes. It does not derive a schema. The Studio demo supplies six fields, synonyms, arithmetic checks and observations. Gate 5A adds deterministic field discovery, a session-owned schema draft, optional example comparison, correction UI and manual sample entry. It reuses the existing reader/analyzer, Gate 1 validator, Gate 3B typed normalizer and the same store, actor resolver, confirmation service, review/approval and orchestrator export chokepoint. Existing domain/projector/formula grammar and demo are unchanged.
+
+## Supported MVP contract
+
+No placeholders, paid inference or raw JSON editor. Only existing restricted `.xlsx`: no macros, external relationships, drawings/charts/embedded objects, tables/pivots/conditional formatting/data validation, scripts or unsupported formulas. Studio limits remain 2 MiB shared session bytes, four sheets, 2,000 used cells, row <=1,000, column <=32; 20 output rows. Template and optional example both count against the existing shared budget. No increase to Gate 2 limits.
+
+One data worksheet with bold text column headings and exactly one materialized unmerged prototype row. Headers are horizontal adjacent materialized non-formula/unmerged slots before that table; labels must be bold or in column A. Reference worksheets remain untouched. No broader multi-sheet mapping UI, cross-sheet formulas or multi-row example alignment. Repeated output rows use the existing projector. Additional example rows or moved/changed structure are rejected, not guessed. Templates without supported evidence remain NeedsCorrection and cannot confirm/export.
+
+Text labels normalize Unicode accents for candidate grouping (including Vietnamese đ). Duplicate labels retain competing destinations. All fields default optional; human requiredness is explicit. Actual Boolean/Date cells suggest their stored type. Numeric cells remain Text because numeric storage cannot establish whether a value is an identifier. Users can select Decimal; leading-zero string identifiers and numeric zero-padding evidence require Text. Formatting never infers requiredness, arithmetic rules, confidence or source accuracy. Formula destinations are excluded and independently rejected by proposal/layout validation. No arithmetic/cross-foot rules are invented for arbitrary schemas; printed totals need human review. Decimal projection retains existing Excel precision protection.
+
+## Server lifecycle and fingerprints
+
+`example-template` is a fixed server workflow, not executable configuration. Initial upload creates Suggested/NeedsCorrection. Optional example uses the same reader/safety limits and requires matching sheet order/names, materialized cell addresses, bold/number formats, formulas, merges, used range and defining labels. Values may differ. This intentionally strict correspondence is not universal structural equivalence. SHA-256 of actual original and example bytes is in the owner-private draft; no public URL/log/artifact contains user workbook contents. Session owner/tenant binding also binds both byte arrays and draft. No formulas are executed for learning.
+
+`PATCH sessions/{id}/schema` accepts bounded field corrections only. Candidate indices refer exclusively to server-held evidence. Keys, labels, enum strings, omission/requiredness, unique scope/key, one sheet/prototype, destination overlap and full schema/layout validity are checked. Every field must resolve or be explicitly omitted if optional. Scope changes require compatible evidence; a header slot cannot become a line destination by changing JSON. Arbitrary expressions/workflow IDs/profile versions/approval properties are rejected.
+
+Each successful correction advances authoritative session, draft, schema/profile and proposal revisions; clears confirmation and review/approval; revalidates retained data. Retained data that no longer fits the schema must be replaced with a manual sample. Uploading another template/example regenerates the draft and clears sample data. ReadyForConfirmation does not grant confirmation. The authenticated user's separate mapping confirmation changes the schema state to UserConfirmed and creates existing hash/revision-bound confirmation evidence. Human business review and Admin approval remain separate.
+
+`POST sessions/{id}/manual-sample` accepts bounded header strings and 1–20 row dictionaries, never CanonicalDocument or authority. Unknown/omitted fields and invalid normalization fail. Values are Manual, unreviewed, without fabricated source evidence. Existing field editor permits subsequent edits. All exports go through `UniversalDocWorkflowOrchestrator.Export` with the original five checks, current identity/owner/tenant/TTL, expected version, mapping binding, validation, review and approval. Atomic store linearization still protects concurrent export/mutation. Source addition/removal keeps existing invalidation behavior.
+
+## API and UI
+
+Existing authenticated CSRF-filtered feature controller adds `/example`, `/schema`, `/manual-sample`. Template upload selects learning only for the fixed example mode. Request/member validation rejects forged authority including nested correction properties. No second store or projector endpoint exists. New UI under the existing route adds Example-Based Template beside Synthetic Demo. Field labels, types, scope, required/optional/omission and candidate selection use ordinary controls; React renders workbook text as escaped content. Six-step demo remains available. Input formats: decimal dot, ISO yyyy-MM-dd, true/false.
+
+## Verification
+
+New in-memory accounting, Vietnamese warehouse and commercial packing fixtures have duplicate metadata labels, leading-zero codes, formatted quantities, prototype formulas, total, merge and reference sheet. Tests cover deterministic evidence/no byte mutation, schema corrections, template/example hashes, mismatches, owner/tenant/TTL, concurrent revisions, unsupported files, leading-zero typing, authority forgery and real workbook export. New authenticated loopback browser acceptance uploads an ordinary synthetic template, resolves ambiguity/types, confirms, enters two rows, reviews/approves/exports, reopens via ClosedXML and verifies values/formulas/formats/merges/reference cells, then changes schema and verifies confirmation/approval invalidation. Fixture endpoints are only in a separate test host.
+
+Exact-HEAD hosted .NET 8 Windows Server 2022/Ubuntu 24.04 workflow compares main and feature test identities on each host, fails on new/changed failures, missing or skipped tests; runs frontend install/build/draft checks, existing 13+11 real browser checks and the new browser acceptance. Package manifests/lockfiles are unchanged; advisory comparison still required. Results will be recorded after execution, not inferred from code.
+
+## Gate 5B and limits
+
+Broader multi-sheet editing, multi-row example correspondence, greater row counts, richer geometric inference and explicit business rule authoring require separate work. No universal template understanding, source recognition, decoder security acceptance, durable production sessions or deployment is claimed. No database entities/migrations, legacy footwear flows or OCR modals change.

@@ -1,3 +1,7 @@
+export interface LearnedField {
+  key: string; label: string; scope: string; type: string; required: boolean; omit: boolean; candidate: number | null; status: string; rationale: string;
+  candidates: { worksheet: string; labelCell: string; matchedLabel: string; cell: string | null; column: number | null; prototypeRow: number | null; explanation: string }[];
+}
 export interface StudioField {
   scope: string; key: string; row: number | null; type: string; value: string | null;
   source: string; review: string; sourceId: string | null; page: number | null;
@@ -14,6 +18,7 @@ export interface StudioSession {
   sheets: string[]; mapping: StudioMapping | null; canReview: boolean; canApprove: boolean;
   suggestions: { scope: string; key: string; status: string; candidates: { sheet: string; labelCell: string; cell: string | null; column: number | null; prototypeRow: number | null }[] }[];
   fields: StudioField[]; issues: { code: string; field: string | null; rowId: string | null; rowPosition: number | null }[];
+  schemaDraft: { revision: number; state: string; templateSha256: string; exampleSha256: string | null; fields: LearnedField[] } | null;
   sources: StudioSource[];
 }
 export interface StudioBootstrap { csrfToken: string; workflows: string[]; canReview: boolean; canApprove: boolean }
@@ -58,9 +63,9 @@ export class StudioApi {
   async act(session: StudioSession, action: string, data: Record<string, unknown> = {}, method = 'POST'): Promise<StudioSession> {
     return (await this.request(`/sessions/${session.id}/${action}`, method, { expectedVersion: session.version, ...data })).json();
   }
-  async upload(session: StudioSession, file: File): Promise<StudioSession> {
+  async upload(session: StudioSession, file: File, action = 'template'): Promise<StudioSession> {
     const form = new FormData(); form.set('file', file); form.set('expectedVersion', String(session.version));
-    return (await this.request(`/sessions/${session.id}/template`, 'POST', form)).json();
+    return (await this.request(`/sessions/${session.id}/${action}`, 'POST', form)).json();
   }
   async export(session: StudioSession): Promise<Blob> {
     return (await this.request(`/sessions/${session.id}/export`, 'POST', { expectedVersion: session.version })).blob();

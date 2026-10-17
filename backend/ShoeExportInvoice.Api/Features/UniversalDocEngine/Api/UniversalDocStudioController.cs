@@ -56,11 +56,15 @@ public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrato
     public IActionResult DeleteSource(string id, string sourceId, StudioVersionRequest request) =>
         Ok(workflow.DeleteSource(id, request.ExpectedVersion, sourceId));
     [HttpPost("sessions/{id}/template")]
+    [HttpPost("sessions/{id}/example")]
     [Consumes("multipart/form-data")]
     [RequestFormLimits(MemoryBufferThreshold = InMemoryUniversalDocSessionStore.MaximumTemplateBytes + 65536,
         MultipartBodyLengthLimit = InMemoryUniversalDocSessionStore.MaximumTemplateBytes, ValueLengthLimit = 128, ValueCountLimit = 4)]
     public async Task<IActionResult> Upload(string id, [FromForm] IFormFile file, [FromForm] long expectedVersion, CancellationToken cancellationToken)
     {
+        if (Request.Form.Files.Count != 1 || Request.Form.Files[0].Name != "file" ||
+            Request.Form.Keys.Any(k => k != "expectedVersion") || Request.Form["expectedVersion"].Count != 1)
+            throw new StudioFault(400, "TEMPLATE_REQUEST_INVALID");
         if (file.Length is <= 0 or > InMemoryUniversalDocSessionStore.MaximumTemplateBytes) throw new StudioFault(400, "TEMPLATE_SIZE_LIMIT");
         using var input = file.OpenReadStream(); using var data = new MemoryStream(); var buffer = new byte[8192];
         int read;
@@ -69,8 +73,16 @@ public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrato
             if (data.Length + read > InMemoryUniversalDocSessionStore.MaximumTemplateBytes) throw new StudioFault(400, "TEMPLATE_SIZE_LIMIT");
             await data.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
         }
-        return Ok(workflow.Upload(id, expectedVersion, data.ToArray(), file.FileName));
+        return Ok(Request.Path.Value!.EndsWith("/example", StringComparison.Ordinal)
+            ? workflow.UploadLearning(id, expectedVersion, data.ToArray(), file.FileName, true)
+            : workflow.Upload(id, expectedVersion, data.ToArray(), file.FileName));
     }
+    [HttpPatch("sessions/{id}/schema")]
+    [RequestSizeLimit(16384)]
+    public IActionResult Schema(string id, StudioSchemaRequest request) => Ok(workflow.CorrectSchema(id, request.ExpectedVersion, request.Fields));
+    [HttpPost("sessions/{id}/manual-sample")]
+    [RequestSizeLimit(262144)]
+    public IActionResult ManualSample(string id, StudioSampleRequest request) => Ok(workflow.SetManualSample(id, request.ExpectedVersion, new(request.Header, request.Rows)));
     [HttpPatch("sessions/{id}/mapping")]
     [RequestSizeLimit(16384)]
     public IActionResult Mapping(string id, StudioMappingRequest request) => Ok(workflow.ChangeMapping(id, request.ExpectedVersion,

@@ -26,8 +26,11 @@ public sealed record UniversalDocSession(string Id, string OwnerId, string Tenan
     WorkflowMappingState MappingState, ExtractionResult? Extraction, CanonicalDocument? Document,
     ValidationResult? Validation)
 {
+    public ExampleSchemaDraft? SchemaDraft { get; init; }
+    public ImmutableArray<byte> Example { get; init; } = ImmutableArray<byte>.Empty;
     public ImmutableArray<StudioSource> Sources { get; init; } = ImmutableArray<StudioSource>.Empty;
 }
+public sealed record StudioSheetSummary(string Name, int UsedCells, int Tables, ImmutableArray<int> PrototypeRows, ImmutableArray<int> FooterRows, ImmutableArray<string> MergedRanges);
 public sealed record StudioFieldView(string Scope, string Key, int? Row, string Type, string? Value,
     string Review, string Source, string? SourceId, int? Page, NormalizedRegion? Region,
     ImmutableArray<string> RawObservations);
@@ -41,6 +44,8 @@ public sealed record StudioSessionView(string Id, long Version, DateTimeOffset E
     ImmutableArray<string> Sheets, ImmutableArray<StudioSuggestion> Suggestions, StudioMapping? Mapping,
     ImmutableArray<StudioFieldView> Fields, ImmutableArray<StudioIssueView> Issues, bool CanReview, bool CanApprove)
 {
+    public ExampleSchemaDraft? SchemaDraft { get; init; }
+    public ImmutableArray<StudioSheetSummary> SheetSummaries { get; init; } = ImmutableArray<StudioSheetSummary>.Empty;
     public ImmutableArray<StudioSourceView> Sources { get; init; } = ImmutableArray<StudioSourceView>.Empty;
 }
 public sealed record StudioExport(byte[] Workbook, long SessionVersion)

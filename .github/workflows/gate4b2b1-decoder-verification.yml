@@ -75,6 +75,23 @@ jobs:
           fi
           export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
           python feature/.github/scripts/verify_gate4b2b1.py
+      - name: Sanitized Windows startup event codes
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $result = @{ available = $false; events = @(); securityEvidence = $false }
+          try {
+            $events = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = @(1000,1001,26); StartTime = (Get-Date).AddMinutes(-20) } -ErrorAction Stop
+            $result.available = $true
+            foreach ($event in $events) {
+              if ($event.Message -match 'UniversalDocDecoder\.(Probe|Worker)') {
+                $codes = @([regex]::Matches($event.Message, '0x[0-9a-fA-F]{8}') | ForEach-Object { $_.Value } | Select-Object -Unique)
+                $result.events += @{ id = $event.Id; codes = $codes }
+              }
+            }
+          } catch { }
+          New-Item -ItemType Directory -Force verification-evidence | Out-Null
+          $result | ConvertTo-Json -Depth 5 | Set-Content verification-evidence/windows-startup-events.json
       - name: Upload sanitized evidence
         if: always()
         uses: actions/upload-artifact@v4

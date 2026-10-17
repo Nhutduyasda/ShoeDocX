@@ -32,7 +32,17 @@ try
                 string text = System.Text.Encoding.UTF8.GetString(diagnostic, 0, size);
                 string codes = string.Join('_', System.Text.RegularExpressions.Regex.Matches(text, @"0x[0-9A-Fa-f]{8}").Select(m => m.Value));
                 await sandbox.Process.WaitForExitAsync(deadline.Token);
-                throw new ProtocolFault("BOOTSTRAP_EXIT_" + sandbox.Process.ExitCode.ToString("X8") + "_" + codes);
+                string stage = "";
+                if (OperatingSystem.IsLinux())
+                {
+                    if (text.Contains("namespace", StringComparison.OrdinalIgnoreCase) &&
+                        (text.Contains("not permitted", StringComparison.OrdinalIgnoreCase) || text.Contains("No permissions", StringComparison.OrdinalIgnoreCase))) stage = "LINUX_NAMESPACE_DENIED_";
+                    else if (text.Contains("uid map", StringComparison.OrdinalIgnoreCase) || text.Contains("gid map", StringComparison.OrdinalIgnoreCase)) stage = "LINUX_ID_MAP_FAILED_";
+                    else if (text.Contains("mount proc", StringComparison.OrdinalIgnoreCase)) stage = "LINUX_PROC_MOUNT_FAILED_";
+                    else if (text.Contains("mount", StringComparison.OrdinalIgnoreCase)) stage = "LINUX_MOUNT_FAILED_";
+                    else if (text.Contains("execvp", StringComparison.OrdinalIgnoreCase)) stage = "LINUX_EXEC_FAILED_";
+                }
+                throw new ProtocolFault("BOOTSTRAP_" + stage + "EXIT_" + sandbox.Process.ExitCode.ToString("X8") + "_" + codes);
             }
             Limits.Require(ready.Kind == "ready", ready.Code.Length > 0 ? ready.Code : "SANDBOX_NOT_READY");
             await Wire.Write(sandbox.Input, new ProbeRequest(operation, operation == "write" ? Path.Combine(canaryDirectory, "escape") : canary, port), deadline.Token);

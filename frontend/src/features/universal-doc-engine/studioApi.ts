@@ -51,6 +51,18 @@ export class StudioApi {
         STUDIO_MEMBERSHIP_REQUIRED: 'Your account needs an explicit server-side Studio membership.',
         INVALID_EDITED_VALUE: 'Use a valid value for this field type.',
         STUDIO_BUSY: 'The Studio is busy. Please retry shortly.',
+        EXAMPLE_STRUCTURE_MISMATCH: 'The filled example must preserve sheet names, cell positions, headings, formulas, merges and supported formatting. Added example rows are not supported yet.',
+        SESSION_BYTE_LIMIT: 'Template, example and sources together must fit within the existing 2 MiB session budget.',
+        UNRESOLVED_SCHEMA_FIELD: 'Choose a destination or explicitly omit this optional field.',
+        INVALID_SCHEMA_FIELDS: 'Check field keys, types, required/omitted settings and duplicate fields.',
+        INVALID_SCHEMA_MAPPING: 'Destinations must be unique, with header cells above the repeat region and one supported prototype row.',
+        INVALID_SCHEMA_DESTINATION: 'Choose an existing unmerged cell without a formula, inside the supported region.',
+        IDENTIFIER_REQUIRES_TEXT: 'Leading-zero identifiers must remain Text to preserve their values.',
+        UNSUPPORTED_SCOPE_DESTINATION: 'After changing scope, choose a compatible existing destination under the correction controls.',
+        SINGLE_SHEET_EDITOR_REQUIRED: 'This editor supports one data worksheet. Explicitly omit fields on other sheets.',
+        SINGLE_PROTOTYPE_REQUIRED: 'Choose the same single supported prototype row for all line fields.',
+        SCHEMA_CORRECTION_REQUIRED: 'Apply your field corrections before confirming the schema and mapping.',
+        UNSUPPORTED_OR_INVALID_TEMPLATE: 'This workbook contains an unsupported or invalid structure. Use the documented bounded XLSX subset.',
       };
       throw new Error(`${messages[code] || code} [${code}] (HTTP ${response.status})`);
     }

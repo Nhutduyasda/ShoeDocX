@@ -44,6 +44,9 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/studio-browser" --no-package-lock --no-save playwright@1.62.1
           node "$RUNNER_TEMP/studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Focused Gate 5A synthetic security tests
+        shell: bash
+        run: dotnet test feature/tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter FullyQualifiedName~Gate5ATests
       - name: Standard builds, security tests, advisory review, baseline comparison and real UI
         shell: bash
         env:

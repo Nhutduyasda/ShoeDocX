@@ -72,3 +72,28 @@ jobs:
           path: verification-evidence/
           if-no-files-found: error
           retention-days: 14
+  acceptance:
+    if: always() && needs.verify.result != 'skipped'
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Negative tests for acceptance evaluator
+        run: python -m unittest discover -s .github/scripts -p test_gate4b2b1_acceptance.py
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gate4b2b1-*
+          path: host-evidence
+      - name: Require both exact-HEAD host reports and every mandatory predicate
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+          HOST_JOBS_RESULT: ${{ needs.verify.result }}
+        run: |
+          python .github/scripts/gate4b2b1_acceptance.py host-evidence "$VERIFIED_HEAD"
+          test "$HOST_JOBS_RESULT" = success

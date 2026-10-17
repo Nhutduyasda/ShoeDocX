@@ -15,7 +15,7 @@ public abstract class SandboxProcess : IDisposable
     // The directory is trusted deployment configuration, never from a document or browser request.
     public static SandboxProcess Start(string trustedDirectory, bool verificationProbe = false)
     {
-        var directory = Path.GetFullPath(trustedDirectory);
+        var directory = Path.GetFullPath(Path.Combine(trustedDirectory, verificationProbe ? "probe" : "worker"));
         Limits.Require(Directory.Exists(directory) && !new DirectoryInfo(directory).Attributes.HasFlag(FileAttributes.ReparsePoint), "SANDBOX_DIRECTORY_INVALID");
         return OperatingSystem.IsWindows() ? WindowsSandbox.Start(directory, verificationProbe) : OperatingSystem.IsLinux()
             ? LinuxSandbox.Start(directory, verificationProbe) : throw new ProtocolFault("SANDBOX_OS_UNSUPPORTED");

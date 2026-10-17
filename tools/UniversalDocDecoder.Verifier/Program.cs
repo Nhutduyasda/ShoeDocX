@@ -85,7 +85,7 @@ try
                 }
                 measurements.Add(new { operation, peakMemoryBytes = sandbox.Process.PeakWorkingSet64, cpuMs = sandbox.Process.TotalProcessorTime.TotalMilliseconds,
                     wallMs = watch.ElapsedMilliseconds, exitCode = sandbox.Process.ExitCode, processLimit = OperatingSystem.IsWindows() ? 1 : 64 });
-                checks.Add(new { check = operation, status = "PASS", result });
+                checks.Add(new { check = operation, status = operation is "memory" or "cpu" ? "UNPROVEN" : "PASS", result });
             }
             catch (Exception error) { checks.Add(new { check = operation, status = "FAIL", code = Safe(error) }); }
         }
@@ -112,14 +112,24 @@ try
         }
     }
     else checks.Add(new { check = "dependent_decoder_and_resource_tests", status = "BLOCKED", code = "NO_UNCONFINED_FALLBACK" });
-    // Independently missing acceptance conditions always block Phase 2, even if the implemented subset passes.
-    var blockers = new[] { "PDF_CUMULATIVE_EXPANDED_STREAM_ACCOUNTING_UNPROVEN", "PDF_FEATURE_PARSER_IS_CONSERVATIVE_NOT_COMPLETE",
-        "PER_PAGE_CPU_ENFORCEMENT_UNPROVEN", "PARENT_DEATH_AND_DESCENDANT_RECOVERY_ACCEPTANCE_PENDING", "ALL_18_ADVERSARIAL_SCENARIOS_NOT_COMPLETE" };
-    var report = new { phase = "4B.2B-1", status = "PARTIAL", phase2Authorized = false, os = Environment.OSVersion.ToString(),
+    // PASS is a conjunction over the mandatory inventory, not a success exit-code toggle.
+    // Missing implementations/evidence remain absent checks and produce explicit blockers.
+    var required = new[] { "network", "read", "write", "spawn", "hang", "crash", "memory", "cpu", "oversize", "malformed", "incomplete", "metadata", "hash",
+        "handle-inheritance", "parent-death", "descendant-cleanup", "concurrent-admission", "process-count", "wall-timeout", "bounded-output",
+        "crash-recovery", "pdf-expanded-stream-budget", "pdf-object-recursion-policy", "pdf-feature-policy", "per-page-cpu", "native-review" }
+        .Concat(JsonSerializer.Deserialize<List<Fixture>>(File.ReadAllText(manifest))!.Select(f => f.Name)).ToArray();
+    var observed = checks.Select(c => JsonSerializer.SerializeToElement(c)).ToArray();
+    var blockers = required.Where(name => !observed.Any(c => c.GetProperty("check").GetString() == name && c.GetProperty("status").GetString() == "PASS"))
+        .Select(name => "MISSING_OR_UNPASSED:" + name).ToArray();
+    foreach (var name in required.Where(name => !observed.Any(c => c.GetProperty("check").GetString() == name)))
+        checks.Add(new { check = name, status = "NOT_RUN", code = "MANDATORY_EVIDENCE_ABSENT" });
+    bool failed = observed.Any(c => c.GetProperty("status").GetString() == "FAIL");
+    string decision = failed ? "FAIL" : blockers.Length > 0 || !confinement ? "PARTIAL" : "PASS";
+    var report = new { phase = "4B.2B-1", status = decision, phase2Authorized = decision == "PASS", os = Environment.OSVersion.ToString(),
         workerBuild = Limits.Build, confinementChecksCompleted = confinement, checks, measurements, blockers };
     File.WriteAllText(evidence, JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
     Console.WriteLine(JsonSerializer.Serialize(new { report.phase, report.status, report.phase2Authorized, report.confinementChecksCompleted, checkCount = checks.Count, report.blockers }));
-    return 1;
+    return decision == "PASS" ? 0 : 1;
 }
 finally { listener.Stop(); File.Delete(canary); if (File.Exists(Path.Combine(canaryDirectory, "escape"))) File.Delete(Path.Combine(canaryDirectory, "escape")); Directory.Delete(canaryDirectory); }
 

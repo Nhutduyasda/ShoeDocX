@@ -6,6 +6,13 @@ using System.Text.Json;
 using UniversalDocDecoder.Protocol;
 using UniversalDocDecoder.Worker;
 
+// Explicit trusted startup diagnostic: no guard, source input, decoding or probe operation.
+// Its result is diagnostic only and never contributes to confinement acceptance.
+if (args is ["--trusted-startup-diagnostic"])
+{
+    Console.WriteLine("TRUSTED_CLR_STARTUP_OK"); return 0;
+}
+
 // Separate verification-only executable; the actual decoder has no probe operations or caller paths.
 try
 {

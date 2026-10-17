@@ -105,3 +105,24 @@ PR/run links and exact final SHAs are recorded in the delivery report/PR descrip
 | Human mapping/review/approval | Existing gates unchanged |
 | Excel export | Existing single orchestrator chokepoint unchanged |
 | Production readiness | Not established; inherited and new experimental risks remain visible |
+
+## Recovery attempt (2026-10-17, ChatGPT Work)
+
+Reference HEAD `a1aa24bd97cb3d5e31458a79f04b7ad3fc7e7254` and main `5ff844e3761de65b14acf9a69b8a090d43a40152` were fetched again. Run [38712539627](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38712539627) logs independently confirm both hosts built successfully, engine 409/409, full Windows 604/606 (same two failures), Ubuntu 596/606 (same ten), frontend build/draft tests and 24 browser checks. Both enforcement runs stop before ready; all decoding/resource measurements are absent. These are prior-HEAD results, not recovery validation.
+
+Recovery changes:
+
+- Worker and Probe now publish to distinct `worker/` and `probe/` directories. Each has its own dependency/runtime graph; the launcher chooses the corresponding immutable output. No claim that publish collision caused C0000142 has been established.
+- Linux writes existing cgroup control files using `FileMode.Open`, never the create/truncate semantics of `File.WriteAllText`. Each operation has a safe stage/type failure code. The earlier generic message concealed which kernel operation failed; old logs cannot establish that root cause retroactively.
+- A trusted shell bootstrap waits for an explicit release line. The parent attaches and verifies its PID in the limited cgroup before releasing it to exec bubblewrap. Source bytes still wait for the worker's confined ready message. This closes the former attachment/descendant race without modifying OS restrictions. It does not establish parent-death cleanup.
+- Probe supports a dedicated, document-free `--trusted-startup-diagnostic`, executed outside containment solely to distinguish CLR startup from confined bootstrap. It exits before input/probe operations and is explicitly excluded from security evidence. Windows AppContainer permissions, capability list, job limits and inherited handles remain unchanged.
+- The subprocess verifier derives its decision from the mandatory inventory and fixture results, emits explicit NOT_RUN entries and rejects missing checks. A nonzero memory/CPU probe exit alone is now UNPROVEN, because it could be an unrelated crash. It cannot count as resource-limit evidence.
+- The final CI acceptance job consumes both exact-HEAD reports and requires complete security, decode measurements and native review evidence. Negative evaluator tests cover missing/failed hosts, startup blockers, skipped checks, missing enforcement/decoding, unexpected attack success represented as FAIL, malformed evidence, budget excess, incomplete native review and unresolved native High/Critical issues. Synthetic evaluator fixtures are unit-test data, never sandbox evidence.
+
+### PDF architecture decision still required
+
+The selected uninstrumented PDFium API has no accounting callback in this implementation for cumulative 32 MiB expanded streams, parser object/recursion quotas or full feature rejection. Raw token exclusions cannot meet these predicates (escaped names and alternative filters can bypass them). No wrapper-only adjustment can justify acceptance. Replacing them with a memory cap would change the requirement and is not authorized.
+
+Concrete next architecture: a pinned, source-built PDFium fork with explicit parser/stream expansion counters, object/reference traversal depth and object-count budgets, fail-closed feature policy at parsed object level, and adversarial fixtures for every path, retained inside the same OS sandbox. Its patch/build provenance and complete native third-party notices must be reviewed. This requires further implementation/review and is proposed, not represented as already safe or approved. A second unmanaged general PDF parser would add attack surface and still require its own equivalent budgets. A restricted PDF subset is another option only after an explicit revised compatibility contract and a complete bounded grammar validator; substring scanning is insufficient.
+
+Per-page CPU, parent-death/descendant, handle inheritance, admission/process-count and native nested advisory/notice acceptance remain open until actual evidence exists. Existing SBOM/package hashes are preserved; this recovery does not certify the native inventory. A controlled Linux runner, if needed, must provide non-root bubblewrap user namespaces under its existing AppArmor policy and a delegated cgroup-v2 cpu/memory/pids subtree; disabling protections is not a permitted remedy.

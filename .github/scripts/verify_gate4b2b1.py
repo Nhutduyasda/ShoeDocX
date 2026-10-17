@@ -25,7 +25,8 @@ def main():
         changed = subprocess.check_output(['git', 'diff', '--name-only', BASELINE, 'HEAD'], cwd=feature, text=True).splitlines()
         assert changed and all(p.startswith(('tools/UniversalDocDecoder.', 'docs/gate4b2b1/')) or p in {
             'docs/UNIVERSAL_DOC_ENGINE_GATE4B2B1.md', '.github/workflows/gate4b2b1-decoder-verification.yml',
-            '.github/scripts/verify_gate4b2b1.py', '.github/scripts/gate4b2b1_dependencies.py'} for p in changed), 'Production isolation violation'
+            '.github/scripts/verify_gate4b2b1.py', '.github/scripts/gate4b2b1_dependencies.py',
+            '.github/scripts/gate4b2b1_acceptance.py', '.github/scripts/test_gate4b2b1_acceptance.py'} for p in changed), 'Production isolation violation'
         for name, expected in [('baseline', BASELINE), ('feature', report['feature_sha'])]:
             root = ci.ROOT / name
             assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip() == expected, 'Wrong checkout'
@@ -61,11 +62,15 @@ def main():
         runtime = ci.ROOT / 'isolated-decoder-runtime'
         for project in ('Worker', 'Probe'):
             args = ['dotnet', 'publish', f'tools/UniversalDocDecoder.{project}/UniversalDocDecoder.{project}.csproj',
-                    '-r', rid, '--self-contained', 'true', '-o', str(runtime)]
+                    '-r', rid, '--self-contained', 'true', '-o', str(runtime / project.lower())]
             if project == 'Worker': args.append('-p:RestoreLockedMode=true')
             result = ci.command(args, feature)
             assert result.returncode == 0, 'Self-contained publish failed'
         assert ci.command(['git', 'diff', '--exit-code', '--', 'tools/UniversalDocDecoder.Worker/packages.lock.json'], feature).returncode == 0, 'Worker publish changed lockfile'
+        diagnostic = ci.command([str(runtime / 'probe' / ('UniversalDocDecoder.Probe.exe' if os.name == 'nt' else 'UniversalDocDecoder.Probe')),
+                                 '--trusted-startup-diagnostic'], feature)
+        report['trusted_startup_diagnostic'] = {'exit_code': diagnostic.returncode,
+            'clr_started': diagnostic.stdout.strip() == 'TRUSTED_CLR_STARTUP_OK', 'security_evidence': False}
         result = ci.command(['dotnet', 'tools/UniversalDocDecoder.Verifier/bin/Debug/net8.0/UniversalDocDecoder.Verifier.dll',
                              str(runtime), 'tools/UniversalDocDecoder.Verifier/fixtures.json', str(ci.EVIDENCE / 'enforcement.json')], feature)
         assert (ci.EVIDENCE / 'enforcement.json').exists(), 'Actual enforcement run produced no evidence'
@@ -74,6 +79,7 @@ def main():
         report['status'] = enforcement['status']
         assert result.returncode == 0 and enforcement['status'] == 'PASS' and enforcement['phase2Authorized'], 'Mandatory Phase 1 security acceptance not passed'
     except Exception as error:
+        if report['status'] == 'PASS': report['status'] = 'FAIL'
         report['blocker'] = str(error) if isinstance(error, AssertionError) else type(error).__name__
     finally:
         (ci.EVIDENCE / 'summary.json').write_text(json.dumps(report, indent=2), encoding='utf-8')

@@ -46,7 +46,10 @@ jobs:
           node "$RUNNER_TEMP/studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
       - name: Focused Gate 5A synthetic security tests
         shell: bash
-        run: dotnet test feature/tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter FullyQualifiedName~Gate5ATests
+        run: |
+          python -c 'import json; from pathlib import Path; Path("global.json").write_text(json.dumps({"sdk":{"version":"8.0.426","rollForward":"disable"}}))'
+          dotnet --version
+          dotnet test feature/tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter FullyQualifiedName~Gate5ATests
       - name: Standard builds, security tests, advisory review, baseline comparison and real UI
         shell: bash
         env:

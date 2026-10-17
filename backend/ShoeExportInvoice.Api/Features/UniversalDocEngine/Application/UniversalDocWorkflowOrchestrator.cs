@@ -165,6 +165,9 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
     {
         if (s.Template.IsDefaultOrEmpty) throw new StudioFault(409, "TEMPLATE_REQUIRED");
         if (ExcelTemplateLayout.TemplateIdentity(s.Template.ToArray()) != s.TemplateSha256) throw new StudioFault(409, "TEMPLATE_IDENTITY_CHANGED");
+        if (s.SchemaDraft is { } binding && (binding.ProfileVersion != s.MappingProfile.Version ||
+            binding.ProfileFingerprint != WorkflowProfileIdentity.Fingerprint(s.MappingProfile)))
+            throw new StudioFault(409, "SCHEMA_IDENTITY_CHANGED");
         if (s.SchemaDraft is { } draft && (draft.TemplateSha256 != s.TemplateSha256 ||
             (s.Example.IsEmpty ? draft.ExampleSha256 is not null : ExcelTemplateLayout.TemplateIdentity(s.Example.ToArray()) != draft.ExampleSha256)))
             throw new StudioFault(409, "EXAMPLE_IDENTITY_CHANGED");

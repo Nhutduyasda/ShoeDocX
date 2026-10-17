@@ -7,7 +7,11 @@ namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.TemplateUnderstandin
 public sealed record LearnedField(string Key, string Label, string Scope, string Type, bool Required,
     bool Omit, int? Candidate, string Status, string Rationale, ImmutableArray<MappingCandidate> Candidates);
 public sealed record ExampleSchemaDraft(long Revision, string State, string TemplateSha256, string? ExampleSha256,
-    ImmutableArray<LearnedField> Fields);
+    ImmutableArray<LearnedField> Fields)
+{
+    public string ProfileFingerprint { get; init; } = "";
+    public int ProfileVersion { get; init; }
+}
 
 // Deterministic evidence collection, never a confirmation or a business-semantics classifier.
 public sealed class ExampleSchemaLearner

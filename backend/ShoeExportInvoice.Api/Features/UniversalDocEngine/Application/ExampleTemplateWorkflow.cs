@@ -52,7 +52,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             var profile = StudioDemoCatalog.Profile("example-template", actor.TenantId) with { Version = s.Profile.Version + 1,
                 ExtractionSchema = new(s.Profile.ExtractionSchema.Version + 1, ImmutableArray<FieldDefinition>.Empty) };
             return s with { Template = template.ToImmutableArray(), TemplateSha256 = actual.TemplateSha256, Structure = actual,
-                Example = isExample ? bytes.ToImmutableArray() : ImmutableArray<byte>.Empty, SchemaDraft = draft,
+                Example = isExample ? bytes.ToImmutableArray() : ImmutableArray<byte>.Empty, SchemaDraft = draft with { ProfileFingerprint = WorkflowProfileIdentity.Fingerprint(profile), ProfileVersion = profile.Version },
                 MappingProfile = profile, Profile = profile, Proposal = null, Confirmation = null,
                 Suggestions = null, MappingState = WorkflowMappingState.DraftSuggested, Extraction = null,
                 Document = null, Validation = null };
@@ -127,7 +127,8 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             var validation = new MappingProposalValidator().Validate(stream, "template.xlsx", proposal, profile);
             if (!validation.IsValid) throw new StudioFault(400, "INVALID_SCHEMA_MAPPING");
             var document = s.Document?.WithProfileVersion(profile.Version);
-            return s with { SchemaDraft = draft with { Revision = draft.Revision + 1, State = "ReadyForConfirmation", Fields = fields },
+            return s with { SchemaDraft = draft with { Revision = draft.Revision + 1, State = "ReadyForConfirmation", Fields = fields,
+                    ProfileFingerprint = WorkflowProfileIdentity.Fingerprint(profile), ProfileVersion = profile.Version },
                 MappingProfile = profile, Profile = profile, Proposal = proposal, Confirmation = null, MappingState = WorkflowMappingState.DraftSuggested,
                 Extraction = null, Document = document, Validation = document is null ? null : new DocumentValidator().Validate(document, profile) };
         }), actor);

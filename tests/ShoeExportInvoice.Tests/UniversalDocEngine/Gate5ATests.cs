@@ -63,8 +63,14 @@ public class Gate5ATests
     {
         using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store); var s = Ready(w);
         using var wb = new XLWorkbook(new MemoryStream(Gate5AFixtures.Workbook("accounting", true))); var ws = wb.Worksheet("Data");
-        if (kind == "sheet") ws.Name = "Renamed"; else if (kind == "formula") ws.Cell("E6").FormulaA1 = "C6*3"; else if (kind == "merge") ws.Range("A8:C8").Unmerge(); else ws.Cell("A1").Value = "Changed";
+        if (kind == "sheet") {
+            // ClosedXML rewrites local references with a sheet qualifier when renaming.
+            // Keep this negative fixture inside Gate 2's unchanged formula grammar.
+            ws.Name = "Renamed"; ws.Cell("E6").FormulaA1 = "C6*2"; ws.Cell("E7").FormulaA1 = "SUM(E6:E6)";
+        } else if (kind == "formula") ws.Cell("E6").FormulaA1 = "C6*3"; else if (kind == "merge") ws.Range("A8:C8").Unmerge(); else ws.Cell("A1").Value = "Changed";
         using var data = new MemoryStream(); wb.SaveAs(data);
+        using var checkedInput = new MemoryStream(data.ToArray()); var analysis = new TemplateStructureAnalyzer().Analyze(checkedInput, "example.xlsx");
+        Assert.True(analysis.Success, string.Join(",", analysis.Errors.Select(e => e.Code)));
         Assert.Equal("EXAMPLE_STRUCTURE_MISMATCH", Assert.Throws<StudioFault>(() => w.UploadLearning(s.Id, s.Version, data.ToArray(), "example.xlsx", true)).Code);
         Assert.Equal(s.Version, w.Read(s.Id).Version);
     }

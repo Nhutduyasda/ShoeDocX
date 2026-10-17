@@ -1,5 +1,6 @@
 export interface LearnedField {
   key: string; label: string; scope: string; type: string; required: boolean; omit: boolean; candidate: number | null; status: string; rationale: string;
+  worksheet?: string; cell?: string; column?: number; prototypeRow?: number;
   candidates: { worksheet: string; labelCell: string; matchedLabel: string; cell: string | null; column: number | null; prototypeRow: number | null; explanation: string }[];
 }
 export interface StudioField {
@@ -19,6 +20,7 @@ export interface StudioSession {
   suggestions: { scope: string; key: string; status: string; candidates: { sheet: string; labelCell: string; cell: string | null; column: number | null; prototypeRow: number | null }[] }[];
   fields: StudioField[]; issues: { code: string; field: string | null; rowId: string | null; rowPosition: number | null }[];
   schemaDraft: { revision: number; state: string; templateSha256: string; exampleSha256: string | null; fields: LearnedField[] } | null;
+  sheetSummaries: { name: string; usedCells: number; tables: number; prototypeRows: number[]; footerRows: number[]; mergedRanges: string[] }[];
   sources: StudioSource[];
 }
 export interface StudioBootstrap { csrfToken: string; workflows: string[]; canReview: boolean; canApprove: boolean }

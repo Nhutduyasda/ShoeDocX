@@ -51,8 +51,10 @@ public sealed class ExampleSchemaLearner
     private static string Type(IXLCell cell)
     {
         if (cell.HasFormula) return "Text";
-        // Numeric storage alone cannot distinguish an identifier from an amount. Remain Text.
-        return cell.DataType switch { XLDataType.Boolean => "Boolean", XLDataType.DateTime => "Date", _ => "Text" };
+        // Integral numeric storage cannot distinguish an identifier from an amount. Remain Text.
+        // A fractional numeric value suggests Decimal storage only, never quantity/money semantics.
+        return cell.DataType switch { XLDataType.Boolean => "Boolean", XLDataType.DateTime => "Date",
+            XLDataType.Number when cell.GetDouble() != Math.Truncate(cell.GetDouble()) => "Decimal", _ => "Text" };
     }
 
     public bool Corresponds(TemplateStructure template, TemplateStructure example)

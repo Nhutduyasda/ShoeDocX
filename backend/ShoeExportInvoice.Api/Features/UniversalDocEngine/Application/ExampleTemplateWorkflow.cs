@@ -11,7 +11,7 @@ using ShoeExportInvoice.Api.Features.UniversalDocEngine.Validation;
 namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record SchemaFieldCorrection(string Key, string Label, string Scope, string Type, bool Required, bool Omit, int? Candidate);
+public sealed record SchemaFieldCorrection(string Key, string Label, string Scope, string Type, bool Required, bool Omit, int? Candidate, string? Worksheet = null, string? Cell = null, int? Column = null, int? PrototypeRow = null);
 public sealed record ManualSample(ImmutableDictionary<string, string?> Header, ImmutableArray<ImmutableDictionary<string, string?>> Rows);
 
 public sealed partial class UniversalDocWorkflowOrchestrator
@@ -49,7 +49,8 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             var draft = new ExampleSchemaDraft((s.SchemaDraft?.Revision ?? 0) + 1,
                 fields.IsEmpty || fields.Any(f => f.Status == "Ambiguous") ? "NeedsCorrection" : "Suggested",
                 actual.TemplateSha256, isExample ? structure.TemplateSha256 : null, fields);
-            var profile = StudioDemoCatalog.Profile("example-template", actor.TenantId) with { Version = s.Profile.Version + 1 };
+            var profile = StudioDemoCatalog.Profile("example-template", actor.TenantId) with { Version = s.Profile.Version + 1,
+                ExtractionSchema = new(s.Profile.ExtractionSchema.Version + 1, ImmutableArray<FieldDefinition>.Empty) };
             return s with { Template = template.ToImmutableArray(), TemplateSha256 = actual.TemplateSha256, Structure = actual,
                 Example = isExample ? bytes.ToImmutableArray() : ImmutableArray<byte>.Empty, SchemaDraft = draft,
                 MappingProfile = profile, Profile = profile, Proposal = null, Confirmation = null,
@@ -63,6 +64,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator
         if (corrections.IsDefaultOrEmpty || corrections.Length > 32 || corrections.Any(f => f is null ||
             f.Key is null || !Regex.IsMatch(f.Key, "^[a-z][a-zA-Z0-9_]{0,63}$") ||
             string.IsNullOrWhiteSpace(f.Label) || f.Label.Length > 256 ||
+            f.Worksheet?.Length > 31 || f.Cell?.Length > 12 || f.Column is < 1 or > 32 || f.PrototypeRow is < 1 or > 1000 ||
             f.Scope is not ("Header" or "LineItem") || f.Type is not ("Text" or "Decimal" or "Date" or "Boolean") || (f.Omit && f.Required)))
             throw new StudioFault(400, "INVALID_SCHEMA_FIELDS");
         return View(store.Update(actor, id, version, s =>
@@ -74,9 +76,27 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             var fields = corrections.Select((f, i) =>
             {
                 var evidence = draft.Fields[i];
-                if (!f.Omit && (f.Candidate is null || f.Candidate < 0 || f.Candidate >= evidence.Candidates.Length))
+                if (!f.Omit && f.Worksheet is null && (f.Candidate is null || f.Candidate < 0 || f.Candidate >= evidence.Candidates.Length))
                     throw new StudioFault(400, "UNRESOLVED_SCHEMA_FIELD");
-                var selected = f.Omit ? null : evidence.Candidates[f.Candidate!.Value];
+                var choices = evidence.Candidates;
+                MappingCandidate? selected = f.Omit || f.Worksheet is not null ? null : choices[f.Candidate!.Value];
+                if (!f.Omit && f.Worksheet is not null)
+                {
+                    var sheet = s.Structure!.Sheets.SingleOrDefault(x => x.Name == f.Worksheet) ?? throw new StudioFault(400, "INVALID_SCHEMA_DESTINATION");
+                    var cell = f.Scope == "Header" ? sheet.Cells.SingleOrDefault(c => c.Address == f.Cell) :
+                        sheet.Cells.SingleOrDefault(c => c.Column == f.Column && c.Row == f.PrototypeRow);
+                    if (cell is null || cell.Formula is not null || cell.Merged ||
+                        (f.Scope == "LineItem" && !sheet.Tables.Any(t => t.PrototypeRows.Length == 1 && t.PrototypeRows[0] == f.PrototypeRow)))
+                        throw new StudioFault(400, "INVALID_SCHEMA_DESTINATION");
+                    selected = new(sheet.Name, cell.Address, f.Label, f.Scope == "Header" ? cell.Address : null,
+                        f.Scope == "LineItem" ? cell.Column : null, f.Scope == "LineItem" ? cell.Row : null,
+                        cell.Address, "Explicit user destination on a materialized template cell; not inferred source evidence.");
+                    if (!choices.Contains(selected))
+                    {
+                        if (choices.Length >= 32) throw new StudioFault(400, "SCHEMA_CANDIDATE_LIMIT");
+                        choices = choices.Add(selected);
+                    }
+                }
                 if (selected is not null && ((f.Scope == "Header") != (selected.Cell is not null)))
                     throw new StudioFault(400, "UNSUPPORTED_SCOPE_DESTINATION");
                 if (selected is not null && f.Type != "Text")
@@ -87,7 +107,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator
                         throw new StudioFault(400, "IDENTIFIER_REQUIRES_TEXT");
                 }
                 return evidence with { Key = f.Key, Label = f.Label, Scope = f.Scope, Type = f.Type, Required = f.Required,
-                    Omit = f.Omit, Candidate = f.Candidate, Status = f.Omit ? "Omitted" : "Resolved" };
+                    Omit = f.Omit, Candidates = choices, Candidate = selected is null ? null : choices.IndexOf(selected), Status = f.Omit ? "Omitted" : "Resolved" };
             }).ToImmutableArray();
             var active = fields.Where(f => !f.Omit).ToArray();
             if (!active.Any(f => f.Scope == "LineItem")) throw new StudioFault(400, "LINE_REGION_REQUIRED");

@@ -20,7 +20,7 @@ def compare(runs):
             current = new['tests'][identity]
             if current['outcome'] == 'Failed': assert previous == current, 'New/changed failure'
         added = new['tests'].keys() - old['tests'].keys()
-        assert len(added) >= 25 and all(new['tests'][k]['outcome'] == 'Passed' and new['tests'][k]['method'].startswith(ci.ENGINE + 'Gate5ATests.') for k in added), 'New checks incomplete/failing'
+        assert len(added) == 35 and all(new['tests'][k]['outcome'] == 'Passed' and new['tests'][k]['method'].startswith(ci.ENGINE + 'Gate5ATests.') for k in added), 'New checks incomplete/failing'
     for name in ('baseline', 'feature'):
         engine, full = runs[name + '-engine'], runs[name + '-full']
         assert engine['failed'] == 0 and engine['tests'] == {k: v for k, v in full['tests'].items() if v['method'].startswith(ci.ENGINE)}
@@ -67,6 +67,11 @@ def main():
             compare(runs)
         gate4a_checks.frontend(ci)
         gate4b1_checks.dependencies(ci)
+        dependency_report = json.loads((ci.EVIDENCE / 'dependencies.json').read_text())
+        reviewed = {tuple(p) for p in dependency_report['nuget']['baseline']['resolved_packages']}
+        assets = json.loads((ci.ROOT / 'feature/tests/Gate5ADemoHost/obj/project.assets.json').read_text(encoding='utf-8-sig'))
+        host_packages = {tuple(identity.lower().split('/')) for identity, row in assets['libraries'].items() if row['type'] == 'package'}
+        assert host_packages <= reviewed, 'Unreviewed synthetic-host dependency'
         gate4b1_checks.browser(ci)
         import gate5a_browser
         gate5a_browser.browser(ci)

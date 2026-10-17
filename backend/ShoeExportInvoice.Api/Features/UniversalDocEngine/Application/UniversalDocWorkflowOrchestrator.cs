@@ -79,6 +79,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
         {
             if (s.MappingState != WorkflowMappingState.DraftSuggested || s.Proposal is null) throw new StudioFault(409, "MAPPING_CORRECTION_REQUIRED");
             RequireTemplate(s);
+            if (s.SchemaDraft is not null && s.SchemaDraft.State != "ReadyForConfirmation") throw new StudioFault(409, "SCHEMA_CORRECTION_REQUIRED");
             using var stream = Template(s); var service = new HumanMappingConfirmationService();
             var confirmed = service.Confirm(stream, "template.xlsx", s.Proposal, s.MappingProfile, actor.UserId);
             if (confirmed.Confirmation is null || !confirmed.Errors.IsEmpty) throw new StudioFault(400, "MAPPING_CONFIRMATION_INVALID");
@@ -164,6 +165,9 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
     {
         if (s.Template.IsDefaultOrEmpty) throw new StudioFault(409, "TEMPLATE_REQUIRED");
         if (ExcelTemplateLayout.TemplateIdentity(s.Template.ToArray()) != s.TemplateSha256) throw new StudioFault(409, "TEMPLATE_IDENTITY_CHANGED");
+        if (s.SchemaDraft is { } draft && (draft.TemplateSha256 != s.TemplateSha256 ||
+            (s.Example.IsEmpty ? draft.ExampleSha256 is not null : ExcelTemplateLayout.TemplateIdentity(s.Example.ToArray()) != draft.ExampleSha256)))
+            throw new StudioFault(409, "EXAMPLE_IDENTITY_CHANGED");
     }
     private static MemoryStream Template(UniversalDocSession s) => new(s.Template.ToArray(), false);
     private static CanonicalDocument RequireDocument(UniversalDocSession s) => s.Document ?? throw new StudioFault(409, "EXTRACTION_REQUIRED");
@@ -214,6 +218,8 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
         return new(s.Id, s.Version, s.ExpiresAt, s.Workflow, s.MappingState.ToString(), s.Proposal?.Revision, s.Profile.Version, s.Document?.DataRevision,
             s.Document?.ReviewState.ToString() ?? "NoDocument", s.Structure?.Sheets.Select(x => x.Name).ToImmutableArray() ?? ImmutableArray<string>.Empty,
             suggestions, mapping, fields.ToImmutable(), issues, actor.CanReview, actor.CanApprove)
-            { Sources = s.Sources.Select(SourceIntake.View).ToImmutableArray(), SchemaDraft = s.SchemaDraft };
+            { Sources = s.Sources.Select(SourceIntake.View).ToImmutableArray(), SchemaDraft = s.SchemaDraft,
+                SheetSummaries = s.Structure?.Sheets.Select(sheet => new StudioSheetSummary(sheet.Name, sheet.Cells.Length, sheet.Tables.Length,
+                    sheet.Tables.SelectMany(t => t.PrototypeRows).Distinct().ToImmutableArray(), sheet.FooterRows, sheet.MergedRanges)).ToImmutableArray() ?? ImmutableArray<StudioSheetSummary>.Empty };
     }
 }

@@ -55,7 +55,7 @@ public class Gate5ATests
         var template = s.SchemaDraft!.TemplateSha256; var version = s.SchemaDraft.Revision;
         s = w.UploadLearning(s.Id, s.Version, Gate5AFixtures.Workbook("accounting", true), "example.xlsx", true);
         Assert.Equal(template, s.SchemaDraft!.TemplateSha256); Assert.NotEqual(template, s.SchemaDraft.ExampleSha256); Assert.Equal(version + 1, s.SchemaDraft.Revision);
-        Assert.Equal("NeedsCorrection", s.SchemaDraft.State); Assert.Null(s.Mapping); Assert.Equal("NoDocument", s.ReviewState);
+        Assert.Equal("NeedsCorrection", s.SchemaDraft.State); Assert.Contains(s.SchemaDraft.Fields, f => f.Label == "Printed value" && f.Type == "Decimal"); Assert.Null(s.Mapping); Assert.Equal("NoDocument", s.ReviewState);
         Assert.Throws<StudioFault>(() => w.ConfirmMapping(s.Id, s.Version));
     }
     [Theory] [InlineData("sheet")] [InlineData("formula")] [InlineData("merge")] [InlineData("header")]
@@ -77,7 +77,7 @@ public class Gate5ATests
             "duplicate" => fields.SetItem(1, fields[1] with { Key = fields[0].Key, Scope = fields[0].Scope }),
             "unresolved" => fields.SetItem(0, fields[0] with { Candidate = null }),
             "required-omit" => fields.SetItem(0, fields[0] with { Omit = true, Required = true }),
-            "scope" => fields.SetItem(0, fields[0] with { Scope = "LineItem" }),
+            "scope" => fields.SetItem(0, fields[0] with { Scope = "Header" }),
             _ => fields.SetItem(0, fields[0] with { Type = "Decimal" }) };
         Assert.Throws<StudioFault>(() => w.CorrectSchema(s.Id, s.Version, fields)); Assert.Equal(s.Version, w.Read(s.Id).Version);
     }
@@ -118,4 +118,62 @@ public class Gate5ATests
         using var forged = await owner.PatchAsJsonAsync($"/api/universal-doc/sessions/{id}/schema", new { expectedVersion = 1, userConfirmed = true, fields = Array.Empty<object>() }); Assert.Equal(HttpStatusCode.BadRequest, forged.StatusCode);
         using var nested = await owner.PatchAsJsonAsync($"/api/universal-doc/sessions/{id}/schema", new { expectedVersion = 1, fields = new[] { new { key = "x", label = "x", scope = "Header", type = "Text", required = false, omit = false, candidate = 0, approval = true } } }); Assert.Equal(HttpStatusCode.BadRequest, nested.StatusCode);
     }
+    [Theory] [InlineData("formula")] [InlineData("duplicate")] [InlineData("merged")] [InlineData("absent")]
+    public void ExplicitDestinationsCannotBypassLayoutSafety(string kind)
+    {
+        using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store); var s = Ready(w); var fields = Corrections(s);
+        fields = fields.SetItem(1, fields[1] with { Worksheet = "Data", Column = kind == "formula" ? 5 : kind == "duplicate" ? 1 : 2,
+            PrototypeRow = kind == "merged" ? 8 : kind == "absent" ? 999 : 6 });
+        Assert.Throws<StudioFault>(() => w.CorrectSchema(s.Id, s.Version, fields)); Assert.Equal(s.Version, w.Read(s.Id).Version);
+    }
+    [Fact] public void HumanCanCorrectScopeWithExplicitSupportedDestinationAndOmitOptionalField()
+    {
+        using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store); var s = Ready(w); var fields = Corrections(s);
+        // Move the description field to an existing header value slot, omitting its competing metadata field.
+        fields = fields.SetItem(1, fields[1] with { Scope = "Header", Worksheet = "Data", Cell = "B2" });
+        fields = fields.SetItem(4, fields[4] with { Omit = true, Candidate = null });
+        s = w.CorrectSchema(s.Id, s.Version, fields); Assert.Equal("Header", s.SchemaDraft!.Fields[1].Scope); Assert.True(s.SchemaDraft.Fields[4].Omit);
+        Assert.Equal("B2", s.Mapping!.Headers[fields[1].Key]); s = w.ConfirmMapping(s.Id, s.Version); Assert.Equal("UserConfirmed", s.SchemaDraft.State);
+    }
+    [Theory] [InlineData("profile")] [InlineData("example")]
+    public void StaleServerFingerprintsCannotConfirmOrExport(string kind)
+    {
+        var actor = new Actor(); using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(actor, store); var s = Ready(w);
+        if (kind == "example") { s = w.UploadLearning(s.Id, s.Version, Gate5AFixtures.Workbook("accounting", true), "x.xlsx", true); s = w.CorrectSchema(s.Id, s.Version, Corrections(s)); }
+        var altered = store.Update(actor.Value, s.Id, s.Version, x => kind == "profile" ? x with { MappingProfile = x.MappingProfile with { Version = 999 } } : x with { Example = x.Example.SetItem(0, 0) });
+        Assert.Throws<StudioFault>(() => w.ConfirmMapping(s.Id, altered.Version)); Assert.Throws<StudioFault>(() => w.Export(s.Id, altered.Version));
+    }
+    [Fact] public void DecimalPrecisionProtectionRemainsAtRealExportBoundary()
+    {
+        using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store); var s = Ready(w); s = w.ConfirmMapping(s.Id, s.Version);
+        var sample = Sample(s); sample = sample with { Rows = sample.Rows.SetItem(0, sample.Rows[0].SetItem("field3", "1234567890123456.5")) };
+        s = w.SetManualSample(s.Id, s.Version, sample); s = w.Review(s.Id, s.Version); s = w.Approve(s.Id, s.Version);
+        Assert.Equal("EXPORT_VALIDATION_FAILED", Assert.Throws<StudioFault>(() => w.Export(s.Id, s.Version)).Code);
+    }
+    [Fact] public void ManualTypesAreValidatedAndUnknownFieldsNeverBecomeCanonical()
+    {
+        using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store); var s = Ready(w); var fields = Corrections(s);
+        fields = fields.SetItem(1, fields[1] with { Type = "Date" }).SetItem(3, fields[3] with { Type = "Boolean" });
+        s = w.CorrectSchema(s.Id, s.Version, fields); s = w.ConfirmMapping(s.Id, s.Version);
+        var sample = Sample(s); sample = sample with { Rows = sample.Rows.Select(r => r.SetItem("field2", "2026-10-17").SetItem("field4", "true")).ToImmutableArray() };
+        s = w.SetManualSample(s.Id, s.Version, sample); Assert.Contains(s.Fields, f => f.Type == "Date" && f.Value == "2026-10-17"); Assert.Contains(s.Fields, f => f.Type == "Boolean" && f.Value == "True");
+        var invalid = sample with { Header = sample.Header.Add("unknown", "data") }; Assert.Throws<StudioFault>(() => w.SetManualSample(s.Id, s.Version, invalid));
+        invalid = sample with { Rows = sample.Rows.SetItem(0, sample.Rows[0].SetItem("field2", "17/10/2026")) }; Assert.Throws<StudioFault>(() => w.SetManualSample(s.Id, s.Version, invalid));
+    }
+
+    [Fact] public void ExampleSharesTheExistingSessionByteBudget()
+    {
+        static byte[] Padded(byte[] original)
+        {
+            using var data = new MemoryStream(); data.Write(original);
+            using (var zip = new System.IO.Compression.ZipArchive(data, System.IO.Compression.ZipArchiveMode.Update, true))
+            { using var part = zip.CreateEntry("synthetic-padding.bin", System.IO.Compression.CompressionLevel.NoCompression).Open(); part.Write(new byte[1100000]); }
+            return data.ToArray();
+        }
+        using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store); var s = w.Create("example-template");
+        s = w.Upload(s.Id, s.Version, Padded(Gate5AFixtures.Workbook("accounting")), "template.xlsx");
+        Assert.Equal("SESSION_BYTE_LIMIT", Assert.Throws<StudioFault>(() => w.UploadLearning(s.Id, s.Version, Padded(Gate5AFixtures.Workbook("accounting", true)), "example.xlsx", true)).Code);
+        Assert.Null(w.Read(s.Id).SchemaDraft!.ExampleSha256); Assert.Equal(s.Version, w.Read(s.Id).Version);
+    }
+
 }

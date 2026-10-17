@@ -87,7 +87,7 @@ export default function UniversalDocStudio() {
           {(bootstrap?.workflows || []).map(name => <option key={name}>{name}</option>)}</select></label>
           <button disabled={busy || !bootstrap} onClick={() => void run(async () => { setSession(await api.create(mode === 'example' ? 'example-template' : workflow)); })}>Create private session</button></div>
           : <p>Current workflow: {session.workflow}. Upload a supported template, or start with the synthetic sample.</p>}
-        <button disabled={busy || !bootstrap} onClick={() => void run(async () => save(await api.sample(session?.workflow || workflow), 'synthetic-template.xlsx'))}>Download synthetic template</button>
+        <button disabled={busy || !bootstrap} onClick={() => void run(async () => save(await api.sample(session?.workflow === 'example-template' ? workflow : session?.workflow || workflow), 'synthetic-template.xlsx'))}>Download synthetic template</button>
         {session && <form className="uds-inline" onSubmit={e => { e.preventDefault(); if (file) void run(async () => { setSession(await api.upload(session, file)); setStep(1); }); }}>
           <label>Excel template (.xlsx, maximum 2 MiB)<input type="file" aria-label="Excel template" accept=".xlsx" onChange={e => setFile(e.target.files?.[0] || null)} /></label>
           <button disabled={busy || !file} type="submit">Upload and analyze</button></form>}

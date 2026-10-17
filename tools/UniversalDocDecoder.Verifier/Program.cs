@@ -28,7 +28,9 @@ try
             try { ready = await Wire.Read<Message>(sandbox.Output, deadline.Token); }
             catch (EndOfStreamException)
             {
-                var diagnostic = new byte[4096]; int size = await sandbox.Error.ReadAsync(diagnostic, deadline.Token);
+                var diagnostic = new byte[4096]; int size = 0, read;
+                while (size < diagnostic.Length && (read = await sandbox.Error.ReadAsync(diagnostic.AsMemory(size), deadline.Token)) != 0) size += read;
+                if (size == diagnostic.Length) Limits.Require(await sandbox.Error.ReadAsync(new byte[1], deadline.Token) == 0, "IPC_STDERR_LIMIT");
                 string text = System.Text.Encoding.UTF8.GetString(diagnostic, 0, size);
                 string codes = string.Join('_', System.Text.RegularExpressions.Regex.Matches(text, @"0x[0-9A-Fa-f]{8}").Select(m => m.Value));
                 await sandbox.Process.WaitForExitAsync(deadline.Token);
@@ -41,6 +43,8 @@ try
                     else if (text.Contains("mount proc", StringComparison.OrdinalIgnoreCase)) stage = "LINUX_PROC_MOUNT_FAILED_";
                     else if (text.Contains("mount", StringComparison.OrdinalIgnoreCase)) stage = "LINUX_MOUNT_FAILED_";
                     else if (text.Contains("execvp", StringComparison.OrdinalIgnoreCase)) stage = "LINUX_EXEC_FAILED_";
+                    else if (text.Contains("not permitted", StringComparison.OrdinalIgnoreCase) || text.Contains("Permission denied", StringComparison.OrdinalIgnoreCase)) stage = "LINUX_PERMISSION_DENIED_";
+                    else if (text.Contains("No such file", StringComparison.OrdinalIgnoreCase)) stage = "LINUX_RUNTIME_PATH_MISSING_";
                 }
                 throw new ProtocolFault("BOOTSTRAP_" + stage + "EXIT_" + sandbox.Process.ExitCode.ToString("X8") + "_" + codes);
             }

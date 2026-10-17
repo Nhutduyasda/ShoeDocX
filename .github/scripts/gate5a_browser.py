@@ -32,7 +32,7 @@ def browser(ci):
                     except (urllib.error.URLError, TimeoutError):
                         assert time.monotonic() < deadline, "Synthetic host startup timed out"
                         time.sleep(.2)
-            for script, folder, summary_name, count in (("universalDocExample", "example", "example-summary", 6),):
+            for script, folder, summary_name, count in (("universalDocExample", "example", "example-summary", 7),):
                 environment["STUDIO_EVIDENCE_DIR"] = str(ci.EVIDENCE / folder)
                 result = subprocess.run(["node", f"frontend/tests/{script}.e2e.mjs"], cwd=feature, env=environment,
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", timeout=180)

@@ -29,9 +29,9 @@ function MappingEditor({ session, busy, apply }: { session: StudioSession; busy:
     <p className="uds-muted">Applying a correction clears confirmation and any earlier document approval. Confirmation remains a separate action.</p>
   </form>;
 }
-function FieldEditor({ field, busy, edit }: { field: StudioField; busy: boolean; edit: (field: StudioField, value: string) => void }) {
+function FieldEditor({ field, busy, edit, displayName }: { displayName?: string; field: StudioField; busy: boolean; edit: (field: StudioField, value: string) => void }) {
   const [value, setValue] = useState(field.value ?? '');
-  const label = `${field.scope} ${field.row === null ? '' : `row ${field.row + 1} `}${field.key}`;
+  const label = `${field.scope} ${field.row === null ? '' : `row ${field.row + 1} `}${displayName || field.key}`;
   return <tr>
     <th scope="row">{label}<small>{field.type} · {field.source} · {field.review}</small></th>
     <td><form className="uds-inline" onSubmit={e => { e.preventDefault(); edit(field, value); }}>
@@ -125,7 +125,7 @@ export default function UniversalDocStudio() {
         </article>)}</div></>}
       {step === 3 && session && <><p>Edits are sent to the backend and invalidate earlier approval. Original synthetic observation evidence remains visible separately.</p>
         <div className="uds-scroll"><table><thead><tr><th>Field</th><th>Current server value</th><th>Source evidence</th></tr></thead><tbody>
-          {session.fields.map(field => <FieldEditor key={`${session.dataRevision}:${field.scope}:${field.row}:${field.key}`} field={field} busy={busy}
+          {session.fields.map(field => <FieldEditor key={`${session.dataRevision}:${field.scope}:${field.row}:${field.key}`} field={field} busy={busy} displayName={session.schemaDraft?.fields.find(f => f.scope === field.scope && f.key === field.key)?.label}
             edit={(f, value) => act('fields', { scope: f.scope, key: f.key, row: f.row, value }, 'PATCH')} />)}
         </tbody></table></div>
         <h3>Validation and extraction issues</h3>{session.issues.length ? <ul>{session.issues.map((issue, index) => <li key={index}>{issue.code} · {issue.field} {issue.rowPosition !== null ? `row ${issue.rowPosition + 1}` : ''}</li>)}</ul> : <p>No current issues reported.</p>}

@@ -31,7 +31,11 @@ try {
   await click('3 Demo extraction'); await page.getByLabel('Sample rows', { exact: true }).fill('2');
   const values = [['00042', '00043'], ['Vải tổng hợp', 'sample'], ['2.5', '3'], ['9.5', '10'], ['00123'], ['19.50']];
   for (let f = 0; f < values.length; f++) for (let row = 0; row < values[f].length; row++) await page.getByLabel(`Sample field${f + 1} ${row + 1}`, { exact: true }).fill(values[f][row]);
-  await click('Validate manual sample'); await state('Draft'); await review();
+  await click('Validate manual sample'); await state('Draft');
+  await click('4 Data review');
+  assert.equal(await page.getByRole('textbox', { name: 'LineItem row 1 Product code', exact: true }).inputValue(), '00042');
+  assert.equal(await page.getByRole('textbox', { name: 'Header Document number', exact: true }).inputValue(), '00123');
+  checks.push('HUMAN_LABELLED_DATA_REVIEW'); await review();
   await click('6 Excel export'); const downloading = page.waitForEvent('download'); await click('Export Excel'); const download = await downloading;
   const path = join(folder, 'synthetic-gate5a.xlsx'); await download.saveAs(path);
   const bootstrap = await (await context.request.get(base + '/api/universal-doc/bootstrap')).json();

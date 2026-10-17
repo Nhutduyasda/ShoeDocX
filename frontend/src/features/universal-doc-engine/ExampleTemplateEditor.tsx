@@ -5,6 +5,7 @@ export function SchemaEditor({ session, busy, act }: { session: StudioSession; b
   const [fields, setFields] = useState<LearnedField[]>(session.schemaDraft?.fields ?? []);
   const update = (index: number, patch: Partial<LearnedField>) => setFields(fields.map((f, i) => i === index ? { ...f, ...patch } : f));
   return <form onSubmit={e => { e.preventDefault(); act('schema', { fields: fields.map(({ key, label, scope, type, required, omit, candidate, worksheet, cell, column, prototypeRow }) => ({ key, label, scope, type, required, omit, candidate, worksheet, cell, column, prototypeRow })) }, 'PATCH'); }}>
+    <p>Field keys are generated automatically; you can leave them unchanged. Edits are unsaved until Apply. Confirmation uses the last applied server revision.</p>
     <p>Schema: {session.schemaDraft?.state} · Revision {session.schemaDraft?.revision}. One data worksheet and one prototype row. Reference sheets are preserved. Numeric identifiers default to Text; select Decimal after checking the meaning.</p>
     <ul>{session.sheetSummaries.map(s => <li key={s.name}>{s.name}: {s.usedCells} used cells · {s.tables} table candidates · prototype rows {s.prototypeRows.join(', ') || 'none'} · footer rows {s.footerRows.join(', ') || 'none'} · merges {s.mergedRanges.join(', ') || 'none'}</li>)}</ul>
     {fields.length === 0 && <p role="alert">No supported candidates. Use bold table headers, one materialized prototype and adjacent header value slots.</p>}

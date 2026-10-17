@@ -65,7 +65,10 @@ The full-suite inherited failures are retained, not skipped or reclassified. The
 
 Local Work verification: frontend lockfile install, TypeScript/Vite build, 13 existing draft tests, Python/JavaScript syntax and diff checks pass. No local .NET SDK is available; backend and authenticated browser execution evidence comes from the hosted Windows/Ubuntu environments, not the owner's computer.
 
-The final follow-up strengthens manual-destination evidence attribution (a renamed field label is never presented as workbook evidence), synthetic assertions and documentation. It requires another exact-HEAD workflow run before readiness. [PR #15 checks](https://github.com/Nhutduyasda/ShoeDocX/pull/15/checks) and its final description identify the final feature SHA and run; the earlier run above must not be presented as evidence for untested later code.
+A second complete dual-host run at `68d43d05cbad989987d96967a036453a7c1b0156`,
+[39000290429](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/39000290429), also passed with the same counts. Its strengthened numeric Amount, Vietnamese unit and actual Date/Boolean assertions ran successfully. Artifacts: Ubuntu `12088683494`, Windows `12089455115`. The Ubuntu summary independently records that exact feature SHA, 35 added passed tests and six passed browser checks. Its actual browser-downloaded workbook SHA-256 is `cc4ccab599dc216d7f702270251127b44e46260a78ea3a71d85c82272508f0ec`.
+
+The final follow-up strengthens manual-destination evidence attribution (a renamed field label is never presented as workbook evidence), synthetic assertions, human-readable review labels and documentation. The final browser script adds a seventh check that verifies actual labelled values on the review screen before approval. It requires another exact-HEAD workflow run before readiness. [PR #15 checks](https://github.com/Nhutduyasda/ShoeDocX/pull/15/checks) and its final description identify the final feature SHA and run; the earlier run above must not be presented as evidence for untested later code.
 
 ## Changed-file inventory
 

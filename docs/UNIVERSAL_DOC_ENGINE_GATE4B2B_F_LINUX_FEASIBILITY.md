@@ -1,6 +1,10 @@
 # Gate 4B.2B-F — bounded Linux-only decoder feasibility
 
-Status: **IMPLEMENTED INVESTIGATION; HOST RESULTS PENDING**. This document must be read with the exact-HEAD `gate4b2bf-linux-feasibility` CI artifact and final Draft PR report. No sandbox or decoder PASS is claimed before those results.
+Status: **BLOCKED; RECOMMENDATION REDESIGN**. Stop the current GitHub-hosted bubblewrap route. This is an evidence-based host/policy limitation plus a separate unresolved parser contract, not a claim that Linux decoding is universally impossible. The finite investigation completed; no sandbox/decoder PASS is claimed.
+
+Draft PR: [#14](https://github.com/Nhutduyasda/ShoeDocX/pull/14). Executable tested HEAD: `b77040603b49597b2e9efa77c03257b379133b54`. Exact-HEAD [run 38997906969](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38997906969), [job 117294412595](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/38997906969/job/117294412595). Evaluator/classifier tests PASS; capability gate exits 1 (BLOCKED), sanitized audit/upload succeed. Artifact `12088065995`, archive SHA-256 `e0395c6f1eadf0f85a0e6161d8d09daea649f5d26adb5287b16a98b8983bb711`. Checked-in copies: [summary](gate4b2bf/linux-summary.json), [audit](gate4b2bf/apparmor-audit.json).
+
+The final follow-up changes only documentation/evidence and uses `[skip ci]`; executable files remain byte-identical to this tested HEAD. This does not turn failed/pending checks green or pass any historical Gate.
 
 ## Scope and authorization
 
@@ -23,29 +27,43 @@ A small **trusted C probe**, with no CLR, PDFium, Skia or document input, differ
 5. Only if the mapping control succeeds: delegated cgroup placement before exec; full bubblewrap user/PID/network/mount/other namespaces, read-only static runtime, 16 MiB private tmpfs and no capabilities. Probe ready checks actual namespace identities, UID/GID, no_new_privs, seccomp, absent synthetic environment canary and closed synthetic FD 200.
 6. Only after confined ready: actual socket/file/write/clone attempts, tmpfs saturation, cgroup memory OOM event, CPU-limit signal calibration, PID controller saturation and cancellation/tree cleanup. Failures stop expansion. A bootstrap success alone is not isolation acceptance.
 
-The native seccomp policy is a tiny architecture-checked default-deny allowlist for this trusted single-threaded probe, not a reviewed .NET/native-decoder policy. The special PID-controller stress probe intentionally forks harmless sleeping children inside the same restricted namespace/cgroup; it is a kernel controller test, not evidence that a decoder may spawn children. CPU calibration is a 1-second soft/2-second hard RLIMIT test; it does **not** prove 5-second per-page or 15-second aggregate document accounting. Parent-death via independently killing the supervisor is not implemented and remains NOT RUN. No missing check can produce overall PASS.
+The native seccomp policy is a tiny architecture-checked default-deny allowlist for this trusted single-threaded probe, not a reviewed .NET/native-decoder policy. The special PID-controller stress probe intentionally forks harmless sleeping children inside the same restricted namespace/cgroup; it is a kernel controller test, not evidence that a decoder may spawn children. CPU calibration is a 1-second soft/2-second hard RLIMIT test; it does **not** prove 5-second per-page or 15-second aggregate document accounting. Parent-death via independently killing the supervisor is not implemented and remains NOT RUN. No missing check can produce overall PASS. The conditional later probes were compiled/reviewed but were NOT RUN on this host; they are future test scaffolding, not accepted enforcement.
 
 Memory success requires an actual `memory.events` oom_kill increase, not arbitrary nonzero exit. PID success requires EAGAIN plus `pids.events:max`. Filesystem success requires exact expected denial, network/child attempts require EPERM. A timeout is not network-denial evidence. Cancellation kills the whole cgroup and verifies it empty. Source/environment/credential access is tested only with synthetic controls, never real secrets.
 
 ## Linux capability matrix and root-cause record
 
-| Capability | Prior PR #13 evidence | New track before CI |
-|---|---|---|
-| Non-root trusted supervisor | configured/observed | pending |
-| User namespace, explicit mapping | denied operation unknown | pending direct and bwrap controls |
-| PID/network/mount namespaces | not proven | conditional tests; otherwise NOT RUN |
-| Read-only runtime / bounded tmpfs | not proven | conditional actual write/ENOSPC checks |
-| AppArmor | no correlated denial identifying operation | read-only audit; empty audit is inconclusive |
-| no_new_privs / seccomp | not proven | conditional native probe only |
-| Memory/CPU/PID controllers | creation/placement succeeded, enforcement unproven | conditional actual controller/signal tests |
-| Cancellation/process-tree cleanup | not proven | conditional cgroup-empty check |
-| Independent parent termination | not proven | NOT RUN |
-| No inherited synthetic env/FD | not proven | conditional env/FD checks, not universal credential clearance |
-| Network/host filesystem denial | blocked before attempt | conditional real syscall attempts |
-| CLR/native decoder startup | blocked | NOT RUN by this C-only experiment |
-| PDF/image decoding | 21 fixtures NOT RUN | NOT RUN; prerequisite-gated |
+Reference: Ubuntu 24.04, kernel `6.17.0-1022-azure`, non-root UID 1001; bubblewrap `0.9.0-1ubuntu0.3`, gcc package `4:13.2.0-7ubuntu1`, libc6-dev `2.39-0ubuntu8.9`, strace `6.8-0ubuntu2`. Static probe SHA-256 `6b5b2bf87dfa838938456d166ac5d869f8d9ec4f56e84bbc74d1f103c80c49dc`.
 
-Classifications distinguish SUPPORTED, configuration/runtime path issues, SECURITY_POLICY_OR_HOST_DENIAL, UNKNOWN, BLOCKED, FAIL and NOT_RUN. A denied combined unshare call alone cannot identify AppArmor versus another host policy; correlated audit can narrow it. Traced behavior is diagnostic and must be compared to the untraced result. The old generic permission-denied code cannot retroactively prove an operation; new trace observations pertain to this new control and environment.
+| Capability | Actual new-track result | Meaning |
+|---|---|---|
+| Non-root host control | SUPPORTED: UID/GID 1001, NNP 0, seccomp 0; exit 0 | trusted host executable works |
+| User namespace creation | creation call returned success | namespace existence is not sufficient capability permission |
+| Explicit UID/GID mapping | SECURITY POLICY / HOST DENIAL at `/proc/self/setgroups` setup, errno 13 (direct probe does not separately label open versus write) | prerequisites for GID map could not be prepared; later direct uid_map/gid_map writes NOT RUN |
+| Bubblewrap mapping/native-exec control | BLOCKED, exit 1; classified ID_MAPPING_FAILURE | no confined native ready, much less CLR/decoder startup |
+| Bounded traced control | same exit and same stderr hash as untraced; `openat` EACCES | diagnostic agrees with original control; no denied unshare syscall in this trace |
+| AppArmor | correlated `capable` denials and `open` errno -13 for probe/bwrap | policy denials observed; exact denied capability numbers/path are not exported |
+| PID/network/mount availability independently | NOT RUN after mapping blocker | do not infer these are unsupported |
+| Read-only runtime / bounded tmpfs | NOT RUN | configured candidate only |
+| no_new_privs / seccomp in sandbox | NOT RUN | no successful native confined bootstrap |
+| Cgroup memory/CPU/PID enforcement | NOT RUN | administrative delegation step succeeded; enforcement not tested |
+| Cancellation/process tree / independent parent death | NOT RUN | no lifecycle security claim |
+| No inherited synthetic env/FD / network / filesystem denial | NOT RUN | no actual escape attempt was made |
+| CLR/native decoder startup / PDF/image decoding | NOT RUN | no source document processed |
+
+| Trusted diagnostic | Wall ms | Exit / timeout |
+|---|---:|---|
+| Host native identity | 0.55 | 0 / false |
+| Direct namespace + mapping ladder | 0.54 | 1 / false |
+| Untraced bwrap control | 1.52 | 1 / false |
+| Traced bwrap control | 185.35 | 1 / false |
+| Decode CPU / RSS / wall / output | absent | NOT RUN |
+
+`unprivileged_userns_clone=1`, `max_user_namespaces=63838`, and `apparmor_restrict_unprivileged_userns=1` were read without changes. The supervisor was unconfined before namespace entry. Ubuntu documents that the default unprivileged-userns policy can allow creation yet deny subsequent namespace capabilities [H8]. This is consistent with the direct probe and correlated denials. UID/GID 65534 after creation is not proof that our maps were installed: before map installation it can be the overflow/unmapped identity.
+
+**Root-cause confidence:** high that the tested non-root namespace/ID-mapping route is blocked by host security policy before CLR/PDFium/Skia initialization; medium that Ubuntu's restricted-userns AppArmor mechanism is the complete causal explanation. The sanitized trace/audit omit exact capability identity and bwrap's failed procfs pathname; do not invent those details or claim every possible policy layer is identified. The old PR #13 run is not retroactively reclassified as proven: the new native-only control reproduces a matching pre-decoder mapping failure on this reference host.
+
+**Disposition:** stop this host route. No AppArmor/sysctl change, custom allow-profile, privileged worker or weaker namespace option was tried. A controlled host would need a reviewed policy authorizing the required namespace capabilities for the trusted launcher while retaining confinement; that is a new environment/security decision, not automatic permission to disable protection. The finite ladder already distinguishes this from missing PDFium/Skia or a demonstrated CLR failure. There is no need for another speculative settings loop.
 
 The reviewed cgroup fix is reused as an idea, not the previous worker: test administration prepares a delegated subtree and supervisor leaf; only the trusted test shell is administratively moved into it. Workers remain non-root. In the trusted single-threaded Python child, attachment happens before exec, closing the before-attachment descendant race. No sysctl, AppArmor profile, seccomp protection or mandatory namespace is disabled. A controlled runner would require authorized non-root user namespaces under its actual policy, cgroup-v2 memory/cpu/pids delegation, bounded mounts and observable OOM/kill events. A managed app cannot assume this host administration is available.
 
@@ -119,7 +137,7 @@ Formula: total = metered compute after grants + storage/operations + logs + regi
 
 ## Risks, recommendation and owner decisions
 
-Recommendation before host results: **REDESIGN / do not expand to decoding**. If the actual host denies a required primitive, mark that host route STOP and retain the parsed policy/CPU/native blockers. Do not disable AppArmor/userns restrictions or replace counters with a memory cap. The finite experiment must report actual syscall/audit facts, not infer production readiness from configured namespaces or native bootstrap.
+Final recommendation: **REDESIGN / do not expand to decoding**. The tested GitHub-hosted namespace/ID-mapping route is STOP/BLOCKED under its observed policy; retain the independent parser/CPU/native blockers. Do not disable AppArmor/userns restrictions or replace counters with a memory cap. The finite experiment must report actual syscall/audit facts, not infer production readiness from configured namespaces or native bootstrap.
 
 Preferred direction remains Linux-only broker -> fresh credential-free isolation boundary -> bounded inert output, with server-owned source/session/hash/revision binding and existing human review/export gates. A managed native boundary can reduce OS operations only after equivalent no-egress, no-parent-data/credential, resource and lifecycle properties are tested. In-memory Studio sessions are not durable job storage; no integration/migrations are implemented.
 
@@ -136,7 +154,15 @@ Gate 4B.2B-F can acknowledge only measured sub-properties. Historical Gate 4B.2B
 - H5: https://learn.microsoft.com/en-us/azure/container-apps/user-defined-routes
 - H6: https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-overview
 - H7: https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-egress-policies
+- H8: https://documentation.ubuntu.com/release-notes/24.04/ (unprivileged user namespace restrictions)
 - Parser limits reference: https://qpdf.readthedocs.io/en/stable/cli.html#global-limits
 - Kernel delegation: https://docs.kernel.org/admin-guide/cgroup-v2.html#delegation-containment
 
 Reference architecture and native evidence remain on PR #13 at the immutable ref stated above; they are not copied into accepted main or relabeled as new-track PASS.
+
+
+## Verification and unchanged repository boundaries
+
+Local: static C compilation with `-std=c11 -O2 -Wall -Wextra -Werror -static` PASS; trusted identity-only control PASS (local root context, not hosted isolation evidence); five unittest methods PASS, including 22 check names x five negative status mutations and redaction/classification tests. Workflow YAML/bash syntax checked. Hosted: the same five tests PASS on exact executable HEAD; non-root controls, one bwrap control and one traced repetition executed, then stopped at the mapping denial. No full application suites were deliberately rerun because production/shared contracts are unchanged; unrelated existing workflows are branch-scoped.
+
+PR #13 and accepted main remain unchanged. The experiment adds no decoder package and makes no native advisory-clearance claim. The generated reports distinguish static PDF review from dynamic tests. There are no resource-use measurement rows or decoded buffers to advertise. Executable HEAD and final documentation HEAD must both be reported; a documentation-only follow-up does not rewrite the historical test result.

@@ -36,10 +36,12 @@ public sealed partial class UniversalDocWorkflowOrchestrator
         {
             if (s.Workflow != "example-template") throw new StudioFault(400, "EXAMPLE_MODE_REQUIRED");
             var structure = AnalyzeLearning(bytes, filename); var learner = new ExampleSchemaLearner();
+            ExampleCorrespondence? correspondence = null;
             if (isExample)
             {
                 RequireTemplate(s);
-                if (!learner.Corresponds(s.Structure!, structure)) throw new StudioFault(400, "EXAMPLE_STRUCTURE_MISMATCH");
+                correspondence = new ExampleRowCorrespondence().Compare(s.Template.ToArray(), bytes, s.Structure!, structure);
+                if (!correspondence.Supported) throw new StudioFault(400, "EXAMPLE_STRUCTURE_MISMATCH") { Details = correspondence.Problems };
             }
             var template = isExample ? s.Template.ToArray() : bytes;
             var actual = isExample ? s.Structure! : structure;
@@ -48,12 +50,12 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             catch (ArgumentException) { throw new StudioFault(400, "SCHEMA_CANDIDATE_LIMIT"); }
             var draft = new ExampleSchemaDraft((s.SchemaDraft?.Revision ?? 0) + 1,
                 fields.IsEmpty || fields.Any(f => f.Status == "Ambiguous") ? "NeedsCorrection" : "Suggested",
-                actual.TemplateSha256, isExample ? structure.TemplateSha256 : null, fields);
+                actual.TemplateSha256, isExample ? structure.TemplateSha256 : null, fields) { Correspondence = correspondence };
             var profile = StudioDemoCatalog.Profile("example-template", actor.TenantId) with { Version = s.Profile.Version + 1,
                 ExtractionSchema = new(s.Profile.ExtractionSchema.Version + 1, ImmutableArray<FieldDefinition>.Empty) };
             return s with { Template = template.ToImmutableArray(), TemplateSha256 = actual.TemplateSha256, Structure = actual,
                 Example = isExample ? bytes.ToImmutableArray() : ImmutableArray<byte>.Empty, SchemaDraft = draft with { ProfileFingerprint = WorkflowProfileIdentity.Fingerprint(profile), ProfileVersion = profile.Version },
-                MappingProfile = profile, Profile = profile, Proposal = null, Confirmation = null,
+                ValidationRules = ImmutableArray<StudioValidationRule>.Empty, MappingProfile = profile, Profile = profile, Proposal = null, Confirmation = null,
                 Suggestions = null, MappingState = WorkflowMappingState.DraftSuggested, Extraction = null,
                 Document = null, Validation = null };
         }), actor);
@@ -112,15 +114,22 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             var active = fields.Where(f => !f.Omit).ToArray();
             if (!active.Any(f => f.Scope == "LineItem")) throw new StudioFault(400, "LINE_REGION_REQUIRED");
             var chosen = active.Select(f => f.Candidates[f.Candidate!.Value]).ToArray();
-            if (chosen.Select(c => c.Worksheet).Distinct().Count() != 1) throw new StudioFault(400, "SINGLE_SHEET_EDITOR_REQUIRED");
-            var row = chosen.Where(c => c.PrototypeRow.HasValue).Select(c => c.PrototypeRow!.Value).Distinct().ToArray();
-            if (row.Length != 1) throw new StudioFault(400, "SINGLE_PROTOTYPE_REQUIRED");
+            if (chosen.Select(c => c.Worksheet).Distinct().Count() > 3) throw new StudioFault(400, "MAPPED_SHEET_LIMIT");
             var definitions = fields.Select(f => new FieldDefinition(f.Key, Enum.Parse<FieldScope>(f.Scope), Enum.Parse<FieldType>(f.Type), f.Required)).ToImmutableArray();
             var profile = s.MappingProfile with { Version = checked(s.Profile.Version + 1), ExtractionSchema = new(s.Profile.ExtractionSchema.Version + 1, definitions),
                 ExcelProjectionMap = new(ImmutableArray<ExcelMapping>.Empty) };
-            var layout = new ExcelTemplateLayout(1, s.TemplateSha256!, ImmutableArray.Create(new ExcelSheetLayout(chosen[0].Worksheet,
-                active.Where(f => f.Scope == "Header").Select(f => new ExcelCellMapping(new(FieldScope.Header, f.Key), f.Candidates[f.Candidate!.Value].Cell!)).ToImmutableArray(),
-                new(row[0], row[0], 20, active.Where(f => f.Scope == "LineItem").Select(f => new ExcelColumnMapping(new(FieldScope.LineItem, f.Key), f.Candidates[f.Candidate!.Value].Column!.Value)).ToImmutableArray()))));
+            // Existing rules must survive schema edits only when their exact references remain valid.
+            ValidateStudioRules(profile, s.ValidationRules, fields.Where(f => f.Omit).Select(f => new FieldReference(Enum.Parse<FieldScope>(f.Scope), f.Key)).ToImmutableArray());
+            var sheets = chosen.Select(c => c.Worksheet).Distinct().Select(name =>
+            {
+                var local = active.Where(f => f.Candidates[f.Candidate!.Value].Worksheet == name).ToArray();
+                var rows = local.Where(f => f.Scope == "LineItem").Select(f => f.Candidates[f.Candidate!.Value].PrototypeRow!.Value).Distinct().ToArray();
+                if (rows.Length != 1) throw new StudioFault(400, "SINGLE_PROTOTYPE_PER_SHEET_REQUIRED");
+                return new ExcelSheetLayout(name,
+                    local.Where(f => f.Scope == "Header").Select(f => new ExcelCellMapping(new(FieldScope.Header, f.Key), f.Candidates[f.Candidate!.Value].Cell!)).ToImmutableArray(),
+                    new(rows[0], rows[0], 20, local.Where(f => f.Scope == "LineItem").Select(f => new ExcelColumnMapping(new(FieldScope.LineItem, f.Key), f.Candidates[f.Candidate!.Value].Column!.Value)).ToImmutableArray()));
+            }).ToImmutableArray();
+            var layout = new ExcelTemplateLayout(1, s.TemplateSha256!, sheets);
             var proposal = new MappingProposal(1, (s.Proposal?.Revision ?? 0) + 1, s.TemplateSha256!, WorkflowProfileIdentity.Fingerprint(profile), layout,
                 fields.Where(f => f.Omit).Select(f => new FieldReference(Enum.Parse<FieldScope>(f.Scope), f.Key)).ToImmutableArray());
             using var stream = Template(s);

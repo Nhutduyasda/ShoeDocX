@@ -22,7 +22,7 @@ public sealed class StudioExceptionFilter : IExceptionFilter
     public void OnException(ExceptionContext context)
     {
         if (context.Exception is not StudioFault fault) return;
-        context.Result = new ObjectResult(new { code = fault.Code, message = fault.Code }) { StatusCode = fault.Status };
+        context.Result = new ObjectResult(new { code = fault.Code, message = fault.Code, details = fault.Details }) { StatusCode = fault.Status };
         context.ExceptionHandled = true;
     }
 }

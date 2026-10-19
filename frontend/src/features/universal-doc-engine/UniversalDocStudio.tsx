@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { StudioApi, type StudioBootstrap, type StudioField, type StudioMapping, type StudioSession } from './studioApi';
+import { StudioApi, type ConfigurationSection, type StudioBootstrap, type StudioField, type StudioMapping, type StudioSession } from './studioApi';
 import './studio.css';
+import { MultiSheetEditor, ValidationRuleEditor } from './WorkflowConfigurationEditor';
 import { SchemaEditor, ManualSampleEditor } from './ExampleTemplateEditor';
 
 const steps = ['Session & template', 'Mapping', 'Demo extraction', 'Data review', 'Human approval', 'Excel export'];
@@ -53,17 +54,40 @@ export default function UniversalDocStudio() {
   const [example, setExample] = useState<File | null>(null);
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const [configurationEdits, setConfigurationEdits] = useState<Partial<Record<ConfigurationSection, boolean>>>({});
+  const reportConfigurationEdit = useCallback((section: ConfigurationSection, dirty: boolean) => {
+    setConfigurationEdits(previous => previous[section] === dirty ? previous : { ...previous, [section]: dirty });
+  }, []);
+  const hasUnsavedConfiguration = Object.values(configurationEdits).some(Boolean);
+  function changeStep(next: number) {
+    if (busy) return;
+    if (hasUnsavedConfiguration && next !== 1) { setError('Apply or discard unsaved configuration edits before leaving Mapping. Server confirmation covers saved configuration only.'); return; }
+    setStep(next);
+  }
   useEffect(() => {
     const abort = new AbortController();
-    void api.bootstrap(abort.signal).then(setBootstrap).catch((reason: unknown) => { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : 'Unable to open Studio'); });
+    void api.bootstrap(abort.signal).then(async bootstrap => {
+      if (abort.signal.aborted) return;
+      setBootstrap(bootstrap);
+      const id = sessionStorage.getItem('universal-doc-session');
+      if (id) {
+        try { const restored = await api.read(id); if (!abort.signal.aborted) setSession(restored); }
+        catch { sessionStorage.removeItem('universal-doc-session'); }
+      }
+    }).catch((reason: unknown) => { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : 'Unable to open Studio'); });
     return () => abort.abort();
   }, [api]);
+  useEffect(() => { if (session) sessionStorage.setItem('universal-doc-session', session.id); }, [session]);
   async function run(operation: () => Promise<void>) {
     setBusy(true); setError(''); setNotice('');
     try { await operation(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Studio request failed'); }
     finally { setBusy(false); }
   }
   function act(action: string, data: Record<string, unknown> = {}, method = 'POST') {
+    const section = ({ schema: 'schema', 'multisheet-mapping': 'mapping', 'validation-rules': 'rules' } as Record<string, ConfigurationSection>)[action];
+    if (Object.entries(configurationEdits).some(([name, dirty]) => dirty && name !== section)) {
+      setError('Apply or discard the other unsaved configuration edits first. Server confirmation covers saved configuration only.'); return;
+    }
     if (session) void run(async () => { setSession(await api.act(session, action, data, method)); setNotice('Server state updated.'); });
   }
   return <main className="uds">
@@ -73,12 +97,13 @@ export default function UniversalDocStudio() {
     </header>
     <p className="uds-banner">Demo extraction and private document intake. No OCR recognition or AI calls. Sessions expire after 20 minutes and disappear when the backend restarts.</p>
     <nav aria-label="Studio steps" className="uds-steps">{steps.map((name, index) => <button key={name} aria-current={step === index ? 'step' : undefined}
-      onClick={() => setStep(index)}><span>{index + 1}</span>{name}</button>)}</nav>
+      onClick={() => changeStep(index)}><span>{index + 1}</span>{name}</button>)}</nav>
     {error && <div role="alert" className="uds-error">{error}{error.includes('409') && session && <button disabled={busy} onClick={() => void run(async () => { setSession(await api.read(session.id)); })}>Reload server state</button>}</div>}
+    {hasUnsavedConfiguration && <p role="status" className="uds-error">Unsaved configuration edits are not confirmed server state. Apply or discard them before continuing.</p>}
     {notice && <p role="status" className="uds-success">{notice}</p>}
-    {session && <aside className="uds-state">Mapping: <strong>{session.mappingState}</strong> · Review: <strong>{session.reviewState}</strong> · Session version {session.version}
+    {session && <aside className="uds-state">Server mapping: <strong>{session.mappingState}</strong> · Review: <strong>{session.reviewState}</strong> · Session version {session.version}
       {' · '}Profile {session.profileVersion} · Data revision {session.dataRevision ?? '—'} · Expires {new Date(session.expiresAt).toLocaleTimeString()}
-      <button disabled={busy} onClick={() => void run(async () => { await api.remove(session); setSession(null); setStep(0); })}>Discard session</button></aside>}
+      <button disabled={busy} onClick={() => void run(async () => { await api.remove(session); sessionStorage.removeItem('universal-doc-session'); setSession(null); setStep(0); })}>Discard session</button></aside>}
     <section className="uds-panel" aria-busy={busy}>
       <h2>{step + 1}. {steps[step]}</h2>
       {step === 0 && <>
@@ -96,13 +121,15 @@ export default function UniversalDocStudio() {
       {step === 1 && session && <>
         <p>Detected worksheets: {session.sheets.join(', ') || 'Upload a template first'}. Suggestions never constitute confirmation.</p>
         <ul>{session.suggestions.map(s => <li key={`${s.scope}:${s.key}`}><strong>{s.scope}.{s.key}</strong> — {s.status}: {s.candidates.map(c => `${c.sheet}!${c.cell || `column ${c.column}, row ${c.prototypeRow ?? '?'}`}`).join('; ') || 'No candidate'}</li>)}</ul>
-        {session.schemaDraft && <><SchemaEditor key={session.schemaDraft.revision} session={session} busy={busy} act={act} />
+        {session.schemaDraft && <><SchemaEditor key={session.schemaDraft.revision} session={session} busy={busy} act={act} onDirtyChange={reportConfigurationEdit} />
           <form onSubmit={e => { e.preventDefault(); if (example) void run(async () => { setSession(await api.upload(session, example, 'example')); }); }}>
-            <label>Optional filled example<input aria-label="Filled example" type="file" accept=".xlsx" onChange={e => setExample(e.target.files?.[0] || null)} /></label><button disabled={busy || !example} type="submit">Compare filled example</button>
-          </form><p>Example sheets, cells, styles, formulas and merges must match the template. Examples never confirm a schema.</p></>}
+            <label>Optional filled example<input aria-label="Filled example" type="file" accept=".xlsx" onChange={e => setExample(e.target.files?.[0] || null)} /></label><button disabled={busy || hasUnsavedConfiguration || !example} type="submit">Compare filled example</button>
+          </form><p>One to five contiguous example rows, with verified formulas and footer relocation. Examples never confirm a schema.</p>
+          {session.schemaDraft.correspondence && <ul aria-label="Example correspondence">{session.schemaDraft.correspondence.sheets.map(s => <li key={s.worksheet}>{s.worksheet}: {s.exampleRowCount} example rows ({s.firstExampleRow}–{s.lastExampleRow}), prototype {s.prototypeRow} · {s.status}. {s.footerEvidence}</li>)}</ul>}
+          {session.mapping && <><MultiSheetEditor key={`mapping:${session.profileVersion}`} session={session} busy={busy} act={act} onDirtyChange={reportConfigurationEdit} /><ValidationRuleEditor key={`rules:${session.profileVersion}`} session={session} busy={busy} act={act} onDirtyChange={reportConfigurationEdit} /></>}</>}
         {!session.schemaDraft && session.sheets.length > 0 && <MappingEditor key={`${session.profileVersion}:${session.mappingRevision}`} session={session} busy={busy}
           apply={mapping => act('mapping', { ...mapping }, 'PATCH')} />}
-        <button disabled={busy || session.mappingState !== 'DraftSuggested' || (!!session.schemaDraft && session.schemaDraft.state !== 'ReadyForConfirmation')} onClick={() => act('mapping/confirm')}>Confirm mapping as current user</button>
+        <button disabled={busy || hasUnsavedConfiguration || session.mappingState !== 'DraftSuggested' || (!!session.schemaDraft && session.schemaDraft.state !== 'ReadyForConfirmation')} onClick={() => act('mapping/confirm')}>Confirm mapping as current user</button>
       </>}
       {step === 2 && session?.schemaDraft && <ManualSampleEditor key={session.profileVersion} session={session} busy={busy} act={act} />}
       {step === 2 && session && !session.schemaDraft && <><h3>Demo Extraction</h3><p>Load the bounded server-owned synthetic fixture through Gate 3B. This does not recognize an image or PDF.</p>
@@ -128,7 +155,8 @@ export default function UniversalDocStudio() {
           {session.fields.map(field => <FieldEditor key={`${session.dataRevision}:${field.scope}:${field.row}:${field.key}`} field={field} busy={busy} displayName={session.schemaDraft?.fields.find(f => f.scope === field.scope && f.key === field.key)?.label}
             edit={(f, value) => act('fields', { scope: f.scope, key: f.key, row: f.row, value }, 'PATCH')} />)}
         </tbody></table></div>
-        <h3>Validation and extraction issues</h3>{session.issues.length ? <ul>{session.issues.map((issue, index) => <li key={index}>{issue.code} · {issue.field} {issue.rowPosition !== null ? `row ${issue.rowPosition + 1}` : ''}</li>)}</ul> : <p>No current issues reported.</p>}
+        <h3>Validation results</h3><ul aria-label="Validation results">{session.checks?.map(c => <li key={c.id}>{c.id}: {c.outcome === 'NotEvaluated' ? 'Not evaluated' : c.outcome}{c.required ? ' · Required' : ''}{session.issues.some(i => i.field === c.id) ? ' · See issue below' : ''}</li>)}</ul>
+        <h3>Validation and extraction issues</h3>{session.issues.length ? <ul>{session.issues.map((issue, index) => <li key={index}>{issue.severity === 'Warning' ? 'Warning · ' : ''}{issue.message || issue.code} · {issue.field} {issue.rowPosition !== null ? `row ${issue.rowPosition + 1}` : ''}</li>)}</ul> : <p>No current issues reported.</p>}
       </>}
       {step === 4 && session && <><p>Complete review and approval are separate authenticated backend transitions. Neither extraction nor mapping confirmation approves document data.</p>
         <button disabled={busy || !session.canReview} onClick={() => act('review')}>Complete human review</button>
@@ -136,7 +164,7 @@ export default function UniversalDocStudio() {
         {!session.canApprove && <p>Your server-validated role does not have approval authority.</p>}</>}
       {step === 5 && session && <><p>The backend rechecks mapping, current validation, human approval, ownership, expiry and concurrency before returning a workbook.</p>
         <button disabled={busy || !session.canApprove} onClick={() => void run(async () => { const blob = await api.export(session); save(blob, 'synthetic-document.xlsx'); setSession(await api.read(session.id)); setNotice('Excel workbook exported.'); })}>Export Excel</button></>}
-      <footer className="uds-inline"><button disabled={step === 0} onClick={() => setStep(s => s - 1)}>Previous step</button><button disabled={step === 5} onClick={() => setStep(s => s + 1)}>Next step</button></footer>
+      <footer className="uds-inline"><button disabled={step === 0} onClick={() => changeStep(step - 1)}>Previous step</button><button disabled={step === 5} onClick={() => changeStep(step + 1)}>Next step</button></footer>
     </section>
   </main>;
 }

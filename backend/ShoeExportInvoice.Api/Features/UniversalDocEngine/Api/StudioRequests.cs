@@ -17,3 +17,8 @@ public sealed record StudioFieldRequest(long ExpectedVersion, string Scope, stri
 public sealed record StudioSchemaRequest(long ExpectedVersion, ImmutableArray<Application.SchemaFieldCorrection> Fields);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record StudioSampleRequest(long ExpectedVersion, ImmutableDictionary<string, string?> Header, ImmutableArray<ImmutableDictionary<string, string?>> Rows);
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record StudioMultisheetRequest(long ExpectedVersion, ImmutableArray<Application.StudioSheetMapping> Sheets);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record StudioRulesRequest(long ExpectedVersion, ImmutableArray<Application.StudioValidationRule> Rules);

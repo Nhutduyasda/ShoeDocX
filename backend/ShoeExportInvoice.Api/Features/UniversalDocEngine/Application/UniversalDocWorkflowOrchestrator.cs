@@ -80,6 +80,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
             if (s.MappingState != WorkflowMappingState.DraftSuggested || s.Proposal is null) throw new StudioFault(409, "MAPPING_CORRECTION_REQUIRED");
             RequireTemplate(s);
             if (s.SchemaDraft is not null && s.SchemaDraft.State != "ReadyForConfirmation") throw new StudioFault(409, "SCHEMA_CORRECTION_REQUIRED");
+            VerifyExampleMapping(s);
             using var stream = Template(s); var service = new HumanMappingConfirmationService();
             var confirmed = service.Confirm(stream, "template.xlsx", s.Proposal, s.MappingProfile, actor.UserId);
             if (confirmed.Confirmation is null || !confirmed.Errors.IsEmpty) throw new StudioFault(400, "MAPPING_CONFIRMATION_INVALID");
@@ -191,6 +192,20 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
         if (validation.Issues.Any(i => i.Severity != IssueSeverity.Info) || validation.Checks.Any(c => c.Required && c.Outcome != CheckOutcome.Passed))
             throw new StudioFault(409, "DOCUMENT_VALIDATION_REQUIRED");
     }
+    private static string DescribeCheck(UniversalDocSession s, ValidationIssue issue)
+    {
+        var id = issue.CheckId.Split(':')[0]; var rule = s.ValidationRules.FirstOrDefault(r => r.Id == id);
+        if (rule is null) return issue.Message;
+        string Label(string key, string scope = "LineItem") => s.SchemaDraft?.Fields.FirstOrDefault(f => f.Key == key && f.Scope == scope && !f.Omit)?.Label ?? key;
+        var parts = issue.CheckId.Split(':');
+        var row = parts.Length == 2 && int.TryParse(parts[1], out var index) ? $"Row {index + 1}: " : "";
+        if (issue.Code == "MISSING_RULE_INPUT") return row + "Rule cannot be evaluated because a required value is missing.";
+        if (issue.Code == "DIVISION_BY_ZERO") return row + "Cannot divide by zero.";
+        if (issue.Code == "NUMERIC_OVERFLOW") return row + "Numeric values exceed the supported decimal range.";
+        if (rule.Kind == "CrossFoot") return Label(rule.Target, "Header") + " differs from the sum of " + Label(rule.FieldA) + ".";
+        var op = rule.Operator switch { "Add" => "+", "Subtract" => "−", "Multiply" => "×", "Divide" => "÷", _ => "?" };
+        return row + Label(rule.FieldA) + " " + op + " " + Label(rule.FieldB!) + " does not match " + Label(rule.Target) + ".";
+    }
     private static StudioSessionView View(UniversalDocSession s, UniversalDocActor actor)
     {
         var fields = ImmutableArray.CreateBuilder<StudioFieldView>();
@@ -216,12 +231,16 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
         var sheet = s.Proposal?.Layout.Sheets.FirstOrDefault();
         var mapping = sheet is null ? null : new StudioMapping(sheet.Worksheet, sheet.Items.StartRow,
             sheet.Headers.ToImmutableDictionary(x => x.Source.Key, x => x.Cell), sheet.Items.Columns.ToImmutableDictionary(x => x.Source.Key, x => x.Column));
-        var issues = (s.Validation?.Issues.Select(i => new StudioIssueView(i.Code, i.CheckId, null, null)) ?? Enumerable.Empty<StudioIssueView>())
+        var issues = (s.Validation?.Issues.Select(i => new StudioIssueView(i.Code, i.CheckId, null, null) { Message = DescribeCheck(s, i), Severity = i.Severity.ToString() }) ?? Enumerable.Empty<StudioIssueView>())
             .Concat(s.Extraction?.Documents.SelectMany(d => d.Issues).Select(i => new StudioIssueView(i.Code, i.Field?.Key, i.RowId, i.RowPosition)) ?? Enumerable.Empty<StudioIssueView>()).Take(100).ToImmutableArray();
         return new(s.Id, s.Version, s.ExpiresAt, s.Workflow, s.MappingState.ToString(), s.Proposal?.Revision, s.Profile.Version, s.Document?.DataRevision,
             s.Document?.ReviewState.ToString() ?? "NoDocument", s.Structure?.Sheets.Select(x => x.Name).ToImmutableArray() ?? ImmutableArray<string>.Empty,
             suggestions, mapping, fields.ToImmutable(), issues, actor.CanReview, actor.CanApprove)
-            { Sources = s.Sources.Select(SourceIntake.View).ToImmutableArray(), SchemaDraft = s.SchemaDraft,
+            { ValidationRules = s.ValidationRules,
+                Checks = s.Validation?.Checks.Select(c => new StudioCheckView(c.Id, c.Outcome.ToString(), c.Required)).ToImmutableArray() ?? ImmutableArray<StudioCheckView>.Empty,
+                Mappings = s.Proposal?.Layout.Sheets.Select(x => new StudioMapping(x.Worksheet, x.Items.StartRow,
+                    x.Headers.ToImmutableDictionary(h => h.Source.Key, h => h.Cell), x.Items.Columns.ToImmutableDictionary(c => c.Source.Key, c => c.Column))).ToImmutableArray() ?? ImmutableArray<StudioMapping>.Empty,
+                Sources = s.Sources.Select(SourceIntake.View).ToImmutableArray(), SchemaDraft = s.SchemaDraft,
                 SheetSummaries = s.Structure?.Sheets.Select(sheet => new StudioSheetSummary(sheet.Name, sheet.Cells.Length, sheet.Tables.Length,
                     sheet.Tables.SelectMany(t => t.PrototypeRows).Distinct().ToImmutableArray(), sheet.FooterRows, sheet.MergedRanges)).ToImmutableArray() ?? ImmutableArray<StudioSheetSummary>.Empty };
     }

@@ -281,4 +281,13 @@ public class Gate5BTests(ITestOutputHelper output)
         Assert.Throws<StudioFault>(() => w.ChangeMultisheetMapping(s.Id, s.Version, Mappings(s)));
     }
 
+    [Fact] public void RuleMessagesResolveFieldIdentityByScopeAndKey()
+    {
+        using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store); var s = Ready(w);
+        var corrections = Corrections(s).Select(f => f.Label == "Printed total" && !f.Omit ? f with { Key = Key(s, "Quantity") } : f).ToImmutableArray();
+        s = w.CorrectSchema(s.Id, s.Version, corrections); s = w.ChangeValidationRules(s.Id, s.Version, Rules(s)); s = w.ConfirmMapping(s.Id, s.Version);
+        s = w.SetManualSample(s.Id, s.Version, Sample(s, total: "16"));
+        Assert.Contains(s.Issues, i => i.Message == "Printed total differs from the sum of Amount.");
+    }
+
 }

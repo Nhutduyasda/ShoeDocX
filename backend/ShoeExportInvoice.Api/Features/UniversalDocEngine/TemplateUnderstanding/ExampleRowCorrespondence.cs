@@ -100,6 +100,6 @@ public sealed class ExampleRowCorrespondence
                 problems.Add(structure.Name + ":SHEET_FORMAT_CHANGED");
         }
         if (evidence.Select(e => e.ExampleRowCount).Distinct().Count() > 1) problems.Add("INCONSISTENT_ORDERED_ROW_COUNTS");
-        return new(original.TemplateSha256, filled.TemplateSha256, problems.Count == 0, evidence.ToImmutableArray(), problems.Distinct().Take(32).ToImmutableArray());
+        return new(original.TemplateSha256, filled.TemplateSha256, problems.Count == 0, evidence.Select(e => e with { Status = problems.Any(p => p.StartsWith(e.Worksheet + ":", StringComparison.Ordinal) || p == "INCONSISTENT_ORDERED_ROW_COUNTS") ? "Unsupported" : "Supported" }).ToImmutableArray(), problems.Distinct().Take(32).ToImmutableArray());
     }
 }

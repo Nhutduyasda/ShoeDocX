@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { StudioApi, type ConfigurationSection, type StudioBootstrap, type StudioField, type StudioMapping, type StudioSession } from './studioApi';
+import { StudioApi, type ConfigurationSection, type StudioBootstrap, type StudioDraft, type StudioField, type StudioMapping, type StudioSession } from './studioApi';
 import './studio.css';
 import { MultiSheetEditor, ValidationRuleEditor } from './WorkflowConfigurationEditor';
 import { SchemaEditor, ManualSampleEditor } from './ExampleTemplateEditor';
@@ -50,6 +50,8 @@ export default function UniversalDocStudio() {
   const [api] = useState(() => new StudioApi()); const [bootstrap, setBootstrap] = useState<StudioBootstrap | null>(null);
   const [session, setSession] = useState<StudioSession | null>(null); const [workflow, setWorkflow] = useState('invoice');
   const [file, setFile] = useState<File | null>(null); const [step, setStep] = useState(0);
+  const [drafts, setDrafts] = useState<StudioDraft[]>([]);
+  const [savedDraft, setSavedDraft] = useState<{ sessionId: string; version: number; draft: StudioDraft } | null>(null);
   const [mode, setMode] = useState('demo');
   const [example, setExample] = useState<File | null>(null);
   const [sourceFile, setSourceFile] = useState<File | null>(null);
@@ -61,7 +63,7 @@ export default function UniversalDocStudio() {
   const hasUnsavedConfiguration = Object.values(configurationEdits).some(Boolean);
   function changeStep(next: number) {
     if (busy) return;
-    if (hasUnsavedConfiguration && next !== 1) { setError('Apply or discard unsaved configuration edits before leaving Mapping. Server confirmation covers saved configuration only.'); return; }
+    if (hasUnsavedConfiguration && next !== step) { setError('Apply or discard unsaved edits before changing steps. Server confirmation covers saved configuration only.'); return; }
     setStep(next);
   }
   useEffect(() => {
@@ -69,6 +71,7 @@ export default function UniversalDocStudio() {
     void api.bootstrap(abort.signal).then(async bootstrap => {
       if (abort.signal.aborted) return;
       setBootstrap(bootstrap);
+      if (bootstrap.draftsEnabled) setDrafts(await api.drafts());
       const id = sessionStorage.getItem('universal-doc-session');
       if (id) {
         try { const restored = await api.read(id); if (!abort.signal.aborted) setSession(restored); }
@@ -84,7 +87,7 @@ export default function UniversalDocStudio() {
     finally { setBusy(false); }
   }
   function act(action: string, data: Record<string, unknown> = {}, method = 'POST') {
-    const section = ({ schema: 'schema', 'multisheet-mapping': 'mapping', 'validation-rules': 'rules' } as Record<string, ConfigurationSection>)[action];
+    const section = ({ schema: 'schema', 'multisheet-mapping': 'mapping', 'validation-rules': 'rules', 'manual-sample': 'sample' } as Record<string, ConfigurationSection>)[action];
     if (Object.entries(configurationEdits).some(([name, dirty]) => dirty && name !== section)) {
       setError('Apply or discard the other unsaved configuration edits first. Server confirmation covers saved configuration only.'); return;
     }
@@ -96,6 +99,25 @@ export default function UniversalDocStudio() {
       <div><span>{user?.fullName}</span><a href="/">Legacy workspace</a><button onClick={logout}>Sign out</button></div>
     </header>
     <p className="uds-banner">Demo extraction and private document intake. No OCR recognition or AI calls. Sessions expire after 20 minutes and disappear when the backend restarts.</p>
+    {bootstrap?.draftsEnabled && <section className="uds-panel" aria-label="Durable drafts">
+      <h2>My drafts</h2><p>Explicit save of server-applied state only. Maximum two private drafts, retained for at most seven days. Resuming creates a new session and requires fresh confirmation, review and approval.</p>
+      <button disabled={busy} onClick={() => void run(async () => { setDrafts(await api.drafts()); })}>Refresh my drafts</button>
+      {session?.workflow === 'example-template' && <>
+        <p role="status">{savedDraft?.sessionId === session.id && savedDraft.version === session.version && !hasUnsavedConfiguration ? `Draft saved at ${new Date(savedDraft.draft.updatedAt).toLocaleString()}` : 'Current work is not saved as a durable draft. Apply form edits and save explicitly.'}</p>
+        <button disabled={busy || hasUnsavedConfiguration || !session.schemaDraft} onClick={() => void run(async () => {
+          const result = await api.saveDraft(session, savedDraft?.sessionId === session.id ? savedDraft.draft : undefined);
+          setSession(result.session); setSavedDraft({ sessionId: result.session.id, version: result.session.version, draft: result.draft });
+          setDrafts(await api.drafts()); setNotice('Draft saved durably.');
+        })}>Save draft</button>
+      </>}
+      {drafts.map(draft => <article key={draft.id} className="uds-state"><strong>Example workflow draft</strong><p>{draft.workflow} · Revision {draft.revision} · Updated {new Date(draft.updatedAt).toLocaleString()} · Expires {new Date(draft.expiresAt).toLocaleString()}</p>
+        <button disabled={busy || hasUnsavedConfiguration} aria-label={`Resume draft ${draft.id}`} onClick={() => void run(async () => {
+          const restored = await api.resumeDraft(draft); setSession(restored); setSavedDraft({ sessionId: restored.id, version: restored.version, draft }); setStep(1);
+          setNotice('Draft resumed in a new session. Confirm mapping and repeat human review and approval before export.');
+        })}>Resume in new session</button>
+        <button disabled={busy} aria-label={`Delete draft ${draft.id}`} onClick={() => void run(async () => { await api.deleteDraft(draft); setDrafts(await api.drafts()); if (savedDraft?.draft.id === draft.id) setSavedDraft(null); setNotice('Draft deleted.'); })}>Delete draft</button>
+      </article>)}
+    </section>}
     <nav aria-label="Studio steps" className="uds-steps">{steps.map((name, index) => <button key={name} aria-current={step === index ? 'step' : undefined}
       onClick={() => changeStep(index)}><span>{index + 1}</span>{name}</button>)}</nav>
     {error && <div role="alert" className="uds-error">{error}{error.includes('409') && session && <button disabled={busy} onClick={() => void run(async () => { setSession(await api.read(session.id)); })}>Reload server state</button>}</div>}
@@ -131,7 +153,7 @@ export default function UniversalDocStudio() {
           apply={mapping => act('mapping', { ...mapping }, 'PATCH')} />}
         <button disabled={busy || hasUnsavedConfiguration || session.mappingState !== 'DraftSuggested' || (!!session.schemaDraft && session.schemaDraft.state !== 'ReadyForConfirmation')} onClick={() => act('mapping/confirm')}>Confirm mapping as current user</button>
       </>}
-      {step === 2 && session?.schemaDraft && <ManualSampleEditor key={session.profileVersion} session={session} busy={busy} act={act} />}
+      {step === 2 && session?.schemaDraft && <ManualSampleEditor key={`${session.profileVersion}:${session.dataRevision}`} session={session} busy={busy} act={act} onDirtyChange={reportConfigurationEdit} />}
       {step === 2 && session && !session.schemaDraft && <><h3>Demo Extraction</h3><p>Load the bounded server-owned synthetic fixture through Gate 3B. This does not recognize an image or PDF.</p>
         <button disabled={busy || session.mappingState !== 'UserConfirmed'} onClick={() => act('extract-demo')}>Run Demo Extraction</button>
         <hr /><h3>Document Upload</h3>

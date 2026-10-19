@@ -30,15 +30,20 @@ export function SchemaEditor({ session, busy, act, onDirtyChange }: { session: S
     <button disabled={busy || fields.length === 0} type="submit">Apply schema corrections</button><p>Changes clear confirmation, review and approval. Scope changes require compatible destination evidence.</p>
   </form>;
 }
-export function ManualSampleEditor({ session, busy, act }: { session: StudioSession; busy: boolean; act: Act }) {
+export function ManualSampleEditor({ session, busy, act, onDirtyChange }: { session: StudioSession; busy: boolean; act: Act; onDirtyChange?: ConfigurationDirtyChange }) {
   const fields = session.schemaDraft?.fields.filter(f => !f.omit) ?? [];
   const [rows, setRows] = useState(() => Math.max(1, ...session.fields.filter(f => f.row !== null).map(f => f.row! + 1)));
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(session.fields.map(f => [`${f.scope}:${f.row ?? 0}:${f.key}`, f.value ?? ''])));
+  const [initialValues] = useState(values); const [initialRows] = useState(rows);
+  const dirty = rows !== initialRows || JSON.stringify(values) !== JSON.stringify(initialValues);
+  useEffect(() => { onDirtyChange?.('sample', dirty); return () => onDirtyChange?.('sample', false); }, [dirty, onDirtyChange]);
   const key = (f: LearnedField, row: number) => `${f.scope}:${row}:${f.key}`;
   return <form onSubmit={e => { e.preventDefault(); act('manual-sample', {
     header: Object.fromEntries(fields.filter(f => f.scope === 'Header').map(f => [f.key, values[key(f, 0)] ?? ''])),
     rows: Array.from({ length: rows }, (_, row) => Object.fromEntries(fields.filter(f => f.scope === 'LineItem').map(f => [f.key, values[key(f, row)] ?? '']))),
   }); }}>
+    {dirty && <p role="status">Unsaved sample edits. Validate the manual sample before saving a durable draft or changing steps.</p>}
+    <button type="button" disabled={busy || !dirty} onClick={() => { setValues(initialValues); setRows(initialRows); }}>Discard sample edits</button>
     <p>Manual or synthetic values only. Examples provide layout evidence, never recognized source data. Arithmetic rules are configured explicitly; compare entered values against the source.</p>
     <label>Sample rows<input disabled={busy} aria-label="Sample rows" type="number" min={1} max={20} value={rows} onChange={e => setRows(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
     {fields.flatMap(f => Array.from({ length: f.scope === 'Header' ? 1 : rows }, (_, row) => <label key={key(f, row)}>{f.label} ({f.type}){f.scope === 'LineItem' ? ` row ${row + 1}` : ''}<input disabled={busy} aria-label={`Sample ${f.key} ${row + 1}`} value={values[key(f, row)] ?? ''} maxLength={2000} onChange={e => setValues({ ...values, [key(f, row)]: e.target.value })} /></label>))}

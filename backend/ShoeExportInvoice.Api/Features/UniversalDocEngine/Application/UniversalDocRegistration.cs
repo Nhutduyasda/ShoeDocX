@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.EntityFrameworkCore;
+using ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Api;
 
 namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
@@ -23,6 +25,14 @@ public static class UniversalDocRegistration
         services.AddScoped<StudioCsrfFilter>(); services.AddScoped<StudioExceptionFilter>();
         services.AddSingleton<StudioRequestAdmission>(); services.AddScoped<StudioAdmissionFilter>();
         services.AddHostedService<UniversalDocSessionCleanup>();
+        services.AddDbContextFactory<UniversalDocDraftDb>((provider, options) => {
+            var config = provider.GetRequiredService<IConfiguration>();
+            var connection = config["UniversalDocDrafts:ConnectionString"] ?? config.GetConnectionString("DefaultConnection");
+            if (string.IsNullOrWhiteSpace(connection)) throw new StudioFault(503, "DRAFT_CONFIGURATION_UNAVAILABLE");
+            options.UseSqlServer(connection, sql => sql.MigrationsHistoryTable("__DraftMigrations", "ude").CommandTimeout(15));
+        });
+        services.AddScoped<DraftCipher>(); services.AddScoped<IUniversalDocDraftStore, SqlUniversalDocDraftStore>();
+        services.AddHostedService<UniversalDocDraftCleanup>();
         return services;
     }
 }
@@ -32,5 +42,18 @@ internal sealed class UniversalDocSessionCleanup(IUniversalDocSessionStore store
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30), time);
         while (await timer.WaitForNextTickAsync(stoppingToken)) store.Cleanup();
+    }
+}
+
+internal sealed class UniversalDocDraftCleanup(IServiceScopeFactory scopes) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        while (await timer.WaitForNextTickAsync(stoppingToken)) {
+            using var scope = scopes.CreateScope();
+            try { scope.ServiceProvider.GetRequiredService<IUniversalDocDraftStore>().Cleanup(); }
+            catch (StudioFault) { /* Fail closed; expired rows remain inaccessible. Bounded retry on next tick. */ }
+        }
     }
 }

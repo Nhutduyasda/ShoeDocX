@@ -2,8 +2,8 @@ using Microsoft.AspNetCore.Antiforgery;
 using ShoeExportInvoice.Tests.UniversalDocEngine;
 var port = int.TryParse(Environment.GetEnvironmentVariable("STUDIO_DEMO_PORT"), out var p) ? p : 5288;
 await using var host = await StudioHttpHost.Start(port: port, configure: app => {
-    app.MapGet("/api/__test/gate5b-template", () => Results.File(Gate5BTests.Workbook(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).RequireAuthorization();
-    app.MapGet("/api/__test/gate5b-example", () => Results.File(Gate5BTests.Workbook(2, 2, true), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).RequireAuthorization();
+    app.MapGet("/api/__test/gate5b-template", () => Results.File(Gate5BFixtures.Workbook(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).RequireAuthorization();
+    app.MapGet("/api/__test/gate5b-example", () => Results.File(Gate5BFixtures.Workbook(2, 2, true), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).RequireAuthorization();
     app.MapPost("/api/__test/gate5b-verify", async (HttpContext context, IAntiforgery csrf) => {
         await csrf.ValidateRequestAsync(context);
         if (context.Request.ContentLength is null or > 2097152) return Results.BadRequest();

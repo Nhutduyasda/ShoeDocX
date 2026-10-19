@@ -31,7 +31,7 @@ def isolation():
         'frontend/src/features/universal-doc-engine/', 'tests/Gate5ADemoHost/')
     added = {'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/TemplateUnderstanding/ExampleSchemaLearner.cs',
         'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/TemplateUnderstanding/ExampleRowCorrespondence.cs',
-        'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BTests.cs', 'frontend/tests/universalDocGate5B.e2e.mjs',
+        'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BTests.cs', 'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BFixtures.cs', 'frontend/tests/universalDocGate5B.e2e.mjs',
         '.github/scripts/verify_gate5b.py', '.github/scripts/gate5b_browser.py', '.github/workflows/gate5b-verification.yml', 'docs/UNIVERSAL_DOC_ENGINE_GATE5B.md'}
     assert changed and all(p.startswith(prefixes) or p in added for p in changed), 'Scope violation'
     for folder in ('Application', 'Api'):

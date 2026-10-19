@@ -39,8 +39,12 @@ def compare(runs, discovered):
 
 def isolation():
     changed = subprocess.check_output(['git', 'diff', '--name-only', BASELINE, 'HEAD'], cwd=ci.ROOT / 'feature', text=True).splitlines()
-    prefixes = ('backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/', 'frontend/src/features/universal-doc-engine/', 'tests/Gate5CDemoHost/')
-    allowed = {'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate4AHost.cs',
+    prefixes = ('backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/Persistence/', 'frontend/src/features/universal-doc-engine/', 'tests/Gate5CDemoHost/')
+    allowed = {'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/Api/UniversalDocStudioController.cs',
+               'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/Api/UniversalDocDraftController.cs',
+               'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/Application/DurableDraftWorkflow.cs',
+               'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/Application/UniversalDocRegistration.cs',
+               'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate4AHost.cs',
                'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5CSqlFixture.cs', 'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5CTests.cs',
                '.github/scripts/verify_gate5c.py', '.github/scripts/gate5c_browser.py', '.github/workflows/gate5c-verification.yml',
                'docs/UNIVERSAL_DOC_ENGINE_GATE5C.md', 'frontend/tests/universalDocGate5C.e2e.mjs'}

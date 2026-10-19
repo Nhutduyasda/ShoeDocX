@@ -23,7 +23,7 @@ public sealed record DraftSource(byte[] Bytes, string Sha256, string MediaType);
 public sealed record DraftSnapshot(int Format, string Workflow, byte[] Template, string TemplateSha256,
     byte[] Example, string? ExampleSha256, ImmutableArray<SchemaFieldCorrection> Fields,
     ImmutableArray<StudioSheetMapping> Mappings, ImmutableArray<StudioValidationRule> Rules,
-    ManualSample? Values, ImmutableArray<DraftSource> Sources, long SavedSessionVersion)
+    ManualSample? Values, ImmutableArray<DraftSource> Sources, long SavedSessionVersion, string ConfigurationSha256)
 {
     public static readonly JsonSerializerOptions Json = new() { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, MaxDepth = 32 };
     public const int MaximumPayload = 5 * 1024 * 1024;

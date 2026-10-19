@@ -10,6 +10,13 @@ namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 public sealed partial class UniversalDocWorkflowOrchestrator
 {
     private static string Hash(byte[] data) => Convert.ToHexString(SHA256.HashData(data));
+    private static string DraftConfigurationIdentity(UniversalDocSession s) => Hash(JsonSerializer.SerializeToUtf8Bytes(new {
+        Profile = s.MappingProfile with { Version = 1, ExtractionSchema = s.MappingProfile.ExtractionSchema with { Version = 1 }, ExcelProjectionMap = s.MappingProfile.ExcelProjectionMap with { ApprovedLayoutFingerprint = null } },
+        Layout = s.Proposal is null ? null : s.Proposal.Layout with { Sheets = s.Proposal.Layout.Sheets.OrderBy(x => x.Worksheet, StringComparer.Ordinal).Select(sheet => sheet with {
+            Headers = sheet.Headers.OrderBy(x => x.Source.Key, StringComparer.Ordinal).ToImmutableArray(),
+            Items = sheet.Items with { Columns = sheet.Items.Columns.OrderBy(x => x.Source.Key, StringComparer.Ordinal).ToImmutableArray() }
+        }).ToImmutableArray() }
+    }, DraftSnapshot.Json));
     public (DraftInfo Draft, StudioSessionView Session) SaveDraft(IUniversalDocDraftStore drafts, string id, long version, string? draftId, long revision)
     {
         var actor = Actor();
@@ -29,7 +36,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             Enumerable.Range(0, s.Document.LineItems.Length).Select(row => valueFields.Where(f => f.Scope == "LineItem" && f.Row == row).ToImmutableDictionary(f => f.Key, f => f.Value)).ToImmutableArray());
         var snapshot = new DraftSnapshot(1, s.Workflow, s.Template.ToArray(), s.TemplateSha256!, s.Example.ToArray(), s.Example.IsEmpty ? null : Hash(s.Example.ToArray()), fields,
             view.Mappings.Select(m => new StudioSheetMapping(m.Sheet, m.StartRow, m.Headers, m.Columns)).ToImmutableArray(), s.ValidationRules, sample,
-            s.Sources.Select(x => new DraftSource(x.Bytes.ToArray(), x.Sha256, x.MediaType)).ToImmutableArray(), s.Version);
+            s.Sources.Select(x => new DraftSource(x.Bytes.ToArray(), x.Sha256, x.MediaType)).ToImmutableArray(), s.Version, DraftConfigurationIdentity(s));
         var bytes = JsonSerializer.SerializeToUtf8Bytes(snapshot, DraftSnapshot.Json);
         if (bytes.Length > DraftSnapshot.MaximumPayload) throw new StudioFault(400, "DRAFT_PAYLOAD_LIMIT");
         try { return (drafts.Save(actor, draftId, revision, bytes), view); } finally { CryptographicOperations.ZeroMemory(bytes); }
@@ -56,6 +63,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator
                 session = ChangeValidationRules(session.Id, session.Version, snapshot.Rules);
                 VerifyExampleMapping(store.Read(actor, session.Id));
             } else if (!snapshot.Mappings.IsEmpty || !snapshot.Rules.IsEmpty || snapshot.Values is not null) throw new StudioFault(409, "DRAFT_PAYLOAD_INVALID");
+            if (DraftConfigurationIdentity(store.Read(actor, session.Id)) != snapshot.ConfigurationSha256) throw new StudioFault(409, "DRAFT_FINGERPRINT_MISMATCH");
             if (snapshot.Values is not null) session = RestoreDraftValues(session, snapshot.Values, actor);
             // Final expected-revision/expiry check after workbook reconstruction; no old approval exists anywhere in the contract.
             drafts.CompleteResume(actor, lease, id, revision, session.ExpiresAt);

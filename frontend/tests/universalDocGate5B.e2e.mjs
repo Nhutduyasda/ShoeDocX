@@ -45,8 +45,37 @@ try {
   for (const field of fields) await page.getByLabel(`Map Data2 ${field.key}`, { exact: true }).fill(String(field.scope === 'Header' ? 'B1' : fields.filter(f => f.scope === 'LineItem').indexOf(field) + 1));
   session = await mutate('Apply complete worksheet mapping', '/multisheet-mapping'); assert.equal(session.mappings.length, 2); checks.push('SHARED_FIELDS_ACROSS_TWO_SHEETS');
   await click('Add validation rule'); await page.getByLabel('Rule A 1', { exact: true }).selectOption(key('Quantity')); await page.getByLabel('Rule B 1', { exact: true }).selectOption(key('Price')); await page.getByLabel('Rule target 1', { exact: true }).selectOption(key('Amount'));
-  await click('Add validation rule'); await page.getByLabel('Rule type 2', { exact: true }).selectOption('CrossFoot'); await page.getByLabel('Rule A 2', { exact: true }).selectOption(key('Amount')); await page.getByLabel('Rule target 2', { exact: true }).selectOption(key('Printed total'));
+  if (process.env.STUDIO_REVIEW_PROBE !== 'unsaved') {
+    await page.getByLabel('Rule name 1', { exact: true }).fill('rule1e999');
+    await click('Add validation rule'); await click('Add validation rule');
+    const ids = await Promise.all([1, 2, 3].map(i => page.getByLabel(`Rule name ${i}`, { exact: true }).inputValue()));
+    assert.equal(new Set(ids).size, 3, 'REVIEW_DUPLICATE_GENERATED_RULE_ID');
+    await page.getByRole('button', { name: 'Remove rule', exact: true }).nth(2).click();
+    await page.getByLabel('Rule name 2', { exact: true }).fill('rule2'); await page.getByLabel('Rule name 1', { exact: true }).fill('rule1');
+  } else await click('Add validation rule');
+  checks.push('AUTO_RULE_IDS_IGNORE_USER_NUMERIC_NAMES');
+  await page.getByLabel('Rule type 2', { exact: true }).selectOption('CrossFoot'); await page.getByLabel('Rule A 2', { exact: true }).selectOption(key('Amount')); await page.getByLabel('Rule target 2', { exact: true }).selectOption(key('Printed total'));
   await mutate('Apply validation rules', '/validation-rules'); await mutate('Confirm mapping as current user', '/mapping/confirm'); await state('UserConfirmed'); checks.push('NO_CODE_RULES_AND_MAPPING_CONFIRMED');
+  const savedVersion = (await (await context.request.get(base + `/api/universal-doc/sessions/${session.id}`)).json()).version;
+  for (const [input, value, notice, discard] of [
+    [page.getByLabel('Rule tolerance 1', { exact: true }), '0.25', 'Unsaved validation rule edits.', 'Discard validation rule edits'],
+    [page.getByLabel(`Map Data2 ${key('Item ID')}`, { exact: true }), '2', 'Unsaved worksheet mapping edits.', 'Discard worksheet mapping edits'],
+    [page.getByLabel('Field label 1', { exact: true }), 'Unsaved item label', 'Unsaved schema edits.', 'Discard schema edits'],
+  ]) {
+    await input.fill(value);
+    if (process.env.STUDIO_REVIEW_PROBE === 'unsaved') {
+      await click('3 Demo extraction');
+      assert.ok(await page.getByRole('heading', { name: '2. Mapping', exact: true }).isVisible(), 'REVIEW_UNSAVED_NAVIGATION_ALLOWED');
+      throw new Error('Negative control unexpectedly accepted corrected behavior');
+    }
+    await page.getByRole('status').filter({ hasText: notice }).waitFor();
+    assert.ok(await page.getByRole('button', { name: 'Confirm mapping as current user', exact: true }).isDisabled());
+    await click('3 Demo extraction'); await page.getByRole('heading', { name: '2. Mapping', exact: true }).waitFor();
+    assert.equal((await (await context.request.get(base + `/api/universal-doc/sessions/${session.id}`)).json()).version, savedVersion);
+    await click(discard);
+  }
+  checks.push('UNSAVED_CONFIGURATION_CANNOT_APPEAR_CONFIRMED_OR_BE_LOST');
+
   await click('3 Demo extraction'); await page.getByLabel('Sample rows', { exact: true }).fill('2');
   const values = { 'Item ID': ['0001', '0002'], Quantity: ['2.5', '2.5'], Price: ['3', '3'], Amount: ['8', '7.5'], 'Printed total': ['15'] };
   for (const field of fields) for (let row = 0; row < values[field.label].length; row++) await page.getByLabel(`Sample ${field.key} ${row + 1}`, { exact: true }).fill(values[field.label][row]);
@@ -72,7 +101,7 @@ try {
   const ruleBox = await mobileRule.boundingBox(); assert.ok(ruleBox && ruleBox.x >= 0 && ruleBox.x + ruleBox.width <= 391);
   assert.equal(await mobileRule.inputValue(), key('Quantity'));
   await page.screenshot({ path: join(folder, 'gate5b-mobile.png'), fullPage: true }); checks.push('MOBILE_LAYOUT');
-  assert.deepEqual(errors, []); assert.equal(checks.length, 10);
+  assert.deepEqual(errors, []); assert.equal(checks.length, 12);
   await writeFile(join(folder, 'gate5b-summary.json'), JSON.stringify({ status: 'PASS', checks, runtimeErrors: errors }, null, 2));
 } catch (error) { await page.screenshot({ path: join(folder, 'gate5b-failure.png'), fullPage: true }).catch(() => {}); console.error(error); process.exitCode = 1; }
 finally { await context.close(); await browser.close(); }

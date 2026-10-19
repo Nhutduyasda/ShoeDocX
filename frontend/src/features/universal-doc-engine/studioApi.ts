@@ -1,3 +1,5 @@
+export type ConfigurationSection = 'schema' | 'mapping' | 'rules';
+export type ConfigurationDirtyChange = (section: ConfigurationSection, dirty: boolean) => void;
 export interface StudioRule { id: string; kind: string; fieldA: string; operator: string | null; fieldB: string | null; target: string; tolerance: number; required: boolean; severity: string }
 export interface LearnedField {
   key: string; label: string; scope: string; type: string; required: boolean; omit: boolean; candidate: number | null; status: string; rationale: string;

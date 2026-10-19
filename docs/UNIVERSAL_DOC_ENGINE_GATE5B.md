@@ -155,3 +155,39 @@ Only the following 23 feature, test, CI and documentation files changed from the
 - `tests/Gate5ADemoHost/Program.cs`
 - `tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BFixtures.cs`
 - `tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BTests.cs`
+
+## Final independent review — 19 October 2026
+
+Starting feature HEAD: `5a543b82531b082d3ac593122658151837d1fed6`.
+Accepted and unchanged main: `5dee473d6e791c5ff5f7312520c000860cdca275`.
+The previous successful exact-HEAD run is [39199924203](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/39199924203). Historical implementation evidence above is retained. This section supersedes historical readiness wording while the independent-review corrections await exact-HEAD verification.
+
+### Findings and narrowly bounded corrections
+
+| Severity | Finding and root cause | Correction and regression evidence |
+|---|---|---|
+| Medium | Mapping/schema/rule forms held local edits while the global confirmation described saved server state. Navigation unmounted and silently discarded edits; applying another configuration section could also remount a dirty form. | Explicit unsaved notices and discard actions; server-state label; block confirmation, example replacement and leaving Mapping while dirty; reject applying one section while another is dirty. Disable editing during pending requests. Real authenticated browser regression covers all three forms and unchanged server version. |
+| Low | Rule ID generation converted user IDs to numbers. A valid `rule1e999` produced Infinity and repeated `ruleInfinity` IDs. | Pick the first unused bounded string ID. Real browser regression creates three unique IDs around `rule1e999`, then removes the extra rule safely. |
+| Verification gap | CI compared new test count to a historical constant. Several rule lifecycle and export race boundaries lacked explicit focused evidence. | Standard VSTest discovery is compared by exact display identity against executed engine/full inventories. New `Gate5BReviewTests.cs` adds rule edit/remove/reorder/requiredness/severity/tolerance, unchanged-rule version semantics, referenced schema rejection, five export races, analyzed-address boundaries, relative/absolute/mixed formula reopen checks and unsupported footer rejection. No existing assertion is weakened or removed. |
+
+No Critical/High server defect was demonstrated by this source review. This is a bounded review conclusion, not a general security certification. The browser runner executes both new UI regressions against the actual starting-HEAD UI and requires their specific assertions to fail, then restores exact final source bytes before positive acceptance. Before-fix screenshots and sanitized assertion evidence are retained separately.
+
+### Reviewed invariants and supported scope
+
+The authoritative CanonicalDocument and existing export chokepoint remain unchanged. Field scope/key identity is independent from worksheet destination; sharing requires explicit field reuse. Active fields require destinations, omitted fields cannot participate in rules, and duplicate selections, formula/merge/header collisions and unmaterialized/far addresses fail atomically. Original template bytes and their hash remain separate from filled-example bytes/hash. Example correspondence remains limited to one–five contiguous rows, verified header candidates/styles/merges/formulas/footer relocation, common unique ordered Text identifiers and equal shared values. Unsupported structures fail closed.
+
+No-code rules remain the four approved Decimal arithmetic operations and LineItem-to-Header totals, at most eight, with tolerance 0–1. Schema resolution, duplicate/conflicting targets, missing operands, division by zero and decimal overflow are checked. Required unevaluated checks cannot pass; entered printed amounts are never recomputed. Unknown nested metadata/expressions and forged profile/approval authority are rejected.
+
+All five Gate 4A controls remain in place: trusted actor/tenant resolution, owner binding, CSRF, authorization before multipart binding, and bounded private sessions. Expected-version updates, fixed expiry, byte/session quotas and template/source/example fingerprints remain authoritative. Configuration changes invalidate confirmation/review/approval. Unchanged rule content may preserve profile identity but must still increment and enforce the session version. Existing mapping/rule export races plus new schema/example/expiry/review/reapproval races require the final store authorization/version check to reject stale bytes.
+
+React workbook labels remain escaped text. Existing Synthetic Demo and Gate 5A browser acceptance still run. Refresh reads fresh server-authorized state; configuration notices never claim unsaved edits are confirmed. Mobile mapping/rule controls are exercised at 390px. No recognition/OCR claim is added.
+
+Limits are unchanged: at most three mapped sheets, four total sheets, 20 output rows, 32 analyzed columns, 1,000 analyzed rows, original analyzed cell budget, one prototype per mapped sheet, five example rows and eight rules. Reference sheets remain unchanged in supported output. Unsupported rich formulas, cross-sheet formulas, independent row groups, header-only mapped sheets, macros/dynamic arrays, table-shaped reference examples with incompatible detected row counts, production persistence, recognition and deployment remain excluded. No Gate 5C work.
+
+### Final evidence and recommendation protocol
+
+The exact final commit and both-host CI URLs/results must be recorded in the final PR #16 delivery after these corrections pass. The workflow records VERIFIED_HEAD in `summary.json`, discovered Gate 5B identities, same-host complete inventories and normalized inherited-failure fingerprints, eight resource observations, dependency comparison, browser negative controls, 31 existing plus 12 Gate 5B positive browser checks, and the actual downloaded/reopened XLSX. The additional review test file brings the changed-file inventory to 24; other changes remain within the original listed files.
+
+Current independent-review recommendation: **PARTIAL / NOT READY pending exact-final-HEAD Windows Server 2022 and Ubuntu 24.04 verification**. A passing final PR report may supersede this pending recommendation; merge still requires separate explicit owner approval. No merge or deployment is performed by this review.
+
+Inherited full-suite failures and dependency warnings must remain visible and matched against the same-host baseline. In particular, existing SQLitePCLRaw.lib.e_sqlite3 2.1.6 High and seven npm findings (five High, two Moderate) are not cleared by this bounded task. No production-readiness claim is made.

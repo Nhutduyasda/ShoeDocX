@@ -13,7 +13,16 @@ import gate4b1_checks
 from gate4b2a_inventory import PROJECTS
 BASELINE = '5dee473d6e791c5ff5f7312520c000860cdca275'
 
-def compare(runs):
+def discover_gate5b():
+    result = ci.command(['dotnet', 'test', ci.TESTS, '--no-build', '--list-tests', '--filter',
+                         'FullyQualifiedName~UniversalDocEngine.Gate5B'], ci.ROOT / 'feature')
+    assert result.returncode == 0, 'Gate 5B test discovery failed'
+    names = [line.strip() for line in result.stdout.splitlines() if line.strip().startswith(ci.ENGINE + 'Gate5B')]
+    assert names and len(names) == len(set(names)), 'Empty/duplicate Gate 5B discovery'
+    (ci.EVIDENCE / 'gate5b-discovered.json').write_text(json.dumps(sorted(names), indent=2), encoding='utf-8')
+    return set(names)
+
+def compare(runs, discovered):
     for scope in ('engine', 'full'):
         old, new = runs['baseline-' + scope], runs['feature-' + scope]
         assert old['total'] > 0 and old['skipped'] == new['skipped'] == 0
@@ -22,7 +31,8 @@ def compare(runs):
             current = new['tests'][identity]
             if current['outcome'] == 'Failed': assert previous == current, 'New/changed failure'
         added = new['tests'].keys() - old['tests'].keys()
-        assert len(added) == 58 and all(new['tests'][k]['outcome'] == 'Passed' and new['tests'][k]['method'].startswith(ci.ENGINE + 'Gate5BTests.') for k in added), 'New checks incomplete/failing'
+        assert {k.split(' | ', 1)[1] for k in added} == discovered, 'Discovered/executed Gate 5B inventory mismatch'
+        assert all(new['tests'][k]['outcome'] == 'Passed' and new['tests'][k]['method'].startswith(ci.ENGINE + 'Gate5B') for k in added), 'New checks incomplete/failing'
     for name in ('baseline', 'feature'):
         engine, full = runs[name + '-engine'], runs[name + '-full']
         assert engine['failed'] == 0 and engine['tests'] == {k: v for k, v in full['tests'].items() if v['method'].startswith(ci.ENGINE)}
@@ -33,7 +43,7 @@ def isolation():
         'frontend/src/features/universal-doc-engine/', 'tests/Gate5ADemoHost/')
     added = {'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/TemplateUnderstanding/ExampleSchemaLearner.cs',
         'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/TemplateUnderstanding/ExampleRowCorrespondence.cs',
-        'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BTests.cs', 'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BFixtures.cs', 'frontend/tests/universalDocGate5B.e2e.mjs',
+        'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BReviewTests.cs', 'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BTests.cs', 'tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BFixtures.cs', 'frontend/tests/universalDocGate5B.e2e.mjs',
         '.github/scripts/verify_gate5b.py', '.github/scripts/gate5b_browser.py', '.github/workflows/gate5b-verification.yml', 'docs/UNIVERSAL_DOC_ENGINE_GATE5B.md'}
     assert changed and all(p.startswith(prefixes) or p in added for p in changed), 'Scope violation'
     for folder in ('Application', 'Api'):
@@ -59,6 +69,7 @@ def main():
                     # Build diagnostics only; no test/customer document output.
                     print('\n'.join(line for line in result.stdout.splitlines() if 'error ' in line), flush=True)
                 assert result.returncode == 0, 'Standard .NET 8 build failed: ' + key
+        discovered = discover_gate5b()
         with tempfile.TemporaryDirectory(prefix='gate5b-trx-') as directory:
             runs = {}
             for name in ('baseline', 'feature'):
@@ -78,7 +89,7 @@ def main():
                         assert len(measurements) == 8, 'Missing bounded resource measurements'
                         (ci.EVIDENCE / 'resources.json').write_text(json.dumps(measurements, indent=2), encoding='utf-8')
                         print('Bounded synthetic resource measurements: ' + json.dumps(measurements), flush=True)
-            compare(runs)
+            compare(runs, discovered)
         gate4a_checks.frontend(ci)
         gate4b1_checks.dependencies(ci)
         dependency_report = json.loads((ci.EVIDENCE / 'dependencies.json').read_text())
@@ -90,6 +101,7 @@ def main():
         import gate5a_browser
         gate5a_browser.browser(ci)
         import gate5b_browser
+        gate5b_browser.review_regressions(ci)
         gate5b_browser.browser(ci)
         report['status'] = 'PASS'
     except Exception as error:

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { StudioApi, type StudioBootstrap, type StudioField, type StudioMapping, type StudioSession } from './studioApi';
 import './studio.css';
+import { MultiSheetEditor, ValidationRuleEditor } from './WorkflowConfigurationEditor';
 import { SchemaEditor, ManualSampleEditor } from './ExampleTemplateEditor';
 
 const steps = ['Session & template', 'Mapping', 'Demo extraction', 'Data review', 'Human approval', 'Excel export'];
@@ -99,7 +100,9 @@ export default function UniversalDocStudio() {
         {session.schemaDraft && <><SchemaEditor key={session.schemaDraft.revision} session={session} busy={busy} act={act} />
           <form onSubmit={e => { e.preventDefault(); if (example) void run(async () => { setSession(await api.upload(session, example, 'example')); }); }}>
             <label>Optional filled example<input aria-label="Filled example" type="file" accept=".xlsx" onChange={e => setExample(e.target.files?.[0] || null)} /></label><button disabled={busy || !example} type="submit">Compare filled example</button>
-          </form><p>Example sheets, cells, styles, formulas and merges must match the template. Examples never confirm a schema.</p></>}
+          </form><p>One to five contiguous example rows, with verified formulas and footer relocation. Examples never confirm a schema.</p>
+          {session.schemaDraft.correspondence && <ul aria-label="Example correspondence">{session.schemaDraft.correspondence.sheets.map(s => <li key={s.worksheet}>{s.worksheet}: {s.exampleRowCount} example rows ({s.firstExampleRow}–{s.lastExampleRow}), prototype {s.prototypeRow} · {s.status}. {s.footerEvidence}</li>)}</ul>}
+          {session.mapping && <><MultiSheetEditor key={`mapping:${session.profileVersion}`} session={session} busy={busy} act={act} /><ValidationRuleEditor key={`rules:${session.profileVersion}`} session={session} busy={busy} act={act} /></>}</>}
         {!session.schemaDraft && session.sheets.length > 0 && <MappingEditor key={`${session.profileVersion}:${session.mappingRevision}`} session={session} busy={busy}
           apply={mapping => act('mapping', { ...mapping }, 'PATCH')} />}
         <button disabled={busy || session.mappingState !== 'DraftSuggested' || (!!session.schemaDraft && session.schemaDraft.state !== 'ReadyForConfirmation')} onClick={() => act('mapping/confirm')}>Confirm mapping as current user</button>
@@ -128,6 +131,7 @@ export default function UniversalDocStudio() {
           {session.fields.map(field => <FieldEditor key={`${session.dataRevision}:${field.scope}:${field.row}:${field.key}`} field={field} busy={busy} displayName={session.schemaDraft?.fields.find(f => f.scope === field.scope && f.key === field.key)?.label}
             edit={(f, value) => act('fields', { scope: f.scope, key: f.key, row: f.row, value }, 'PATCH')} />)}
         </tbody></table></div>
+        <h3>Validation results</h3><ul aria-label="Validation results">{session.checks?.map(c => <li key={c.id}>{c.id}: {c.outcome === 'NotEvaluated' ? 'Not evaluated' : c.outcome}{c.required ? ' · Required' : ''}{session.issues.some(i => i.field === c.id) ? ' · See issue below' : ''}</li>)}</ul>
         <h3>Validation and extraction issues</h3>{session.issues.length ? <ul>{session.issues.map((issue, index) => <li key={index}>{issue.code} · {issue.field} {issue.rowPosition !== null ? `row ${issue.rowPosition + 1}` : ''}</li>)}</ul> : <p>No current issues reported.</p>}
       </>}
       {step === 4 && session && <><p>Complete review and approval are separate authenticated backend transitions. Neither extraction nor mapping confirmation approves document data.</p>

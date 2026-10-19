@@ -13,7 +13,7 @@ public sealed record ExampleCorrespondence(string TemplateSha256, string Example
 // derived from the ORIGINAL template. No example bytes ever become an output template.
 public sealed class ExampleRowCorrespondence
 {
-    public ExampleCorrespondence Compare(byte[] template, byte[] example, TemplateStructure original, TemplateStructure filled)
+    public ExampleCorrespondence Compare(byte[] template, byte[] example, TemplateStructure original, TemplateStructure filled, ISet<string>? selectedSheets = null)
     {
         var problems = new List<string>(); var evidence = new List<ExampleSheetCorrespondence>();
         if (!original.Sheets.Select(s => s.Name).SequenceEqual(filled.Sheets.Select(s => s.Name)))
@@ -23,7 +23,8 @@ public sealed class ExampleRowCorrespondence
         foreach (var structure in original.Sheets)
         {
             var ws = expected.Worksheet(structure.Name); var other = actual.Worksheet(structure.Name);
-            var table = structure.Tables.SingleOrDefault(t => t.PrototypeRows.Length == 1);
+            var candidates = structure.Tables.Where(t => t.PrototypeRows.Length == 1).ToArray();
+            var table = (selectedSheets is null || selectedSheets.Contains(structure.Name)) && candidates.Length == 1 ? candidates[0] : null;
             var extra = (other.LastRowUsed(XLCellsUsedOptions.All)?.RowNumber() ?? 0) - (ws.LastRowUsed(XLCellsUsedOptions.All)?.RowNumber() ?? 0);
             var slots = new HashSet<string>(StringComparer.Ordinal);
             var prototype = table?.PrototypeRows[0] ?? 0;
@@ -87,9 +88,9 @@ public sealed class ExampleRowCorrespondence
                 problems.Add(structure.Name + ":CELL_OR_MERGE_STRUCTURE_CHANGED");
             foreach (var address in left.Union(right))
             {
-                var a = ws.Cell(address); var b = other.Cell(address);
+                var a = ws.Cell(address!); var b = other.Cell(address!);
                 if (!a.Style.Equals(b.Style) || a.FormulaA1 != b.FormulaA1 ||
-                    (!slots.Contains(address!) && !a.HasFormula && a.Value != b.Value) ||
+                    (!slots.Contains(address!) && !a.HasFormula && !a.Value.Equals(b.Value)) ||
                     (slots.Contains(address!) && b.HasFormula))
                     problems.Add(structure.Name + ":CELL_CHANGED:" + address);
             }

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ClosedXML.Excel;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Configuration;
@@ -18,6 +19,32 @@ public sealed record StudioSheetMapping(string Sheet, int PrototypeRow,
 
 public sealed partial class UniversalDocWorkflowOrchestrator
 {
+    private static void VerifyExampleMapping(UniversalDocSession s)
+    {
+        if (s.Example.IsEmpty) return;
+        var analysis = AnalyzeLearning(s.Example.ToArray(), "example.xlsx");
+        var sheets = s.Proposal!.Layout.Sheets;
+        var correspondence = new ExampleRowCorrespondence().Compare(s.Template.ToArray(), s.Example.ToArray(), s.Structure!, analysis,
+            sheets.Select(x => x.Worksheet).ToHashSet(StringComparer.Ordinal));
+        if (!correspondence.Supported || correspondence.Sheets.Length != sheets.Length)
+            throw new StudioFault(400, "EXAMPLE_SELECTED_SHEETS_MISMATCH");
+        if (sheets.Length < 2) return;
+        // Require explicit common Text row identifiers, unique and identically ordered on all selected sheets.
+        // Equal row counts alone never establish that rows describe the same collection.
+        var shared = s.Profile.ExtractionSchema.Fields.Where(f => f.Scope == FieldScope.LineItem && f.Type == FieldType.Text &&
+            sheets.All(sheet => sheet.Items.Columns.Count(c => c.Source.Key == f.Key) == 1)).ToArray();
+        using var workbook = new XLWorkbook(new MemoryStream(s.Example.ToArray()));
+        var count = correspondence.Sheets[0].ExampleRowCount;
+        var verified = shared.Any(field =>
+        {
+            var sequences = sheets.Select(sheet => Enumerable.Range(sheet.Items.StartRow, count)
+                .Select(row => workbook.Worksheet(sheet.Worksheet).Cell(row, sheet.Items.Columns.Single(c => c.Source.Key == field.Key).Column))
+                .Select(cell => cell.DataType == XLDataType.Text ? cell.GetString() : "").ToArray()).ToArray();
+            return sequences[0].All(value => !string.IsNullOrWhiteSpace(value)) && sequences[0].Distinct(StringComparer.Ordinal).Count() == count &&
+                sequences.Skip(1).All(values => values.SequenceEqual(sequences[0], StringComparer.Ordinal));
+        });
+        if (!verified) throw new StudioFault(400, "EXAMPLE_SHARED_ORDERED_IDENTIFIER_REQUIRED");
+    }
     private static ValidationPolicy ValidateStudioRules(DocumentWorkflowProfile profile,
         ImmutableArray<StudioValidationRule> rules, ImmutableArray<FieldReference> omissions)
     {

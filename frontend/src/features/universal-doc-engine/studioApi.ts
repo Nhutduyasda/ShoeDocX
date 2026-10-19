@@ -1,3 +1,4 @@
+export interface StudioRule { id: string; kind: string; fieldA: string; operator: string | null; fieldB: string | null; target: string; tolerance: number; required: boolean; severity: string }
 export interface LearnedField {
   key: string; label: string; scope: string; type: string; required: boolean; omit: boolean; candidate: number | null; status: string; rationale: string;
   worksheet?: string; cell?: string; column?: number; prototypeRow?: number;
@@ -14,12 +15,13 @@ export interface StudioSource {
   width: number | null; height: number | null; pageCount: number | null; status: string;
 }
 export interface StudioSession {
+  mappings: StudioMapping[]; validationRules: StudioRule[]; checks: { id: string; outcome: string; required: boolean }[];
   id: string; version: number; expiresAt: string; workflow: string; mappingState: string;
   mappingRevision: number | null; profileVersion: number; dataRevision: number | null; reviewState: string;
   sheets: string[]; mapping: StudioMapping | null; canReview: boolean; canApprove: boolean;
   suggestions: { scope: string; key: string; status: string; candidates: { sheet: string; labelCell: string; cell: string | null; column: number | null; prototypeRow: number | null }[] }[];
   fields: StudioField[]; issues: { code: string; field: string | null; rowId: string | null; rowPosition: number | null }[];
-  schemaDraft: { revision: number; state: string; templateSha256: string; exampleSha256: string | null; fields: LearnedField[] } | null;
+  schemaDraft: { revision: number; state: string; templateSha256: string; exampleSha256: string | null; fields: LearnedField[]; correspondence?: { supported: boolean; sheets: { worksheet: string; prototypeRow: number; firstExampleRow: number; lastExampleRow: number; exampleRowCount: number; status: string; footerEvidence: string }[]; problems: string[] } } | null;
   sheetSummaries: { name: string; usedCells: number; tables: number; prototypeRows: number[]; footerRows: number[]; mergedRanges: string[] }[];
   sources: StudioSource[];
 }
@@ -51,7 +53,7 @@ export class StudioApi {
         STUDIO_MEMBERSHIP_REQUIRED: 'Your account needs an explicit server-side Studio membership.',
         INVALID_EDITED_VALUE: 'Use a valid value for this field type.',
         STUDIO_BUSY: 'The Studio is busy. Please retry shortly.',
-        EXAMPLE_STRUCTURE_MISMATCH: 'The filled example must preserve sheet names, cell positions, headings, formulas, merges and supported formatting. Added example rows are not supported yet.',
+        EXAMPLE_STRUCTURE_MISMATCH: 'The filled example must preserve sheet names, cell positions, headings, formulas, merges and supported formatting. One to five contiguous example rows are supported with verified footer relocation.',
         SESSION_BYTE_LIMIT: 'Template, example and sources together must fit within the existing 2 MiB session budget.',
         UNRESOLVED_SCHEMA_FIELD: 'Choose a destination or explicitly omit this optional field.',
         INVALID_SCHEMA_FIELDS: 'Check field keys, types, required/omitted settings and duplicate fields.',

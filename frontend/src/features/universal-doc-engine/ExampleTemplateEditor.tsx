@@ -6,7 +6,7 @@ export function SchemaEditor({ session, busy, act }: { session: StudioSession; b
   const update = (index: number, patch: Partial<LearnedField>) => setFields(fields.map((f, i) => i === index ? { ...f, ...patch } : f));
   return <form onSubmit={e => { e.preventDefault(); act('schema', { fields: fields.map(({ key, label, scope, type, required, omit, candidate, worksheet, cell, column, prototypeRow }) => ({ key, label, scope, type, required, omit, candidate, worksheet, cell, column, prototypeRow })) }, 'PATCH'); }}>
     <p>Field keys are generated automatically; you can leave them unchanged. Edits are unsaved until Apply. Confirmation uses the last applied server revision.</p>
-    <p>Schema: {session.schemaDraft?.state} · Revision {session.schemaDraft?.revision}. One data worksheet and one prototype row. Reference sheets are preserved. Numeric identifiers default to Text; select Decimal after checking the meaning.</p>
+    <p>Schema: {session.schemaDraft?.state} · Revision {session.schemaDraft?.revision}. Up to three data worksheets with one prototype row each. Reference sheets are preserved. Numeric identifiers default to Text; select Decimal after checking the meaning.</p>
     <ul>{session.sheetSummaries.map(s => <li key={s.name}>{s.name}: {s.usedCells} used cells · {s.tables} table candidates · prototype rows {s.prototypeRows.join(', ') || 'none'} · footer rows {s.footerRows.join(', ') || 'none'} · merges {s.mergedRanges.join(', ') || 'none'}</li>)}</ul>
     {fields.length === 0 && <p role="alert">No supported candidates. Use bold table headers, one materialized prototype and adjacent header value slots.</p>}
     {fields.map((f, i) => <fieldset key={i}><legend>{f.label} — {f.status}</legend>
@@ -34,7 +34,7 @@ export function ManualSampleEditor({ session, busy, act }: { session: StudioSess
     header: Object.fromEntries(fields.filter(f => f.scope === 'Header').map(f => [f.key, values[key(f, 0)] ?? ''])),
     rows: Array.from({ length: rows }, (_, row) => Object.fromEntries(fields.filter(f => f.scope === 'LineItem').map(f => [f.key, values[key(f, row)] ?? '']))),
   }); }}>
-    <p>Manual or synthetic values only. Examples provide layout evidence, never recognized source data. No arithmetic rules are inferred; check printed totals yourself.</p>
+    <p>Manual or synthetic values only. Examples provide layout evidence, never recognized source data. Arithmetic rules are configured explicitly; compare entered values against the source.</p>
     <label>Sample rows<input aria-label="Sample rows" type="number" min={1} max={20} value={rows} onChange={e => setRows(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
     {fields.flatMap(f => Array.from({ length: f.scope === 'Header' ? 1 : rows }, (_, row) => <label key={key(f, row)}>{f.label} ({f.type}){f.scope === 'LineItem' ? ` row ${row + 1}` : ''}<input aria-label={`Sample ${f.key} ${row + 1}`} value={values[key(f, row)] ?? ''} maxLength={2000} onChange={e => setValues({ ...values, [key(f, row)]: e.target.value })} /></label>))}
     <button disabled={busy || session.mappingState !== 'UserConfirmed'} type="submit">Validate manual sample</button>

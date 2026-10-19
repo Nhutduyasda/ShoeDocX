@@ -80,6 +80,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
             if (s.MappingState != WorkflowMappingState.DraftSuggested || s.Proposal is null) throw new StudioFault(409, "MAPPING_CORRECTION_REQUIRED");
             RequireTemplate(s);
             if (s.SchemaDraft is not null && s.SchemaDraft.State != "ReadyForConfirmation") throw new StudioFault(409, "SCHEMA_CORRECTION_REQUIRED");
+            VerifyExampleMapping(s);
             using var stream = Template(s); var service = new HumanMappingConfirmationService();
             var confirmed = service.Confirm(stream, "template.xlsx", s.Proposal, s.MappingProfile, actor.UserId);
             if (confirmed.Confirmation is null || !confirmed.Errors.IsEmpty) throw new StudioFault(400, "MAPPING_CONFIRMATION_INVALID");

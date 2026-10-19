@@ -36,6 +36,8 @@ def browser(ci):
                 environment["STUDIO_EVIDENCE_DIR"] = str(ci.EVIDENCE / folder)
                 result = subprocess.run(["node", f"frontend/tests/{script}.e2e.mjs"], cwd=feature, env=environment,
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", timeout=180)
+                if result.returncode:
+                    print('\n'.join(line for line in result.stdout.splitlines() if any(token in line for token in ('Error:', 'waiting for', 'locator.', 'Expected:', 'Actual:'))), flush=True)
                 assert result.returncode == 0, "Real browser acceptance failed: " + script + "; inspect synthetic screenshot"
                 summary = json.loads((ci.EVIDENCE / folder / (summary_name + ".json")).read_text(encoding="utf-8"))
                 assert summary["status"] == "PASS" and not summary["runtimeErrors"] and len(summary["checks"]) == count, "Incomplete browser acceptance"

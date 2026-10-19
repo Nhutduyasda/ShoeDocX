@@ -5,6 +5,8 @@ from pathlib import Path
 import platform
 import subprocess
 import tempfile
+import re
+import xml.etree.ElementTree as ET
 import verify_gate2 as ci
 import gate4a_checks
 import gate4b1_checks
@@ -64,6 +66,18 @@ def main():
                     label = name + '-' + scope
                     runs[label] = ci.execute(label, ci.ROOT / name, scope == 'engine', Path(directory))
                     report['runs'][label] = {k: v for k, v in runs[label].items() if k != 'tests'}
+                    if label == 'feature-engine':
+                        root = ET.parse(Path(directory) / label / 'results.trx').getroot()
+                        measurements = []
+                        for result in root.findall('t:Results/t:UnitTestResult', ci.NS):
+                            for line in result.findtext('t:Output/t:StdOut', '', ci.NS).splitlines():
+                                if 'allocation_bytes=' not in line or 'generated_cells=' not in line: continue
+                                row = dict(re.findall(r'(concurrent_session|sheets|rows|wall_ms|allocation_bytes|output_bytes|generated_cells)=([0-9.]+)', line))
+                                assert len(row) >= 6, 'Incomplete resource evidence'
+                                measurements.append(row)
+                        assert len(measurements) == 8, 'Missing bounded resource measurements'
+                        (ci.EVIDENCE / 'resources.json').write_text(json.dumps(measurements, indent=2), encoding='utf-8')
+                        print('Bounded synthetic resource measurements: ' + json.dumps(measurements), flush=True)
             compare(runs)
         gate4a_checks.frontend(ci)
         gate4b1_checks.dependencies(ci)
@@ -77,7 +91,7 @@ def main():
         gate5a_browser.browser(ci)
         import gate5b_browser
         gate5b_browser.browser(ci)
-        report['status'] = 'PASS' 
+        report['status'] = 'PASS'
     except Exception as error:
         report['blocker'] = str(error) if isinstance(error, AssertionError) else type(error).__name__
     finally:

@@ -35,6 +35,17 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             sheets.All(sheet => sheet.Items.Columns.Count(c => c.Source.Key == f.Key) == 1)).ToArray();
         using var workbook = new XLWorkbook(new MemoryStream(s.Example.ToArray()));
         var count = correspondence.Sheets[0].ExampleRowCount;
+        foreach (var field in s.Profile.ExtractionSchema.Fields)
+        {
+            for (var index = 0; index < (field.Scope == FieldScope.Header ? 1 : count); index++)
+            {
+                var cells = sheets.SelectMany(sheet => field.Scope == FieldScope.Header
+                    ? sheet.Headers.Where(h => h.Source.Key == field.Key).Select(h => workbook.Worksheet(sheet.Worksheet).Cell(h.Cell))
+                    : sheet.Items.Columns.Where(c => c.Source.Key == field.Key).Select(c => workbook.Worksheet(sheet.Worksheet).Cell(sheet.Items.StartRow + index, c.Column))).ToArray();
+                if (cells.Skip(1).Any(cell => !cell.Value.Equals(cells[0].Value)))
+                    throw new StudioFault(400, "EXAMPLE_SHARED_FIELD_VALUES_DIFFER");
+            }
+        }
         var verified = shared.Any(field =>
         {
             var sequences = sheets.Select(sheet => Enumerable.Range(sheet.Items.StartRow, count)

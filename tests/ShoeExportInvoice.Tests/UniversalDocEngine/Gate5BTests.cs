@@ -196,19 +196,20 @@ public class Gate5BTests(ITestOutputHelper output)
         Assert.Throws<StudioFault>(() => w.ChangeValidationRules(s.Id, altered.Version, Rules(s)));
         Assert.Throws<StudioFault>(() => w.ChangeMultisheetMapping(s.Id, altered.Version, Mappings(s)));
     }
-    [Theory] [InlineData("row-order")] [InlineData("no-shared-id")]
+    [Theory] [InlineData("row-order")] [InlineData("no-shared-id")] [InlineData("shared-value")]
     public void EqualRowCountsNeverProveMatchingOrderedCollection(string kind)
     {
         using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store);
         var s = w.Create("example-template"); s = w.Upload(s.Id, s.Version, Workbook(), "template.xlsx");
         using var workbook = new XLWorkbook(new MemoryStream(Workbook(2, 2, true)));
         if (kind == "row-order") { workbook.Worksheet("Data2").Cell("A4").Value = "0002"; workbook.Worksheet("Data2").Cell("A5").Value = "0001"; }
+        if (kind == "shared-value") workbook.Worksheet("Data2").Cell("B4").Value = 99;
         using var bytes = new MemoryStream(); workbook.SaveAs(bytes); s = w.UploadLearning(s.Id, s.Version, bytes.ToArray(), "example.xlsx", true);
         var corrections = Corrections(s);
         if (kind == "no-shared-id") corrections = corrections.Select(f => f with { Omit = false }).ToImmutableArray();
         s = w.CorrectSchema(s.Id, s.Version, corrections);
-        if (kind == "row-order") s = w.ChangeMultisheetMapping(s.Id, s.Version, Mappings(s));
-        Assert.Equal("EXAMPLE_SHARED_ORDERED_IDENTIFIER_REQUIRED", Assert.Throws<StudioFault>(() => w.ConfirmMapping(s.Id, s.Version)).Code);
+        if (kind != "no-shared-id") s = w.ChangeMultisheetMapping(s.Id, s.Version, Mappings(s));
+        Assert.Equal(kind == "no-shared-id" ? "EXAMPLE_SHARED_ORDERED_IDENTIFIER_REQUIRED" : "EXAMPLE_SHARED_FIELD_VALUES_DIFFER", Assert.Throws<StudioFault>(() => w.ConfirmMapping(s.Id, s.Version)).Code);
     }
     [Theory] [InlineData("inside")] [InlineData("outside")]
     public void DecimalToleranceUsesExactBoundedPolicy(string kind)

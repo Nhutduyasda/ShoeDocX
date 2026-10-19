@@ -8,7 +8,7 @@ public static class Gate5BFixtures
         for (var n = 1; n <= sheets; n++)
         {
             var ws = workbook.AddWorksheet("Data" + n);
-            ws.Cell("A1").Value = "Printed total"; ws.Cell("B1").Value = filled ? 6.5 * rows : 0;
+            ws.Cell("A1").Value = "Printed total"; ws.Cell("B1").Value = filled ? 7.5 * rows : 0;
             ws.Cell("A2").Value = "Printed total"; ws.Cell("B2").Value = 0;
             var labels = new[] { "Item ID", "Quantity", "Price", "Amount" };
             for (var col = 1; col <= 4; col++)

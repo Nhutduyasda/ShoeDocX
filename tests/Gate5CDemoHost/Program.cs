@@ -3,6 +3,7 @@ using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
+using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 using ShoeExportInvoice.Tests.UniversalDocEngine;
 
 var connection = Environment.GetEnvironmentVariable("GATE5C_DATABASE") ?? throw new InvalidOperationException("Synthetic database required");

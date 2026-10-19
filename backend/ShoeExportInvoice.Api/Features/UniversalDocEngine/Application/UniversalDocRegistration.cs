@@ -1,5 +1,5 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.EntityFrameworkCore;
+using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Api;
 
@@ -25,13 +25,7 @@ public static class UniversalDocRegistration
         services.AddScoped<StudioCsrfFilter>(); services.AddScoped<StudioExceptionFilter>();
         services.AddSingleton<StudioRequestAdmission>(); services.AddScoped<StudioAdmissionFilter>();
         services.AddHostedService<UniversalDocSessionCleanup>();
-        services.AddDbContextFactory<UniversalDocDraftDb>((provider, options) => {
-            var config = provider.GetRequiredService<IConfiguration>();
-            var connection = config["UniversalDocDrafts:ConnectionString"] ?? config.GetConnectionString("DefaultConnection");
-            if (string.IsNullOrWhiteSpace(connection)) throw new StudioFault(503, "DRAFT_CONFIGURATION_UNAVAILABLE");
-            options.UseSqlServer(connection, sql => sql.MigrationsHistoryTable("__DraftMigrations", "ude").CommandTimeout(15));
-        });
-        services.AddScoped<DraftCipher>(); services.AddScoped<IUniversalDocDraftStore, SqlUniversalDocDraftStore>();
+        services.AddUniversalDocDraftPersistence();
         services.AddHostedService<UniversalDocDraftCleanup>();
         return services;
     }

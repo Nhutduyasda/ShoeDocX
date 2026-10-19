@@ -1,7 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
-namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
+using ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
+namespace ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 
 public sealed class DraftRecord
 {

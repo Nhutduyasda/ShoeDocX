@@ -2,7 +2,8 @@ using System.Security.Cryptography;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
-namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
+using ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
+namespace ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 
 public sealed class SqlUniversalDocDraftStore(IDbContextFactory<UniversalDocDraftDb> factory, DraftCipher cipher) : IUniversalDocDraftStore
 {

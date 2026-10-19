@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
+using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 namespace ShoeExportInvoice.Tests.UniversalDocEngine;
 
 // Only synthetic SQL connections explicitly supplied by isolated CI; no production configuration is read.

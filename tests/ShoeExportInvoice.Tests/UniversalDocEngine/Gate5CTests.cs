@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
+using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 namespace ShoeExportInvoice.Tests.UniversalDocEngine;
 
 public sealed class Gate5CTests : IAsyncLifetime

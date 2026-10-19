@@ -1,7 +1,8 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
-namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
+using ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
+namespace ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 
 public sealed class DraftCipher
 {

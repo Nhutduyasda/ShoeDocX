@@ -39,7 +39,7 @@ def compare(runs, discovered):
 
 def isolation():
     changed = subprocess.check_output(['git', 'diff', '--name-only', BASELINE, 'HEAD'], cwd=ci.ROOT / 'feature', text=True).splitlines()
-    prefixes = ('backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/Persistence/', 'frontend/src/features/universal-doc-engine/', 'tests/Gate5CDemoHost/')
+    prefixes = ('backend/ShoeExportInvoice.Api/Infrastructure/UniversalDocDrafts/', 'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/Persistence/', 'frontend/src/features/universal-doc-engine/', 'tests/Gate5CDemoHost/')
     allowed = {'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/Api/UniversalDocStudioController.cs',
                'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/Api/UniversalDocDraftController.cs',
                'backend/ShoeExportInvoice.Api/Features/UniversalDocEngine/Application/DurableDraftWorkflow.cs',

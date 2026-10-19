@@ -49,7 +49,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator
         ImmutableArray<StudioValidationRule> rules, ImmutableArray<FieldReference> omissions)
     {
         if (rules.IsDefault || rules.Length > 8 || rules.Any(r => r is null || r.Id is null ||
-            !Regex.IsMatch(r.Id, "^[a-zA-Z][a-zA-Z0-9_]{0,63}$") || r.Kind is not ("Arithmetic" or "CrossFoot") ||
+            !Regex.IsMatch(r.Id, "^[a-zA-Z][a-zA-Z0-9_]{0,63}$") || r.Id is "schema" or "identity" or "field" || r.Kind is not ("Arithmetic" or "CrossFoot") ||
             r.FieldA is null || r.FieldA.Length > 64 || r.Target is null || r.Target.Length > 64 || r.FieldB?.Length > 64 ||
             r.Tolerance is < 0 or > 1 || r.Severity is not ("BlockingError" or "Warning") ||
             (r.Kind == "Arithmetic" && (r.Operator is not ("Add" or "Subtract" or "Multiply" or "Divide") || r.FieldB is null)) ||

@@ -28,7 +28,8 @@ export function SchemaEditor({ session, busy, act }: { session: StudioSession; b
 }
 export function ManualSampleEditor({ session, busy, act }: { session: StudioSession; busy: boolean; act: Act }) {
   const fields = session.schemaDraft?.fields.filter(f => !f.omit) ?? [];
-  const [rows, setRows] = useState(1); const [values, setValues] = useState<Record<string, string>>({});
+  const [rows, setRows] = useState(() => Math.max(1, ...session.fields.filter(f => f.row !== null).map(f => f.row! + 1)));
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(session.fields.map(f => [`${f.scope}:${f.row ?? 0}:${f.key}`, f.value ?? ''])));
   const key = (f: LearnedField, row: number) => `${f.scope}:${row}:${f.key}`;
   return <form onSubmit={e => { e.preventDefault(); act('manual-sample', {
     header: Object.fromEntries(fields.filter(f => f.scope === 'Header').map(f => [f.key, values[key(f, 0)] ?? ''])),

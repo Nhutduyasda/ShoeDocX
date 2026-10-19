@@ -77,6 +77,14 @@ public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrato
             ? workflow.UploadLearning(id, expectedVersion, data.ToArray(), file.FileName, true)
             : workflow.Upload(id, expectedVersion, data.ToArray(), file.FileName));
     }
+    [HttpGet("sessions/{id}/validation-rules")]
+    public IActionResult Rules(string id) => Ok(workflow.Read(id));
+    [HttpPatch("sessions/{id}/validation-rules")]
+    [RequestSizeLimit(16384)]
+    public IActionResult Rules(string id, StudioRulesRequest request) => Ok(workflow.ChangeValidationRules(id, request.ExpectedVersion, request.Rules));
+    [HttpPatch("sessions/{id}/multisheet-mapping")]
+    [RequestSizeLimit(16384)]
+    public IActionResult Multisheet(string id, StudioMultisheetRequest request) => Ok(workflow.ChangeMultisheetMapping(id, request.ExpectedVersion, request.Sheets));
     [HttpPatch("sessions/{id}/schema")]
     [RequestSizeLimit(16384)]
     public IActionResult Schema(string id, StudioSchemaRequest request) => Ok(workflow.CorrectSchema(id, request.ExpectedVersion, request.Fields));

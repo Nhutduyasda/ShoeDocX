@@ -221,7 +221,11 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
         return new(s.Id, s.Version, s.ExpiresAt, s.Workflow, s.MappingState.ToString(), s.Proposal?.Revision, s.Profile.Version, s.Document?.DataRevision,
             s.Document?.ReviewState.ToString() ?? "NoDocument", s.Structure?.Sheets.Select(x => x.Name).ToImmutableArray() ?? ImmutableArray<string>.Empty,
             suggestions, mapping, fields.ToImmutable(), issues, actor.CanReview, actor.CanApprove)
-            { Sources = s.Sources.Select(SourceIntake.View).ToImmutableArray(), SchemaDraft = s.SchemaDraft,
+            { ValidationRules = s.ValidationRules,
+                Checks = s.Validation?.Checks.Select(c => new StudioCheckView(c.Id, c.Outcome.ToString(), c.Required)).ToImmutableArray() ?? ImmutableArray<StudioCheckView>.Empty,
+                Mappings = s.Proposal?.Layout.Sheets.Select(x => new StudioMapping(x.Worksheet, x.Items.StartRow,
+                    x.Headers.ToImmutableDictionary(h => h.Source.Key, h => h.Cell), x.Items.Columns.ToImmutableDictionary(c => c.Source.Key, c => c.Column))).ToImmutableArray() ?? ImmutableArray<StudioMapping>.Empty,
+                Sources = s.Sources.Select(SourceIntake.View).ToImmutableArray(), SchemaDraft = s.SchemaDraft,
                 SheetSummaries = s.Structure?.Sheets.Select(sheet => new StudioSheetSummary(sheet.Name, sheet.Cells.Length, sheet.Tables.Length,
                     sheet.Tables.SelectMany(t => t.PrototypeRows).Distinct().ToImmutableArray(), sheet.FooterRows, sheet.MergedRanges)).ToImmutableArray() ?? ImmutableArray<StudioSheetSummary>.Empty };
     }

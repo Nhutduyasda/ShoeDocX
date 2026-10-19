@@ -11,6 +11,7 @@ public sealed record ExampleSchemaDraft(long Revision, string State, string Temp
 {
     public string ProfileFingerprint { get; init; } = "";
     public int ProfileVersion { get; init; }
+    public ExampleCorrespondence? Correspondence { get; init; }
 }
 
 // Deterministic evidence collection, never a confirmation or a business-semantics classifier.
@@ -39,7 +40,7 @@ public sealed class ExampleSchemaLearner
                     null, null, slot.LabelAddress, "Adjacent non-formula value slot before the table; human correction required.")));
         }
         var fields = new List<LearnedField>();
-        foreach (var group in candidates.GroupBy(x => (x.Scope, Label: UnderstandingIdentity.Label(x.Candidate.MatchedLabel))))
+        foreach (var group in candidates.GroupBy(x => (x.Scope, x.Candidate.Worksheet, Label: UnderstandingIdentity.Label(x.Candidate.MatchedLabel))))
         {
             var choices = group.Select(x => x.Candidate).Distinct().OrderBy(x => x.Worksheet, StringComparer.Ordinal)
                 .ThenBy(x => x.LabelCell, StringComparer.Ordinal).ThenBy(x => x.Cell, StringComparer.Ordinal).ToImmutableArray();

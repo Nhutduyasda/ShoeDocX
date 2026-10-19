@@ -26,6 +26,7 @@ public sealed record UniversalDocSession(string Id, string OwnerId, string Tenan
     WorkflowMappingState MappingState, ExtractionResult? Extraction, CanonicalDocument? Document,
     ValidationResult? Validation)
 {
+    public ImmutableArray<StudioValidationRule> ValidationRules { get; init; } = ImmutableArray<StudioValidationRule>.Empty;
     public ExampleSchemaDraft? SchemaDraft { get; init; }
     public ImmutableArray<byte> Example { get; init; } = ImmutableArray<byte>.Empty;
     public ImmutableArray<StudioSource> Sources { get; init; } = ImmutableArray<StudioSource>.Empty;
@@ -39,12 +40,16 @@ public sealed record StudioSuggestion(string Scope, string Key, string Status, I
 public sealed record StudioMapping(string Sheet, int StartRow, ImmutableDictionary<string, string> Headers,
     ImmutableDictionary<string, int> Columns);
 public sealed record StudioIssueView(string Code, string? Field, string? RowId, int? RowPosition);
+public sealed record StudioCheckView(string Id, string Outcome, bool Required);
 public sealed record StudioSessionView(string Id, long Version, DateTimeOffset ExpiresAt, string Workflow,
     string MappingState, long? MappingRevision, int ProfileVersion, long? DataRevision, string ReviewState,
     ImmutableArray<string> Sheets, ImmutableArray<StudioSuggestion> Suggestions, StudioMapping? Mapping,
     ImmutableArray<StudioFieldView> Fields, ImmutableArray<StudioIssueView> Issues, bool CanReview, bool CanApprove)
 {
+    public ImmutableArray<StudioValidationRule> ValidationRules { get; init; } = ImmutableArray<StudioValidationRule>.Empty;
     public ExampleSchemaDraft? SchemaDraft { get; init; }
+    public ImmutableArray<StudioMapping> Mappings { get; init; } = ImmutableArray<StudioMapping>.Empty;
+    public ImmutableArray<StudioCheckView> Checks { get; init; } = ImmutableArray<StudioCheckView>.Empty;
     public ImmutableArray<StudioSheetSummary> SheetSummaries { get; init; } = ImmutableArray<StudioSheetSummary>.Empty;
     public ImmutableArray<StudioSourceView> Sources { get; init; } = ImmutableArray<StudioSourceView>.Empty;
 }

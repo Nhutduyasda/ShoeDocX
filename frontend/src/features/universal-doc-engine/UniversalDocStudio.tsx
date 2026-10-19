@@ -56,9 +56,18 @@ export default function UniversalDocStudio() {
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   useEffect(() => {
     const abort = new AbortController();
-    void api.bootstrap(abort.signal).then(setBootstrap).catch((reason: unknown) => { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : 'Unable to open Studio'); });
+    void api.bootstrap(abort.signal).then(async bootstrap => {
+      if (abort.signal.aborted) return;
+      setBootstrap(bootstrap);
+      const id = sessionStorage.getItem('universal-doc-session');
+      if (id) {
+        try { const restored = await api.read(id); if (!abort.signal.aborted) setSession(restored); }
+        catch { sessionStorage.removeItem('universal-doc-session'); }
+      }
+    }).catch((reason: unknown) => { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : 'Unable to open Studio'); });
     return () => abort.abort();
   }, [api]);
+  useEffect(() => { if (session) sessionStorage.setItem('universal-doc-session', session.id); }, [session]);
   async function run(operation: () => Promise<void>) {
     setBusy(true); setError(''); setNotice('');
     try { await operation(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Studio request failed'); }
@@ -79,7 +88,7 @@ export default function UniversalDocStudio() {
     {notice && <p role="status" className="uds-success">{notice}</p>}
     {session && <aside className="uds-state">Mapping: <strong>{session.mappingState}</strong> · Review: <strong>{session.reviewState}</strong> · Session version {session.version}
       {' · '}Profile {session.profileVersion} · Data revision {session.dataRevision ?? '—'} · Expires {new Date(session.expiresAt).toLocaleTimeString()}
-      <button disabled={busy} onClick={() => void run(async () => { await api.remove(session); setSession(null); setStep(0); })}>Discard session</button></aside>}
+      <button disabled={busy} onClick={() => void run(async () => { await api.remove(session); sessionStorage.removeItem('universal-doc-session'); setSession(null); setStep(0); })}>Discard session</button></aside>}
     <section className="uds-panel" aria-busy={busy}>
       <h2>{step + 1}. {steps[step]}</h2>
       {step === 0 && <>

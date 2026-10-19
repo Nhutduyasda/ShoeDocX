@@ -1,4 +1,4 @@
-name: Gate 5B verification
+name: Gate 5B generic multisheet workflow verification
 on:
   pull_request:
     branches: [main]
@@ -7,18 +7,31 @@ permissions:
   contents: read
 jobs:
   verify:
-    if: github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-5b-generic-multisheet'
-    runs-on: ${{ matrix.os }}
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-5b-generic-multisheet'
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 35
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          path: feature
           fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 5dee473d6e791c5ff5f7312520c000860cdca275
+          path: baseline
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
@@ -26,18 +39,29 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Engine regression tests
-        shell: bash
-        run: dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter FullyQualifiedName~UniversalDocEngine --logger 'trx;LogFileName=engine.trx' --results-directory evidence
-      - name: Frontend build
+      - name: Install isolated browser test runtime
         shell: bash
         run: |
-          cd frontend
-          npm ci
-          npm run build
-      - uses: actions/upload-artifact@v4
+          npm install --prefix "$RUNNER_TEMP/studio-browser" --no-package-lock --no-save playwright@1.62.1
+          node "$RUNNER_TEMP/studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Focused Gate 5B synthetic security tests
+        shell: bash
+        run: |
+          python -c 'import json; from pathlib import Path; Path("global.json").write_text(json.dumps({"sdk":{"version":"8.0.426","rollForward":"disable"}}))'
+          dotnet --version
+          dotnet test feature/tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter FullyQualifiedName~Gate5BTests
+      - name: Standard builds, security tests, advisory review, baseline comparison and real UI
+        shell: bash
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
+          python feature/.github/scripts/verify_gate5b.py
+      - name: Upload sanitized evidence and synthetic UI screenshots
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: gate5b-${{ matrix.os }}
-          path: evidence/
+          name: gate5b-verification-${{ matrix.os }}
+          path: verification-evidence/
+          if-no-files-found: error
           retention-days: 14

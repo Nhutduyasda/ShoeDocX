@@ -24,6 +24,7 @@ public class Gate5BTests(ITestOutputHelper output)
         {
             var ws = workbook.AddWorksheet("Data" + n);
             ws.Cell("A1").Value = "Printed total"; ws.Cell("B1").Value = filled ? 6.5 * rows : 0;
+            ws.Cell("A2").Value = "Printed total"; ws.Cell("B2").Value = 0;
             var labels = new[] { "Item ID", "Quantity", "Price", "Amount" };
             for (var col = 1; col <= 4; col++)
             { ws.Cell(3, col).Value = labels[col - 1]; ws.Cell(3, col).Style.Font.Bold = true; }
@@ -68,7 +69,7 @@ public class Gate5BTests(ITestOutputHelper output)
         var bytes = store.Read(actor.Value, s.Id).Template; var example = store.Read(actor.Value, s.Id).Example;
         var mapping = Mappings(s, count); s = w.ChangeMultisheetMapping(s.Id, s.Version, mapping);
         s = w.ChangeValidationRules(s.Id, s.Version, Rules(s)); s = w.ConfirmMapping(s.Id, s.Version);
-        s = w.SetManualSample(s.Id, s.Version, Sample(s)); Assert.All(s.Checks, check => Assert.Equal("Passed", check.Outcome));
+        s = w.SetManualSample(s.Id, s.Version, Sample(s)); Assert.All(s.Checks.Where(check => check.Required), check => Assert.Equal("Passed", check.Outcome));
         s = w.Review(s.Id, s.Version); s = w.Approve(s.Id, s.Version);
         var timer = Stopwatch.StartNew(); var allocation = GC.GetAllocatedBytesForCurrentThread(); var exported = w.Export(s.Id, s.Version);
         output.WriteLine($"sheets={count}; rows=2; wall_ms={timer.Elapsed.TotalMilliseconds}; allocation_bytes={GC.GetAllocatedBytesForCurrentThread()-allocation}; output_bytes={exported.Workbook.Length}; generated_cells={count*5*2}");

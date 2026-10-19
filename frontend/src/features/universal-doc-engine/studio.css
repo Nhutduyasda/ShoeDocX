@@ -14,3 +14,7 @@
 @media(max-width:900px) { .uds { padding:16px }.uds-top { flex-direction:column }.uds-steps { grid-template-columns:repeat(2,1fr) }.uds-grid { grid-template-columns:repeat(2,minmax(100px,1fr)) }.uds-panel { padding:18px } }
 .uds .uds-sources article { border: 1px solid #ccd6df; padding: 1rem; margin-top: 1rem; border-radius: .5rem; }
 .uds .uds-sources dd { margin: .2rem 0 .7rem; overflow-wrap: anywhere; font-family: monospace; }
+
+.uds fieldset { min-width:0; margin:16px 0; border:1px solid #d3deea; border-radius:8px; padding:16px; }
+.uds fieldset label { margin:10px 0; }.uds p,.uds li,.uds legend { overflow-wrap:anywhere; }
+.uds fieldset select,.uds fieldset input { min-width:0; width:100%; }.uds input[type=checkbox] { width:auto; align-self:flex-start; }

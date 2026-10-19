@@ -141,7 +141,7 @@ export default function UniversalDocStudio() {
             edit={(f, value) => act('fields', { scope: f.scope, key: f.key, row: f.row, value }, 'PATCH')} />)}
         </tbody></table></div>
         <h3>Validation results</h3><ul aria-label="Validation results">{session.checks?.map(c => <li key={c.id}>{c.id}: {c.outcome === 'NotEvaluated' ? 'Not evaluated' : c.outcome}{c.required ? ' · Required' : ''}{session.issues.some(i => i.field === c.id) ? ' · See issue below' : ''}</li>)}</ul>
-        <h3>Validation and extraction issues</h3>{session.issues.length ? <ul>{session.issues.map((issue, index) => <li key={index}>{issue.code} · {issue.field} {issue.rowPosition !== null ? `row ${issue.rowPosition + 1}` : ''}</li>)}</ul> : <p>No current issues reported.</p>}
+        <h3>Validation and extraction issues</h3>{session.issues.length ? <ul>{session.issues.map((issue, index) => <li key={index}>{issue.severity === 'Warning' ? 'Warning · ' : ''}{issue.message || issue.code} · {issue.field} {issue.rowPosition !== null ? `row ${issue.rowPosition + 1}` : ''}</li>)}</ul> : <p>No current issues reported.</p>}
       </>}
       {step === 4 && session && <><p>Complete review and approval are separate authenticated backend transitions. Neither extraction nor mapping confirmation approves document data.</p>
         <button disabled={busy || !session.canReview} onClick={() => act('review')}>Complete human review</button>

@@ -192,6 +192,20 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
         if (validation.Issues.Any(i => i.Severity != IssueSeverity.Info) || validation.Checks.Any(c => c.Required && c.Outcome != CheckOutcome.Passed))
             throw new StudioFault(409, "DOCUMENT_VALIDATION_REQUIRED");
     }
+    private static string DescribeCheck(UniversalDocSession s, ValidationIssue issue)
+    {
+        var id = issue.CheckId.Split(':')[0]; var rule = s.ValidationRules.FirstOrDefault(r => r.Id == id);
+        if (rule is null) return issue.Message;
+        string Label(string key) => s.SchemaDraft?.Fields.FirstOrDefault(f => f.Key == key && !f.Omit)?.Label ?? key;
+        var parts = issue.CheckId.Split(':');
+        var row = parts.Length == 2 && int.TryParse(parts[1], out var index) ? $"Row {index + 1}: " : "";
+        if (issue.Code == "MISSING_RULE_INPUT") return row + "Rule cannot be evaluated because a required value is missing.";
+        if (issue.Code == "DIVISION_BY_ZERO") return row + "Cannot divide by zero.";
+        if (issue.Code == "NUMERIC_OVERFLOW") return row + "Numeric values exceed the supported decimal range.";
+        if (rule.Kind == "CrossFoot") return Label(rule.Target) + " differs from the sum of " + Label(rule.FieldA) + ".";
+        var op = rule.Operator switch { "Add" => "+", "Subtract" => "−", "Multiply" => "×", "Divide" => "÷", _ => "?" };
+        return row + Label(rule.FieldA) + " " + op + " " + Label(rule.FieldB!) + " does not match " + Label(rule.Target) + ".";
+    }
     private static StudioSessionView View(UniversalDocSession s, UniversalDocActor actor)
     {
         var fields = ImmutableArray.CreateBuilder<StudioFieldView>();
@@ -217,7 +231,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator(IUniversalDocCurren
         var sheet = s.Proposal?.Layout.Sheets.FirstOrDefault();
         var mapping = sheet is null ? null : new StudioMapping(sheet.Worksheet, sheet.Items.StartRow,
             sheet.Headers.ToImmutableDictionary(x => x.Source.Key, x => x.Cell), sheet.Items.Columns.ToImmutableDictionary(x => x.Source.Key, x => x.Column));
-        var issues = (s.Validation?.Issues.Select(i => new StudioIssueView(i.Code, i.CheckId, null, null)) ?? Enumerable.Empty<StudioIssueView>())
+        var issues = (s.Validation?.Issues.Select(i => new StudioIssueView(i.Code, i.CheckId, null, null) { Message = DescribeCheck(s, i), Severity = i.Severity.ToString() }) ?? Enumerable.Empty<StudioIssueView>())
             .Concat(s.Extraction?.Documents.SelectMany(d => d.Issues).Select(i => new StudioIssueView(i.Code, i.Field?.Key, i.RowId, i.RowPosition)) ?? Enumerable.Empty<StudioIssueView>()).Take(100).ToImmutableArray();
         return new(s.Id, s.Version, s.ExpiresAt, s.Workflow, s.MappingState.ToString(), s.Proposal?.Revision, s.Profile.Version, s.Document?.DataRevision,
             s.Document?.ReviewState.ToString() ?? "NoDocument", s.Structure?.Sheets.Select(x => x.Name).ToImmutableArray() ?? ImmutableArray<string>.Empty,

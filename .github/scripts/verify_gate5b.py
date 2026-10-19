@@ -20,7 +20,7 @@ def compare(runs):
             current = new['tests'][identity]
             if current['outcome'] == 'Failed': assert previous == current, 'New/changed failure'
         added = new['tests'].keys() - old['tests'].keys()
-        assert len(added) == 50 and all(new['tests'][k]['outcome'] == 'Passed' and new['tests'][k]['method'].startswith(ci.ENGINE + 'Gate5BTests.') for k in added), 'New checks incomplete/failing'
+        assert len(added) == 55 and all(new['tests'][k]['outcome'] == 'Passed' and new['tests'][k]['method'].startswith(ci.ENGINE + 'Gate5BTests.') for k in added), 'New checks incomplete/failing'
     for name in ('baseline', 'feature'):
         engine, full = runs[name + '-engine'], runs[name + '-full']
         assert engine['failed'] == 0 and engine['tests'] == {k: v for k, v in full['tests'].items() if v['method'].startswith(ci.ENGINE)}

@@ -10,6 +10,7 @@ public sealed class StudioFault(int status, string code) : Exception(code)
 {
     public int Status { get; } = status;
     public string Code { get; } = code;
+    public ImmutableArray<string> Details { get; init; } = ImmutableArray<string>.Empty;
 }
 public sealed record UniversalDocActor(string UserId, string TenantId, string Role, DateTimeOffset IdentityExpiresAt)
 {
@@ -39,7 +40,11 @@ public sealed record StudioCandidate(string Sheet, string LabelCell, string? Cel
 public sealed record StudioSuggestion(string Scope, string Key, string Status, ImmutableArray<StudioCandidate> Candidates);
 public sealed record StudioMapping(string Sheet, int StartRow, ImmutableDictionary<string, string> Headers,
     ImmutableDictionary<string, int> Columns);
-public sealed record StudioIssueView(string Code, string? Field, string? RowId, int? RowPosition);
+public sealed record StudioIssueView(string Code, string? Field, string? RowId, int? RowPosition)
+{
+    public string? Message { get; init; }
+    public string? Severity { get; init; }
+}
 public sealed record StudioCheckView(string Id, string Outcome, bool Required);
 public sealed record StudioSessionView(string Id, long Version, DateTimeOffset ExpiresAt, string Workflow,
     string MappingState, long? MappingRevision, int ProfileVersion, long? DataRevision, string ReviewState,

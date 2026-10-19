@@ -41,7 +41,7 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             {
                 RequireTemplate(s);
                 correspondence = new ExampleRowCorrespondence().Compare(s.Template.ToArray(), bytes, s.Structure!, structure);
-                if (!correspondence.Supported) throw new StudioFault(400, "EXAMPLE_STRUCTURE_MISMATCH");
+                if (!correspondence.Supported) throw new StudioFault(400, "EXAMPLE_STRUCTURE_MISMATCH") { Details = correspondence.Problems };
             }
             var template = isExample ? s.Template.ToArray() : bytes;
             var actual = isExample ? s.Structure! : structure;

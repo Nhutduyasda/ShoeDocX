@@ -251,4 +251,57 @@ public class Gate5BTests(ITestOutputHelper output)
         Assert.Equal(s.Version, w.Read(s.Id).Version);
     }
 
+    [Theory] [InlineData(2)] [InlineData(3)]
+    public async Task MaximumRowsRemainBoundedAcrossConcurrentPrivateSessions(int count)
+    {
+        using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System);
+        async Task Verify(int index)
+        {
+            await Task.Yield(); var actor = new Actor(); actor.Value = actor.Value with { UserId = "owner" + index };
+            var w = new UniversalDocWorkflowOrchestrator(actor, store); var s = Ready(w, count);
+            s = w.ChangeMultisheetMapping(s.Id, s.Version, Mappings(s, count)); s = w.ChangeValidationRules(s.Id, s.Version, Rules(s));
+            s = w.ConfirmMapping(s.Id, s.Version); s = w.SetManualSample(s.Id, s.Version, Sample(s, 20, total: "150"));
+            s = w.Review(s.Id, s.Version); s = w.Approve(s.Id, s.Version);
+            var allocated = GC.GetAllocatedBytesForCurrentThread(); var timer = Stopwatch.StartNew(); var result = w.Export(s.Id, s.Version);
+            output.WriteLine($"concurrent_session={index}; sheets={count}; rows=20; wall_ms={timer.Elapsed.TotalMilliseconds}; allocation_bytes={GC.GetAllocatedBytesForCurrentThread()-allocated}; output_bytes={result.Workbook.Length}; generated_cells={count*5*20}");
+            using var workbook = new XLWorkbook(new MemoryStream(result.Workbook));
+            foreach (var name in Enumerable.Range(1, count).Select(n => "Data" + n))
+            { Assert.Equal("00020", workbook.Worksheet(name).Cell("A23").GetString()); Assert.Equal("SUM(E4:E23)", workbook.Worksheet(name).Cell("E24").FormulaA1); }
+            s = w.Read(s.Id); Assert.Throws<StudioFault>(() => w.SetManualSample(s.Id, s.Version, Sample(s, 21)));
+        }
+        await Task.WhenAll(Enumerable.Range(1, 3).Select(n => Task.Run(() => Verify(n))));
+    }
+    private sealed class SnapshotGate(IUniversalDocSessionStore inner, ManualResetEventSlim entered, ManualResetEventSlim release) : IUniversalDocSessionStore
+    {
+        public UniversalDocSession Create(UniversalDocActor actor, string workflow) => inner.Create(actor, workflow);
+        public UniversalDocSession Read(UniversalDocActor actor, string id) {
+            var snapshot = inner.Read(actor, id); entered.Set(); Assert.True(release.Wait(TimeSpan.FromSeconds(20))); return snapshot;
+        }
+        public UniversalDocSession Update(UniversalDocActor actor, string id, long version, Func<UniversalDocSession, UniversalDocSession> transition) => inner.Update(actor, id, version, transition);
+        public void Remove(UniversalDocActor actor, string id, long version) => inner.Remove(actor, id, version);
+        public void Cleanup() => inner.Cleanup();
+    }
+    [Theory] [InlineData("rules")] [InlineData("mapping")]
+    public async Task ExportCannotReturnWorkbookAfterConcurrentConfigurationChange(string kind)
+    {
+        var actor = new Actor(); using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(actor, store);
+        var s = Ready(w); s = w.ChangeValidationRules(s.Id, s.Version, Rules(s)); s = w.ConfirmMapping(s.Id, s.Version);
+        s = w.SetManualSample(s.Id, s.Version, Sample(s)); s = w.Review(s.Id, s.Version); s = w.Approve(s.Id, s.Version);
+        using var entered = new ManualResetEventSlim(); using var release = new ManualResetEventSlim();
+        var exporting = new UniversalDocWorkflowOrchestrator(actor, new SnapshotGate(store, entered, release));
+        var task = Task.Run(() => Assert.Throws<StudioFault>(() => exporting.Export(s.Id, s.Version)));
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(20)));
+        if (kind == "rules") w.ChangeValidationRules(s.Id, s.Version, []); else w.ChangeMultisheetMapping(s.Id, s.Version, Mappings(s));
+        release.Set(); Assert.Equal("SESSION_VERSION_CONFLICT", (await task).Code);
+        Assert.Null(store.Read(actor.Value, s.Id).Document!.Approval);
+    }
+    private sealed class Clock : TimeProvider { public DateTimeOffset Now = DateTimeOffset.UtcNow; public override DateTimeOffset GetUtcNow() => Now; }
+    [Fact] public void ExpiredSessionsCannotChangeRulesOrMapping()
+    {
+        var clock = new Clock(); using var store = new InMemoryUniversalDocSessionStore(clock); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store); var s = Ready(w);
+        clock.Now += TimeSpan.FromMinutes(21);
+        Assert.Equal(410, Assert.Throws<StudioFault>(() => w.ChangeValidationRules(s.Id, s.Version, Rules(s))).Status);
+        Assert.Throws<StudioFault>(() => w.ChangeMultisheetMapping(s.Id, s.Version, Mappings(s)));
+    }
+
 }

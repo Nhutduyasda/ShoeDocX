@@ -20,7 +20,7 @@ export interface StudioSession {
   mappingRevision: number | null; profileVersion: number; dataRevision: number | null; reviewState: string;
   sheets: string[]; mapping: StudioMapping | null; canReview: boolean; canApprove: boolean;
   suggestions: { scope: string; key: string; status: string; candidates: { sheet: string; labelCell: string; cell: string | null; column: number | null; prototypeRow: number | null }[] }[];
-  fields: StudioField[]; issues: { code: string; field: string | null; rowId: string | null; rowPosition: number | null }[];
+  fields: StudioField[]; issues: { code: string; field: string | null; rowId: string | null; rowPosition: number | null; message?: string; severity?: string }[];
   schemaDraft: { revision: number; state: string; templateSha256: string; exampleSha256: string | null; fields: LearnedField[]; correspondence?: { supported: boolean; sheets: { worksheet: string; prototypeRow: number; firstExampleRow: number; lastExampleRow: number; exampleRowCount: number; status: string; footerEvidence: string }[]; problems: string[] } } | null;
   sheetSummaries: { name: string; usedCells: number; tables: number; prototypeRows: number[]; footerRows: number[]; mergedRanges: string[] }[];
   sources: StudioSource[];
@@ -39,7 +39,7 @@ export class StudioApi {
     });
     if (!response.ok) {
       if (response.status === 401) window.dispatchEvent(new Event('auth:unauthorized'));
-      const error = await response.json().catch(() => ({})) as { code?: string; title?: string };
+      const error = await response.json().catch(() => ({})) as { code?: string; title?: string; details?: string[] };
       const code = error.code || error.title || 'STUDIO_REQUEST_FAILED';
       const messages: Record<string, string> = {
         MAPPING_CONFIRMATION_REQUIRED: 'Review and confirm the template mapping before continuing.',
@@ -66,7 +66,7 @@ export class StudioApi {
         SCHEMA_CORRECTION_REQUIRED: 'Apply your field corrections before confirming the schema and mapping.',
         UNSUPPORTED_OR_INVALID_TEMPLATE: 'This workbook contains an unsupported or invalid structure. Use the documented bounded XLSX subset.',
       };
-      throw new Error(`${messages[code] || code} [${code}] (HTTP ${response.status})`);
+      throw new Error(`${messages[code] || code}${error.details?.length ? ` Details: ${error.details.join("; ")}` : ""} [${code}] (HTTP ${response.status})`);
     }
     return response;
   }

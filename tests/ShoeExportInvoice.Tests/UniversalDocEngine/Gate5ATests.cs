@@ -147,7 +147,7 @@ public class Gate5ATests
         fields = fields.SetItem(4, fields[4] with { Omit = true, Candidate = null });
         s = w.CorrectSchema(s.Id, s.Version, fields); Assert.Equal("Header", s.SchemaDraft!.Fields[1].Scope); Assert.True(s.SchemaDraft.Fields[4].Omit);
         Assert.Equal("sample", s.SchemaDraft.Fields[1].Candidates[s.SchemaDraft.Fields[1].Candidate!.Value].MatchedLabel);
-        Assert.Equal("B2", s.Mapping!.Headers[fields[1].Key]); s = w.ConfirmMapping(s.Id, s.Version); Assert.Equal("UserConfirmed", s.SchemaDraft.State);
+        Assert.Equal("B2", s.Mapping!.Headers[fields[1].Key]); s = w.ConfirmMapping(s.Id, s.Version); Assert.Equal("UserConfirmed", Assert.IsType<ExampleSchemaDraft>(s.SchemaDraft).State);
     }
     [Theory] [InlineData("profile")] [InlineData("example")]
     public void StaleServerFingerprintsCannotConfirmOrExport(string kind)
@@ -188,6 +188,78 @@ public class Gate5ATests
         s = w.Upload(s.Id, s.Version, Padded(Gate5AFixtures.Workbook("accounting")), "template.xlsx");
         Assert.Equal("SESSION_BYTE_LIMIT", Assert.Throws<StudioFault>(() => w.UploadLearning(s.Id, s.Version, Padded(Gate5AFixtures.Workbook("accounting", true)), "example.xlsx", true)).Code);
         Assert.Null(w.Read(s.Id).SchemaDraft!.ExampleSha256); Assert.Equal(s.Version, w.Read(s.Id).Version);
+    }
+
+    [Theory] [InlineData("EXAMPLE")] [InlineData("example/")]
+    public async Task ExampleRouteVariantsPreserveOriginalTemplate(string route)
+    {
+        await using var host = await StudioHttpHost.Start(); using var client = host.Client();
+        using var login = await client.PostAsJsonAsync("/api/auth/login", new { username = "admin-a", password = "Studio@Test2026!" });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var bootstrap = await client.GetFromJsonAsync<JsonElement>("/api/universal-doc/bootstrap");
+        client.DefaultRequestHeaders.Add("X-Studio-CSRF", bootstrap.GetProperty("csrfToken").GetString());
+        using var created = await client.PostAsJsonAsync("/api/universal-doc/sessions", new { workflow = "example-template" });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var json = await created.Content.ReadFromJsonAsync<JsonElement>(); var id = json.GetProperty("id").GetString();
+        async Task<JsonElement> Upload(string endpoint, long version, byte[] bytes)
+        {
+            using var form = new MultipartFormDataContent(); form.Add(new StringContent(version.ToString(System.Globalization.CultureInfo.InvariantCulture)), "expectedVersion");
+            form.Add(new ByteArrayContent(bytes), "file", "synthetic.xlsx");
+            using var response = await client.PostAsync($"/api/universal-doc/sessions/{id}/{endpoint}", form);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode); return await response.Content.ReadFromJsonAsync<JsonElement>();
+        }
+        var templateBytes = Gate5AFixtures.Workbook("accounting");
+        var template = await Upload("template", 1, templateBytes);
+        var exampleBytes = Gate5AFixtures.Workbook("accounting", true);
+        var example = await Upload(route, template.GetProperty("version").GetInt64(), exampleBytes);
+        var draft = example.GetProperty("schemaDraft");
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(templateBytes)), draft.GetProperty("templateSha256").GetString());
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(exampleBytes)), draft.GetProperty("exampleSha256").GetString());
+        Assert.Equal("NoDocument", example.GetProperty("reviewState").GetString());
+    }
+    [Fact] public async Task ExampleOwnerIsAuthorizedBeforeMultipartBinding()
+    {
+        await using var host = await StudioHttpHost.Start(); using var client = host.Client();
+        using var login = await client.PostAsJsonAsync("/api/auth/login", new { username = "admin-a", password = "Studio@Test2026!" });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var bootstrap = await client.GetFromJsonAsync<JsonElement>("/api/universal-doc/bootstrap");
+        client.DefaultRequestHeaders.Add("X-Studio-CSRF", bootstrap.GetProperty("csrfToken").GetString());
+        // Malformed multipart must not bind before the private destination is authorized.
+        using var data = new StringContent("not multipart"); data.Headers.ContentType = new("multipart/form-data");
+        using var response = await client.PostAsync($"/api/universal-doc/sessions/{new string('A', 64)}/EXAMPLE/", data);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<JsonElement>(); Assert.Equal("SESSION_NOT_FOUND", error.GetProperty("code").GetString());
+    }
+    private sealed class GatedStore(IUniversalDocSessionStore inner, ManualResetEventSlim entered, ManualResetEventSlim release) : IUniversalDocSessionStore
+    {
+        public UniversalDocSession Create(UniversalDocActor actor, string workflow) => inner.Create(actor, workflow);
+        public UniversalDocSession Read(UniversalDocActor actor, string id) => inner.Read(actor, id);
+        public UniversalDocSession Update(UniversalDocActor actor, string id, long version, Func<UniversalDocSession, UniversalDocSession> transition) =>
+            inner.Update(actor, id, version, current => { entered.Set(); Assert.True(release.Wait(TimeSpan.FromSeconds(10))); return transition(current); });
+        public void Remove(UniversalDocActor actor, string id, long version) => inner.Remove(actor, id, version);
+        public void Cleanup() => inner.Cleanup();
+    }
+    [Theory] [InlineData(true)] [InlineData(false)]
+    public async Task SchemaApprovalRaceCannotRestoreStaleApproval(bool correctionFirst)
+    {
+        var actor = new Actor(); using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System);
+        var w = new UniversalDocWorkflowOrchestrator(actor, store); var s = Ready(w);
+        s = w.ConfirmMapping(s.Id, s.Version); s = w.SetManualSample(s.Id, s.Version, Sample(s)); s = w.Review(s.Id, s.Version);
+        using var entered = new ManualResetEventSlim(); using var release = new ManualResetEventSlim();
+        var gated = new GatedStore(store, entered, release);
+        var blockedWorkflow = new UniversalDocWorkflowOrchestrator(actor, gated);
+        // The first transition holds the actual store lock; the other request carries the old version.
+        var winner = Task.Run(() => correctionFirst ? blockedWorkflow.CorrectSchema(s.Id, s.Version, Corrections(s)) : blockedWorkflow.Approve(s.Id, s.Version));
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(10)));
+        var loser = Task.Run(() => Assert.Throws<StudioFault>(() => {
+            if (correctionFirst) w.Approve(s.Id, s.Version); else w.CorrectSchema(s.Id, s.Version, Corrections(s));
+        }));
+        release.Set(); await winner; Assert.Equal("SESSION_VERSION_CONFLICT", (await loser).Code);
+        var current = w.Read(s.Id);
+        if (!correctionFirst) current = w.CorrectSchema(current.Id, current.Version, Corrections(current));
+        var document = Assert.IsType<CanonicalDocument>(store.Read(actor.Value, s.Id).Document);
+        Assert.Null(document.Approval); Assert.Null(document.ReviewEvidence);
+        Assert.Equal("MAPPING_CONFIRMATION_REQUIRED", Assert.Throws<StudioFault>(() => w.Export(current.Id, current.Version)).Code);
     }
 
 }

@@ -40,9 +40,11 @@ public sealed class StudioAdmissionFilter(StudioRequestAdmission admission, Univ
         try
         {
             workflow.Actor();
-            // Authorize a template destination before multipart model binding allocates its buffers.
-            if ((context.HttpContext.Request.Path.Value?.EndsWith("/template", StringComparison.Ordinal) == true ||
-                 context.HttpContext.Request.Path.Value?.EndsWith("/sources", StringComparison.Ordinal) == true) &&
+            // Match routing case/trailing-slash semantics before multipart binding allocates buffers.
+            var path = context.HttpContext.Request.Path.Value?.TrimEnd('/');
+            if ((path?.EndsWith("/template", StringComparison.OrdinalIgnoreCase) == true ||
+                 path?.EndsWith("/sources", StringComparison.OrdinalIgnoreCase) == true ||
+                 path?.EndsWith("/example", StringComparison.OrdinalIgnoreCase) == true) &&
                 context.RouteData.Values["id"] is string id) workflow.Read(id);
             await next();
         }

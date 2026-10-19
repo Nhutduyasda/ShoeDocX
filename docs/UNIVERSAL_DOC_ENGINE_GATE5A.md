@@ -77,7 +77,7 @@ All production edits are inside UniversalDocEngine feature directories. Existing
 | Area | Files |
 |---|---|
 | New backend | `TemplateUnderstanding/ExampleSchemaLearner.cs`, `Application/ExampleTemplateWorkflow.cs` |
-| Existing feature API | `Api/StudioRequests.cs`, `Api/UniversalDocStudioController.cs` |
+| Existing feature API | `Api/StudioRequests.cs`, `Api/UniversalDocStudioController.cs`, `Api/StudioRequestFilters.cs` |
 | Existing feature application | `Application/WorkflowContracts.cs`, `Application/SourceIntake.cs`, `Application/StudioDemoCatalog.cs`, `Application/UniversalDocSourceWorkflow.cs`, `Application/UniversalDocWorkflowOrchestrator.cs` |
 | Frontend feature | new `ExampleTemplateEditor.tsx`; edited `UniversalDocStudio.tsx`, `studioApi.ts` |
 | New synthetic tests | `tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5ATests.cs`, `Gate5AFixtures.cs`; `frontend/tests/universalDocExample.e2e.mjs` |
@@ -85,4 +85,33 @@ All production edits are inside UniversalDocEngine feature directories. Existing
 | New verification | `.github/workflows/gate5a-verification.yml`, `.github/scripts/verify_gate5a.py`, `.github/scripts/gate5a_browser.py` |
 | Documentation | `docs/UNIVERSAL_DOC_ENGINE_GATE5A.md` |
 
-There are 21 added/modified files (12 new, 9 modified). Main, PR #13 and PR #14 are not changed or merged.
+There are 22 added/modified files (12 new, 10 modified). Main, PR #13 and PR #14 are not changed or merged.
+
+
+## Final independent review — 2026-10-19
+
+Reviewed source HEAD: `0ab2de0af309376808fd9031c2ca378ca321db96`, against unchanged accepted main. The final tested SHA and completed CI run are recorded in PR #15 after verification; prior runs do not certify these corrections.
+
+### Findings and corrections
+
+- **Medium, correctness:** ASP.NET routing accepts case variants and a trailing slash, while the upload action used a case-sensitive `/example` suffix. `/EXAMPLE` and `/example/` consequently took the template-replacement path, clearing the example binding and replacing the original template within the same authorized session. Normalize trailing slash/case consistently with routing. Two real HTTP regressions assert independent SHA-256 identities of the original and filled-example bytes. No approval or cross-tenant bypass was established.
+- **Low, resource admission:** the pre-model-binding destination check omitted `/example` and did not normalize template/source route variants. The final session authorization still prevented unauthorized storage, but bounded multipart allocation/processing could occur first. Include example and normalized variants before binding. A malformed multipart request to an unavailable private destination must return the session authorization error, not a binding error.
+- **Low, test quality:** CS8602 after reassigning the session on line 150. Assert the new schema draft's runtime type/non-nullness with `Assert.IsType<ExampleSchemaDraft>` before its state assertion. Nullable analysis stays enabled; no suppression or assertion removal.
+- No additional demonstrated high/critical issue was found in the inspected paths. This is a targeted source/test review, not a penetration test or native decoder clearance.
+
+### Security review matrix
+
+| Control | Reviewed mechanism and regression evidence |
+|---|---|
+| Template/example authority | Immutable session byte arrays; analyzer hashes actual bytes; RequireTemplate rehashes original and example, checks draft/profile version and fingerprint. Examples require strict structural correspondence; uploads clear document state. Hash tampering tests remain mandatory. |
+| Schema and confirmation | Corrections are bounded DTOs, not profiles or documents; server validates scope/key/type/omission/candidates and layout. Confirmation is a separate authenticated transition using proposal/template/profile fingerprints. Unknown authority members, including nested fields, are rejected. |
+| Review/approval invalidation | CorrectSchema calls WithProfileVersion, which clears ReviewEvidence/Approval and advances data revision; confirmation also invalidates old review. Uploads clear the document. Manual/field edits create a new unreviewed revision. |
+| Concurrency | Store holds the per-session lock throughout expected-version check, transition and commit. New tests force each schema-correction/approval ordering under the actual store lock, reject the stale competing request, and require no approval/review on the corrected state. Export prepares immutable snapshots then commits only if the original version/authorization/TTL still hold. |
+| Owner/tenant/identity | Actor comes from authenticated claims and server membership; store enforces owner + tenant and identity expiry on every read/update, with a second expiry check before commit. No request-supplied tenant fallback. |
+| CSRF/admission | Existing controller-wide authorization/antiforgery filters cover schema, sample and example; bounded request limits plus four admission slots remain. Destination ownership is checked before multipart binding for template/example/source, including route variants. |
+| TTL/quota | Fixed 20-minute lifetime; 16 global/6 tenant/2 owner sessions; shared 2 MiB for template/example/sources. Failed transitions do not commit a version or exceed budget. |
+| Canonical authority | Manual DTOs contain only bounded string dictionaries. Server resolves definitions, normalizes values and constructs CanonicalDocument with Manual/unreviewed/no source evidence; unknown fields fail. React sends no document/approval/profile authority and escapes labels as text. |
+| Sole export boundary | Only authorized controller Export calls the runtime orchestrator projector path; it validates confirmed layout, actual template, profile/document identity, Gate 1 validation/current review/current approval, then rechecks version before returning. No new export endpoint. |
+| Legacy/demo isolation | Diff remains feature/API, synthetic tests, verification and this document. Domain/projector, legacy business logic, existing tests/browser scripts and package manifests/lockfiles are unchanged. Existing Synthetic Demo runs in the mandatory real browser suite. |
+
+Five additional regression cases raise the mandatory Gate 5A inventory from 35 to **40**; CI's exact added-test count is updated accordingly, without changing failure/skip/missing-test comparisons. Required final evidence: 449 engine tests, all 40 Gate 5A cases; baseline-matched full-suite failures; existing 13 Studio + 11 intake and seven example browser checks on both Windows Server 2022 and Ubuntu 24.04; actual XLSX reopen and no introduced dependency findings. Local Work has no .NET SDK; hosted execution is required before a merge-readiness recommendation. Functional limits and decoder separation above remain unchanged.

@@ -73,7 +73,7 @@ public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrato
             if (data.Length + read > InMemoryUniversalDocSessionStore.MaximumTemplateBytes) throw new StudioFault(400, "TEMPLATE_SIZE_LIMIT");
             await data.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
         }
-        return Ok(Request.Path.Value!.EndsWith("/example", StringComparison.Ordinal)
+        return Ok(Request.Path.Value!.TrimEnd('/').EndsWith("/example", StringComparison.OrdinalIgnoreCase)
             ? workflow.UploadLearning(id, expectedVersion, data.ToArray(), file.FileName, true)
             : workflow.Upload(id, expectedVersion, data.ToArray(), file.FileName));
     }

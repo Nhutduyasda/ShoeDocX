@@ -193,3 +193,42 @@ Current independent-review recommendation: **PARTIAL / NOT READY pending exact-f
 Inherited full-suite failures and dependency warnings must remain visible and matched against the same-host baseline. In particular, existing SQLitePCLRaw.lib.e_sqlite3 2.1.6 High and seven npm findings (five High, two Moderate) are not cleared by this bounded task. No production-readiness claim is made.
 
 Formula-boundary fixture correction: the initial new tests combined prototype reference grammar with an unsupported fixed-column footer endpoint. CI correctly rejected the examples (`CELL_CHANGED:E6`). The positive fixture now uses the existing relative-end SUM footer, while a separate fixed-column-end negative case preserves and documents the rejection. No production formula acceptance was broadened.
+
+### Independent-review results — verified code revision
+
+Exact feature code HEAD: `74b4950c0db0b06b6a2803d351a0b0e1f30a6504`.
+[Run 39208177276](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/39208177276) completed **success** on both requested hosts:
+[Windows Server 2022 job 117915470020](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/39208177276/job/117915470020),
+[Ubuntu 24.04 job 117915470171](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/39208177276/job/117915470171).
+This results section supersedes the pending recommendation above. The only subsequent delivery change is this evidence documentation; its exact final commit and exact-HEAD rerun are recorded in PR #16 and the workflow's immutable `summary.json`, avoiding a self-referential commit SHA inside its own file.
+
+| Discovered and executed evidence | Windows Server 2022 | Ubuntu 24.04 |
+|---|---|---|
+| Accepted baseline engine | 449 PASS | 449 PASS |
+| Gate 5B (58 original + 25 independent review cases) | 83 PASS, zero failed/skipped | 83 PASS, zero failed/skipped |
+| Feature engine | 532 PASS | 532 PASS |
+| Baseline full suite | 644 PASS / 2 inherited failures / 646 | 636 PASS / 10 inherited failures / 646 |
+| Feature full suite | 727 PASS / same 2 failures / 729 | 719 PASS / same 10 failures / 729 |
+| Missing/skipped mandatory test identities | Zero | Zero |
+| Standard builds, frontend build and 13 existing draft checks | PASS | PASS |
+| Existing authenticated browser checks | 13 Studio + 11 intake + 7 Gate 5A PASS | 13 + 11 + 7 PASS |
+| Gate 5B authenticated browser checks | 12 PASS, zero runtime errors | 12 PASS, zero runtime errors |
+| Before-fix UI regressions | Both specific assertions reproduced | Both specific assertions reproduced |
+| Resource observations, including concurrent 2/3-sheet exports | All 8 PASS, actual workbooks reopened | All 8 PASS, actual workbooks reopened |
+| New dependencies / new advisory findings | 0 / 0 | 0 / 0 |
+
+The 83-case inventory is discovered through standard VSTest and matched exactly against execution, rather than assumed from this table. Existing full-suite failures match the same-host baseline by complete test identity and normalized diagnostic fingerprint. No mandatory cases were skipped, removed or weakened. Focused formula tests reopen actual two-sheet outputs for relative, absolute and mixed prototype references. Existing two/three-sheet output/resource tests reopen generated workbooks including the unchanged reference sheet. Unsupported footer endpoints remain negative cases.
+
+Both archives were downloaded and independently reviewed in ChatGPT Work:
+[Windows artifact 12166891869](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/39208177276/artifacts/12166891869),
+[Ubuntu artifact 12166508854](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/39208177276/artifacts/12166508854).
+The browser-downloaded XLSX files passed the ClosedXML verifier and a separate openpyxl reopen in Work. Both data sheets, ordered leading-zero IDs, quantities/prices/printed amounts, formulas, numeric formats, thin borders, signature merges, sheet order and Vietnamese reference content were checked. Mobile screenshots were inspected; controls remain within the 390px viewport.
+
+| Real browser-downloaded XLSX | Bytes | SHA-256 |
+|---|---:|---|
+| Windows | 8,669 | `d82b85715620f00ce56b1260c4014e01ee7a916c6353dee363f231cd46734c5a` |
+| Ubuntu | 8,648 | `469767485395d0f9142cee5fef462bf86271db5abde5fbcea43adc21ebda4c88` |
+
+Verdicts for the bounded supported subset: **multi-sheet correctness PASS; example correspondence PASS; rule-builder lifecycle PASS; authenticated actor/tenant/owner/CSRF/session controls PASS; approval/export races PASS**. The two demonstrated UI findings are corrected and proved by failing-before/passing-after real browser regressions. No unresolved Medium/High/Critical finding remains from this review.
+
+Recommendation: **MERGE READY for the bounded Gate 5B MVP, subject to the final documentation-delivery exact-HEAD rerun remaining successful and separate explicit owner approval**. Keep main, decoder PR #13/#14, deployment and Gate 5C untouched. Existing High SQLite advisory, seven npm findings, inherited platform failures and all production-readiness exclusions remain. This review does not claim production readiness.

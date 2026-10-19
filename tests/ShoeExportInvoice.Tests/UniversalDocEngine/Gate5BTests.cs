@@ -99,7 +99,7 @@ public class Gate5BTests(ITestOutputHelper output)
         Assert.Throws<StudioFault>(() => w.UploadLearning(s.Id, s.Version, data.ToArray(), "example.xlsx", true));
         Assert.Equal(s.Version, w.Read(s.Id).Version);
     }
-    [Theory] [InlineData("missing")] [InlineData("duplicate")] [InlineData("prototype")] [InlineData("formula")] [InlineData("merged")] [InlineData("header-only")] [InlineData("four")]
+    [Theory] [InlineData("missing")] [InlineData("duplicate")] [InlineData("prototype")] [InlineData("formula")] [InlineData("merged")] [InlineData("header-only")] [InlineData("four")] [InlineData("far-header")]
     public void InvalidMultisheetMappingsCannotBeConfirmed(string kind)
     {
         using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store); var s = Ready(w, 3);
@@ -110,6 +110,7 @@ public class Gate5BTests(ITestOutputHelper output)
             "prototype" => maps.SetItem(1, maps[1] with { PrototypeRow = 7 }),
             "formula" => maps.SetItem(1, maps[1] with { Columns = maps[1].Columns.SetItem(Key(s, "Amount"), 5) }),
             "merged" => maps.SetItem(1, maps[1] with { Headers = maps[1].Headers.SetItem(Key(s, "Printed total"), "A6") }),
+            "far-header" => maps.SetItem(1, maps[1] with { Headers = maps[1].Headers.SetItem(Key(s, "Printed total"), "XFD1") }),
             "header-only" => maps.SetItem(1, maps[1] with { Columns = ImmutableDictionary<string, int>.Empty }),
             _ => [maps[0], maps[1], maps[0] with { Sheet = "Data3" }, maps[0] with { Sheet = "Reference" }] };
         Assert.Throws<StudioFault>(() => w.ChangeMultisheetMapping(s.Id, s.Version, maps)); Assert.Equal(s.Version, w.Read(s.Id).Version);

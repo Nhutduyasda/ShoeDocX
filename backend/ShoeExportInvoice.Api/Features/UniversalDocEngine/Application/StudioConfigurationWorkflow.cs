@@ -114,6 +114,13 @@ public sealed partial class UniversalDocWorkflowOrchestrator
         {
             RequireTemplate(s);
             if (s.Workflow != "example-template" || s.Proposal is null || s.SchemaDraft is null) throw new StudioFault(409, "SCHEMA_CORRECTION_REQUIRED");
+            foreach (var mapping in mappings)
+            {
+                var sheet = s.Structure!.Sheets.SingleOrDefault(sheet => sheet.Name == mapping.Sheet);
+                if (sheet is null || mapping.Headers.Any(header => !sheet.Cells.Any(cell =>
+                    cell.Address == header.Value && cell.Formula is null && !cell.Merged)))
+                    throw new StudioFault(400, "INVALID_MULTISHEET_DESTINATION");
+            }
             var layout = new ExcelTemplateLayout(1, s.TemplateSha256!, mappings.Select(m => new ExcelSheetLayout(m.Sheet,
                 m.Headers.OrderBy(x => x.Key, StringComparer.Ordinal).Select(h => new ExcelCellMapping(new(FieldScope.Header, h.Key), h.Value)).ToImmutableArray(),
                 new(m.PrototypeRow, m.PrototypeRow, 20, m.Columns.OrderBy(x => x.Key, StringComparer.Ordinal)

@@ -1,6 +1,6 @@
 # Gate 5B — bounded generic multi-sheet workflow
 
-Implementation verification: PASS at `90af778ab9a905fe0b1c97e32230794302f070a0` on both required hosts. PR #16 remains subject to the exact final packaging HEAD checks and separate owner merge authorization. This is not a production-readiness certificate.
+Initial implementation verification: PASS at `90af778ab9a905fe0b1c97e32230794302f070a0` on both required hosts. PR #16 remains subject to the exact final packaging HEAD checks and separate owner merge authorization. This is not a production-readiness certificate.
 
 ## Baseline and boundaries
 
@@ -54,7 +54,7 @@ Resource tests exercise two and three mapped sheets at two and twenty rows, incl
 
 ## Verification inventory and evidence
 
-`Gate5BTests` contains 57 independently enumerated cases. Categories include two/three-sheet exports, shared keys, independent duplicate labels, reference preservation, missing/duplicate/header-only/invalid mappings, formula/merge rejection, one/two/five example rows, shifted footer correspondence, incompatible headers/formulas/reference content/extra rows/counts, unchanged input bytes, exact numeric rules/tolerances, missing values, overflow, division by zero, invalid configurations, nested authority, CSRF, private ownership, expiry, tampered hashes/profile, stale concurrent updates, approval invalidation and forced export races.
+`Gate5BTests` contains 58 independently enumerated cases. Categories include two/three-sheet exports, shared keys, independent duplicate labels, reference preservation, missing/duplicate/header-only/invalid mappings, formula/merge rejection, one/two/five example rows, shifted footer correspondence, incompatible headers/formulas/reference content/extra rows/counts, unchanged input bytes, exact numeric rules/tolerances, missing values, overflow, division by zero, invalid configurations, nested authority, CSRF, private ownership, expiry, tampered hashes/profile, stale concurrent updates, approval invalidation and forced export races.
 
 All existing Gate 1–5A engine cases remain in the inventory. The same-host verifier compares baseline and feature engine/full-suite identities and normalized diagnostics, requires every new Gate 5B case to pass and rejects missing/skipped/newly failing cases. Existing 13 Studio + 11 intake + 7 example authenticated browser checks run unchanged. The new ten-check real-browser journey uploads a two-data-sheet/reference workbook and a multi-row example, resolves ambiguous labels, shares fields, configures both rule types, demonstrates a failing amount blocking export, corrects/reviews/approves, downloads/reopens Excel, restores a session on refresh, invalidates approval by policy edit and checks a 390px layout and runtime errors.
 
@@ -121,6 +121,12 @@ These are standard hosted-runner observations, not latency guarantees or peak re
 | Ubuntu | 3 × 20, three concurrent sessions | 162.55–234.69 | 11,694,832–11,712,592 | 11,350 | 300/session |
 
 These bounded synthetic results support retaining the proposed three-sheet/20-row subset. They do not justify increasing limits or claiming production capacity.
+
+### Final hardening after the initial verified implementation
+
+Independent quota review identified that the new multi-sheet endpoint could select a header destination beyond the analyzed Studio subset. Gate 2 supports a broader address space, so its structural validation alone was insufficient for this Studio request. The endpoint now requires each header destination to exist as an original non-formula, unmerged cell in the analyzed template (therefore within the unchanged Studio row/column/cell limits). A new `far-header` regression rejects `XFD1` atomically. No Gate 2 or legacy behavior was changed.
+
+The final suite contains 58 new cases; the table above records the earlier 57-case implementation run, not the final hardening result. The exact final HEAD, final 58-case results and both-host evidence are recorded in PR #16 after the hardened source and improved mobile controls pass CI. Until then the PR must remain Draft.
 
 ### Exact changed-file inventory
 

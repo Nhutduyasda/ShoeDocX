@@ -64,6 +64,13 @@ try {
   await deny('MAPPING_CONFIRMATION_REQUIRED'); await click('2 Mapping'); await mutate('Confirm mapping as current user', '/mapping/confirm'); await deny('CURRENT_APPROVAL_REQUIRED'); checks.push('RULE_CHANGE_REQUIRES_RENEWED_CONFIRMATION_REVIEW_APPROVAL');
   await page.setViewportSize({ width: 390, height: 844 }); await click('2 Mapping');
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+  await page.screenshot({ path: join(folder, 'gate5b-mobile-top.png'), fullPage: true });
+  const mobileMapping = page.getByLabel('Mapped worksheet 1', { exact: true }); await mobileMapping.scrollIntoViewIfNeeded();
+  const mappingBox = await mobileMapping.boundingBox(); assert.ok(mappingBox && mappingBox.x >= 0 && mappingBox.x + mappingBox.width <= 391);
+  assert.equal(await mobileMapping.inputValue(), 'Data1');
+  const mobileRule = page.getByLabel('Rule A 1', { exact: true }); await mobileRule.scrollIntoViewIfNeeded();
+  const ruleBox = await mobileRule.boundingBox(); assert.ok(ruleBox && ruleBox.x >= 0 && ruleBox.x + ruleBox.width <= 391);
+  assert.equal(await mobileRule.inputValue(), key('Quantity'));
   await page.screenshot({ path: join(folder, 'gate5b-mobile.png'), fullPage: true }); checks.push('MOBILE_LAYOUT');
   assert.deepEqual(errors, []); assert.equal(checks.length, 10);
   await writeFile(join(folder, 'gate5b-summary.json'), JSON.stringify({ status: 'PASS', checks, runtimeErrors: errors }, null, 2));

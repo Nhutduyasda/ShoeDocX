@@ -116,6 +116,10 @@ public class Gate5BReviewTests
             using var data = new MemoryStream(); wb.SaveAs(data); return data.ToArray();
         }
         var original = Make(1, false); var example = Make(2, true);
+        var analyzer = new TemplateStructureAnalyzer();
+        var correspondence = new ExampleRowCorrespondence().Compare(original, example,
+            analyzer.Analyze(new MemoryStream(original), "template.xlsx").Structure!, analyzer.Analyze(new MemoryStream(example), "example.xlsx").Structure!);
+        Assert.True(correspondence.Supported, string.Join(", ", correspondence.Problems));
         using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store);
         var s = w.Create("example-template"); s = w.Upload(s.Id, s.Version, original, "template.xlsx"); s = w.UploadLearning(s.Id, s.Version, example, "example.xlsx", true);
         s = w.CorrectSchema(s.Id, s.Version, Corrections(s));

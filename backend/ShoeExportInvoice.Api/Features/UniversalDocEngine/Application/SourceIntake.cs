@@ -26,7 +26,7 @@ public static class SourceIntake
     {
         if (s.Sources.Length > MaximumSources) throw new StudioFault(400, "SOURCE_COUNT_LIMIT");
         if (s.Sources.Any(x => x.Bytes.Length is <= 0 or > MaximumFileBytes || x.OwnerId != s.OwnerId || x.TenantId != s.TenantId) ||
-            (long)s.Template.Length + s.Sources.Sum(x => (long)x.Bytes.Length) > MaximumSessionBytes)
+            (long)s.Template.Length + s.Example.Length + s.Sources.Sum(x => (long)x.Bytes.Length) > MaximumSessionBytes)
             throw new StudioFault(400, "SESSION_BYTE_LIMIT");
     }
     public static async Task<byte[]> ReadBoundedAsync(Stream input, long declaredLength, CancellationToken cancellationToken)

@@ -16,6 +16,9 @@ public static class StudioDemoCatalog
     private static FieldReference L(string key) => new(FieldScope.LineItem, key);
     public static DocumentWorkflowProfile Profile(string workflow, string tenant)
     {
+        if (workflow == "example-template") return new("studio-example", tenant, 1, new(1, ImmutableArray<FieldDefinition>.Empty),
+            ImmutableArray<EnrichmentRule>.Empty, ImmutableArray<ComputationRule>.Empty,
+            new(ImmutableArray<ArithmeticCheck>.Empty, ImmutableArray<CrossFootCheck>.Empty), new(ImmutableArray<ExcelMapping>.Empty));
         if (!Workflows.Contains(workflow)) throw new StudioFault(400, "UNSUPPORTED_WORKFLOW");
         return new("studio-" + workflow, tenant, 1, new(1, ImmutableArray.Create(
             new FieldDefinition("number", FieldScope.Header, FieldType.Text, true),

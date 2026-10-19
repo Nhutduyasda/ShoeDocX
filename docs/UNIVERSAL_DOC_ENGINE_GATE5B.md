@@ -182,7 +182,7 @@ All five Gate 4A controls remain in place: trusted actor/tenant resolution, owne
 
 React workbook labels remain escaped text. Existing Synthetic Demo and Gate 5A browser acceptance still run. Refresh reads fresh server-authorized state; configuration notices never claim unsaved edits are confirmed. Mobile mapping/rule controls are exercised at 390px. No recognition/OCR claim is added.
 
-Limits are unchanged: at most three mapped sheets, four total sheets, 20 output rows, 32 analyzed columns, 1,000 analyzed rows, original analyzed cell budget, one prototype per mapped sheet, five example rows and eight rules. Reference sheets remain unchanged in supported output. Unsupported rich formulas, cross-sheet formulas, independent row groups, header-only mapped sheets, macros/dynamic arrays, table-shaped reference examples with incompatible detected row counts, production persistence, recognition and deployment remain excluded. No Gate 5C work.
+Limits are unchanged: at most three mapped sheets, four total sheets, 20 output rows, 32 analyzed columns, 1,000 analyzed rows, original analyzed cell budget, one prototype per mapped sheet, five example rows and eight rules. Reference sheets remain unchanged in supported output. Unsupported fixed-column/absolute-end footer transformations, rich formulas, cross-sheet formulas, independent row groups, header-only mapped sheets, macros/dynamic arrays, table-shaped reference examples with incompatible detected row counts, production persistence, recognition and deployment remain excluded. No Gate 5C work.
 
 ### Final evidence and recommendation protocol
 
@@ -191,3 +191,5 @@ The exact final commit and both-host CI URLs/results must be recorded in the fin
 Current independent-review recommendation: **PARTIAL / NOT READY pending exact-final-HEAD Windows Server 2022 and Ubuntu 24.04 verification**. A passing final PR report may supersede this pending recommendation; merge still requires separate explicit owner approval. No merge or deployment is performed by this review.
 
 Inherited full-suite failures and dependency warnings must remain visible and matched against the same-host baseline. In particular, existing SQLitePCLRaw.lib.e_sqlite3 2.1.6 High and seven npm findings (five High, two Moderate) are not cleared by this bounded task. No production-readiness claim is made.
+
+Formula-boundary fixture correction: the initial new tests combined prototype reference grammar with an unsupported fixed-column footer endpoint. CI correctly rejected the examples (`CELL_CHANGED:E6`). The positive fixture now uses the existing relative-end SUM footer, while a separate fixed-column-end negative case preserves and documents the rejection. No production formula acceptance was broadened.

@@ -111,7 +111,7 @@ public class Gate5BReviewTests
             using var wb = new XLWorkbook(new MemoryStream(Workbook(2, rows, filled)));
             foreach (var name in new[] { "Data1", "Data2" }) {
                 var ws = wb.Worksheet(name); for (var row = 4; row < 4 + rows; row++) ws.Cell(row, 5).FormulaA1 = Formula(row);
-                ws.Cell(4 + rows, 5).FormulaA1 = $"SUM($E$4:$E{3 + rows})";
+                ws.Cell(4 + rows, 5).FormulaA1 = $"SUM(E4:E{3 + rows})";
             }
             using var data = new MemoryStream(); wb.SaveAs(data); return data.ToArray();
         }
@@ -125,15 +125,15 @@ public class Gate5BReviewTests
         s = w.CorrectSchema(s.Id, s.Version, Corrections(s));
         s = w.ChangeMultisheetMapping(s.Id, s.Version, [new("Data1", 4, s.Mapping!.Headers, s.Mapping.Columns), new("Data2", 4, s.Mapping.Headers, s.Mapping.Columns)]);
         s = Approved(w, s); using var result = new XLWorkbook(new MemoryStream(w.Export(s.Id, s.Version).Workbook));
-        foreach (var name in new[] { "Data1", "Data2" }) { Assert.Equal(Formula(5), result.Worksheet(name).Cell("E5").FormulaA1); Assert.Equal("SUM($E$4:$E5)", result.Worksheet(name).Cell("E6").FormulaA1); }
+        foreach (var name in new[] { "Data1", "Data2" }) { Assert.Equal(Formula(5), result.Worksheet(name).Cell("E5").FormulaA1); Assert.Equal("SUM(E4:E5)", result.Worksheet(name).Cell("E6").FormulaA1); }
         Assert.Equal("Dữ liệu tham chiếu 00123", result.Worksheet("Reference").Cell("A1").GetString());
     }
-    [Theory] [InlineData("absolute-end")] [InlineData("footer-arithmetic")]
+    [Theory] [InlineData("absolute-end")] [InlineData("footer-arithmetic")] [InlineData("fixed-column-end")]
     public void UnverifiedFooterTransformationsRemainUnsupportedAndAtomic(string kind)
     {
         byte[] Make(int rows, bool filled) {
             using var wb = new XLWorkbook(new MemoryStream(Workbook(2, rows, filled)));
-            foreach (var name in new[] { "Data1", "Data2" }) wb.Worksheet(name).Cell(4 + rows, 5).FormulaA1 = kind == "absolute-end" ? $"SUM($E$4:$E${3 + rows})" : $"SUM(E4:E{3 + rows})+1";
+            foreach (var name in new[] { "Data1", "Data2" }) wb.Worksheet(name).Cell(4 + rows, 5).FormulaA1 = kind switch { "absolute-end" => $"SUM($E$4:$E${3 + rows})", "fixed-column-end" => $"SUM($E$4:$E{3 + rows})", _ => $"SUM(E4:E{3 + rows})+1" };
             using var output = new MemoryStream(); wb.SaveAs(output); return output.ToArray();
         }
         using var store = new InMemoryUniversalDocSessionStore(TimeProvider.System); var w = new UniversalDocWorkflowOrchestrator(new Actor(), store); var s = Ready(w, Make(1, false));

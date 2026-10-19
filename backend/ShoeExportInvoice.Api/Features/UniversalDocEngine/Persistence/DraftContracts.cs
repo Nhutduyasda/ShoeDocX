@@ -13,6 +13,7 @@ public interface IUniversalDocDraftStore
     StoredDraft Read(UniversalDocActor actor, string id, long revision);
     void Delete(UniversalDocActor actor, string id, long revision);
     string AcquireResume(UniversalDocActor actor, string id, long revision);
+    void CompleteResume(UniversalDocActor actor, string lease, string id, long revision, DateTimeOffset sessionExpiresAt);
     void ReleaseResume(string lease);
     void Cleanup();
 }

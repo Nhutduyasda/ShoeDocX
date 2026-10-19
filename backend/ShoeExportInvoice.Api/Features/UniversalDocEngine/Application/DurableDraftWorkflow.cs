@@ -58,8 +58,8 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             } else if (!snapshot.Mappings.IsEmpty || !snapshot.Rules.IsEmpty || snapshot.Values is not null) throw new StudioFault(409, "DRAFT_PAYLOAD_INVALID");
             if (snapshot.Values is not null) session = RestoreDraftValues(session, snapshot.Values, actor);
             // Final expected-revision/expiry check after workbook reconstruction; no old approval exists anywhere in the contract.
-            var check = drafts.Read(actor, id, revision); CryptographicOperations.ZeroMemory(check.Payload);
-            return session;
+            drafts.CompleteResume(actor, lease, id, revision, session.ExpiresAt);
+            return View(store.Update(actor, session.Id, session.Version, current => current), actor);
         } catch {
             if (session is not null) { try { Remove(session.Id, Read(session.Id).Version); } catch (StudioFault) { } }
             try { drafts.ReleaseResume(lease); } catch (StudioFault) { } throw;

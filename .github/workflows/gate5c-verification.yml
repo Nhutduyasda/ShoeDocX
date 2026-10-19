@@ -62,3 +62,24 @@ jobs:
           export GATE5C_PROBE="$GITHUB_WORKSPACE/feature/tests/Gate5CDemoHost/bin/Debug/net8.0/Gate5CDemoHost.dll"
           echo "GATE5C_PROBE=$GATE5C_PROBE" >> "$GITHUB_ENV"
           dotnet test feature/tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter FullyQualifiedName~UniversalDocEngine.Gate5C
+      - name: Install isolated verification tools
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/studio-browser" --no-package-lock --no-save playwright@1.62.1
+          node "$RUNNER_TEMP/studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
+          python -m pip install openpyxl==3.1.5
+      - name: Baseline comparison, SQL regression, actual browser restart and XLSX QA
+        shell: bash
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
+          python feature/.github/scripts/verify_gate5c.py
+      - name: Upload sanitized metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate5c-verification-${{ matrix.os }}
+          path: verification-evidence/
+          if-no-files-found: error
+          retention-days: 14

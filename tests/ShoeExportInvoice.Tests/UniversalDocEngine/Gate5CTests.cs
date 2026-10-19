@@ -7,6 +7,7 @@ using System.Text.Json;
 using ClosedXML.Excel;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
@@ -39,14 +40,14 @@ public sealed class Gate5CTests : IAsyncLifetime
     [Theory][InlineData("owner")][InlineData("tenant")]
     public void RealSqlOwnerTenantDeniedBeforeDecrypt(string kind) {
         var d=SaveReady();var a=Actor().Value; a=kind=="owner"?a with{UserId="other"}:a with{TenantId="other"};
-        using(var db=sql.DbFactory.CreateDbContext()){var row=db.Drafts.Single();row.Ciphertext[0]^=1;db.SaveChanges();}
+        using(var db=sql.DbFactory.CreateDbContext()){var row=db.Drafts.Single();var bad=row.Ciphertext.ToArray();bad[0]^=1;row.Ciphertext=bad;db.SaveChanges();}
         Assert.Empty(sql.Store.List(a));Assert.Equal(404,Assert.Throws<StudioFault>(()=>sql.Store.Read(a,d.Id,d.Revision)).Status);
         Assert.Equal(404,Assert.Throws<StudioFault>(()=>sql.Store.Delete(a,d.Id,d.Revision)).Status);Assert.Equal(404,Assert.Throws<StudioFault>(()=>sql.Store.Save(a,d.Id,d.Revision,[1])).Status);
     }
     [Theory][InlineData("tamper")][InlineData("swap")][InlineData("format")][InlineData("revision")][InlineData("owner")][InlineData("key")]
     public void RealSqlAuthenticatedCipherBindsImmutableIdentity(string kind) {
         var d=SaveReady();if(kind=="swap")SaveReady();
-        using(var db=sql.DbFactory.CreateDbContext()){var row=db.Drafts.Single(x=>x.Id==d.Id);switch(kind){case "tamper":row.Ciphertext[13]^=1;break;case "swap":row.Ciphertext=db.Drafts.Single(x=>x.Id!=d.Id).Ciphertext;break;case "format":row.Format=99;break;case "revision":row.Revision++;break;case "owner":row.OwnerId="other";break;case "key":row.KeyId="missing";break;}db.SaveChanges();}
+        using(var db=sql.DbFactory.CreateDbContext()){var row=db.Drafts.Single(x=>x.Id==d.Id);switch(kind){case "tamper":var bad=row.Ciphertext.ToArray();bad[13]^=1;row.Ciphertext=bad;break;case "swap":row.Ciphertext=db.Drafts.Single(x=>x.Id!=d.Id).Ciphertext;break;case "format":row.Format=99;break;case "revision":row.Revision++;break;case "owner":row.OwnerId="other";break;case "key":row.KeyId="missing";break;}db.SaveChanges();}
         var actor=Actor().Value;if(kind=="owner")actor=actor with{UserId="other"};
         Assert.Equal("DRAFT_PAYLOAD_INVALID",Assert.Throws<StudioFault>(()=>sql.Store.Read(actor,d.Id,kind=="revision"?2:1)).Code);
     }
@@ -68,7 +69,7 @@ public sealed class Gate5CTests : IAsyncLifetime
     [Fact]public void NoncesAreUniqueAndDatabaseContainsOnlyAuthenticatedCiphertext() {
         var d=SaveReady();byte[] first;using(var db=sql.DbFactory.CreateDbContext())first=db.Drafts.Single().Ciphertext;
         var plain=sql.Store.Read(Actor().Value,d.Id,1).Payload;var next=sql.Store.Save(Actor().Value,d.Id,1,plain);
-        using var db2=sql.DbFactory.CreateDbContext();var second=db2.Drafts.Single().Ciphertext;Assert.NotEqual(first[..12],second[..12]);Assert.False(second.AsSpan().IndexOf("Printed total"u8)>=0);Assert.Equal(2,next.Revision);Assert.Single(db2.Drafts);
+        using var db2=sql.DbFactory.CreateDbContext();var second=db2.Drafts.Single().Ciphertext;Assert.False(first.AsSpan(0,12).SequenceEqual(second.AsSpan(0,12)));Assert.False(second.AsSpan().IndexOf("Printed total"u8)>=0);Assert.Equal(2,next.Revision);Assert.Single(db2.Drafts);
     }
     [Fact]public async Task IndependentRepositoriesHaveOneRevisionWinnerAndSafeRetry() {
         var d=SaveReady();var payload=sql.Store.Read(Actor().Value,d.Id,1).Payload;
@@ -121,12 +122,39 @@ public sealed class Gate5CTests : IAsyncLifetime
         Assert.Equal(1,sql.Store.Read(Actor().Value,d.Id,1).Info.Revision);
         using var resume=Start("--probe","resume",d.Id,"1");var output=await resume.StandardOutput.ReadToEndAsync();await resume.WaitForExitAsync();Assert.Equal(0,resume.ExitCode);Assert.Contains("PROCESS_RECOVERY_EXPORT_REOPEN_PASS",output);
     }
-    [Theory][InlineData("anonymous")][InlineData("csrf")][InlineData("forged")]
+    [Theory][InlineData("anonymous")][InlineData("csrf")][InlineData("invalid-csrf")][InlineData("forged")]
     public async Task ActualHttpRejectsAnonymousCsrfAndForgedAuthority(string kind) {
         await using var host=await StudioHttpHost.Start(beforeBuild:b=>b.Configuration.AddConfiguration(Gate5CSqlFixture.Configuration(sql.Connection)));using var client=host.Client();
         if(kind=="anonymous"){Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/universal-doc/drafts")).StatusCode);return;}
         Assert.Equal(HttpStatusCode.OK,(await client.PostAsJsonAsync("/api/auth/login",new{username="admin-a",password="Studio@Test2026!"})).StatusCode);
+        if(kind=="invalid-csrf")client.DefaultRequestHeaders.Add("X-Studio-CSRF","invalid");
         if(kind=="forged"){var boot=await client.GetFromJsonAsync<JsonElement>("/api/universal-doc/bootstrap");client.DefaultRequestHeaders.Add("X-Studio-CSRF",boot.GetProperty("csrfToken").GetString());}
         var result=await client.PostAsJsonAsync("/api/universal-doc/sessions/any/save-draft",new{expectedVersion=1,expectedRevision=0,ownerId="other",approved=true});Assert.Equal(HttpStatusCode.BadRequest,result.StatusCode);
     }
+    [Fact] public void ResumeLeaseCoversFullNewSessionLifetimeAndRejectsConcurrentDeletion() {
+        var d=SaveReady();var lease=sql.Store.AcquireResume(Actor().Value,d.Id,1);var expiry=DateTimeOffset.UtcNow.AddMinutes(20);
+        sql.Store.CompleteResume(Actor().Value,lease,d.Id,1,expiry);
+        using(var db=sql.DbFactory.CreateDbContext()) Assert.Equal(expiry,db.Leases.Single().ExpiresAt);
+        sql.Store.Delete(Actor().Value,d.Id,1);Assert.Equal(404,Assert.Throws<StudioFault>(()=>sql.Store.CompleteResume(Actor().Value,lease,d.Id,1,expiry)).Status);
+        sql.Store.ReleaseResume(lease);using var check=sql.DbFactory.CreateDbContext();Assert.Empty(check.Leases);
+    }
+    [Fact] public async Task AdditiveMigrationCanRollbackAndReapplyOnlyFeatureTables() {
+        using var db=sql.DbFactory.CreateDbContext();var migrator=db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>();
+        await migrator.MigrateAsync("0");Assert.Equal(0,await db.Database.SqlQueryRaw<int>("SELECT COUNT(*) AS [Value] FROM sys.tables WHERE schema_id=SCHEMA_ID('ude') AND name IN ('Drafts','ResumeLeases')").SingleAsync());
+        await db.Database.MigrateAsync();Assert.Empty(sql.Store.List(Actor().Value));Assert.Single(await db.Database.GetAppliedMigrationsAsync());
+    }
+    private sealed class Clock:TimeProvider {public DateTimeOffset Now=DateTimeOffset.UtcNow;public override DateTimeOffset GetUtcNow()=>Now;}
+    [Fact] public void ExpiredRuntimeCannotSaveButDurableRecoveryHasNoPreviousAuthority() {
+        var clock=new Clock();using var old=new InMemoryUniversalDocSessionStore(clock);var actor=Actor();var w=new UniversalDocWorkflowOrchestrator(actor,old);var s=Gate5CSqlFixture.Ready(w);var d=w.SaveDraft(sql.Store,s.Id,s.Version,null,0).Draft;
+        clock.Now=clock.Now.AddMinutes(21);Assert.Equal("SESSION_EXPIRED",Assert.Throws<StudioFault>(()=>w.SaveDraft(sql.Store,s.Id,s.Version+1,d.Id,1)).Code);
+        using var fresh=new InMemoryUniversalDocSessionStore(TimeProvider.System);var restored=new UniversalDocWorkflowOrchestrator(actor,fresh).ResumeDraft(sql.Store,d.Id,1,TimeProvider.System);Assert.NotEqual(s.Id,restored.Id);Assert.NotEqual("Approved",restored.ReviewState);
+    }
+    [Theory][InlineData(false)][InlineData(true)]
+    public void PartialTemplateAndOptionalExampleDraftsRemainSafelyResumable(bool example) {
+        using var runtime=new InMemoryUniversalDocSessionStore(TimeProvider.System);var actor=Actor();var w=new UniversalDocWorkflowOrchestrator(actor,runtime);var s=w.Create("example-template");s=w.Upload(s.Id,s.Version,Gate5BFixtures.Workbook(),"template.xlsx");
+        if(example)s=w.UploadLearning(s.Id,s.Version,Gate5BFixtures.Workbook(2,2,true),"example.xlsx",true);
+        var d=w.SaveDraft(sql.Store,s.Id,s.Version,null,0).Draft;using var fresh=new InMemoryUniversalDocSessionStore(TimeProvider.System);var restored=new UniversalDocWorkflowOrchestrator(actor,fresh).ResumeDraft(sql.Store,d.Id,1,TimeProvider.System);
+        Assert.NotNull(restored.SchemaDraft);Assert.Equal("NoDocument",restored.ReviewState);Assert.Equal("DraftSuggested",restored.MappingState);
+    }
+
 }

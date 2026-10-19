@@ -45,6 +45,14 @@ export class StudioApi {
       const error = await response.json().catch(() => ({})) as { code?: string; title?: string; details?: string[] };
       const code = error.code || error.title || 'STUDIO_REQUEST_FAILED';
       const messages: Record<string, string> = {
+        DRAFT_REVISION_CONFLICT: 'This draft changed. Refresh My drafts before choosing to save or resume again.',
+        DRAFT_EXPIRED: 'This draft has expired and cannot be resumed.',
+        DRAFT_NOT_FOUND: 'This private draft is unavailable or has been deleted.',
+        DRAFT_CONFIGURATION_UNAVAILABLE: 'Durable drafts are unavailable. Ask the administrator to check protected storage configuration.',
+        DRAFT_STORAGE_UNAVAILABLE: 'The durable save did not complete. Reload server state and My drafts before retrying.',
+        DRAFT_CAPACITY_REACHED: 'Draft storage is full. Delete an old draft before creating another.',
+        DRAFT_PAYLOAD_LIMIT: 'This draft exceeds the bounded storage limit. It has not been saved.',
+        DRAFT_PAYLOAD_INVALID: 'This stored draft could not be verified. Recovery was blocked.',
         MAPPING_CONFIRMATION_REQUIRED: 'Review and confirm the template mapping before continuing.',
         MAPPING_CORRECTION_REQUIRED: 'Correct unresolved mapping fields before confirming.',
         CURRENT_APPROVAL_REQUIRED: 'The current document needs human review and approval.',

@@ -7,13 +7,18 @@ using ShoeExportInvoice.Tests.UniversalDocEngine;
 
 var connection = Environment.GetEnvironmentVariable("GATE5C_DATABASE") ?? throw new InvalidOperationException("Synthetic database required");
 var factory = new Gate5CSqlFixture.Factory(connection);
+if (!new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connection).InitialCatalog.StartsWith("gate5c_",StringComparison.Ordinal)) throw new InvalidOperationException("Only isolated gate5c databases allowed");
+if (args.FirstOrDefault()=="--sql-info") {
+    using var db=factory.CreateDbContext();db.Database.OpenConnection();using var command=db.Database.GetDbConnection().CreateCommand();command.CommandText="SELECT CONVERT(nvarchar(128),SERVERPROPERTY('ProductVersion')),CONVERT(nvarchar(128),SERVERPROPERTY('Edition')),CONVERT(int,SERVERPROPERTY('EngineEdition'))";using var reader=command.ExecuteReader();reader.Read();Console.WriteLine(JsonSerializer.Serialize(new{version=reader.GetString(0),edition=reader.GetString(1),engineEdition=reader.GetInt32(2),ephemeral=true}));return;
+}
+if (args.FirstOrDefault()=="--drop") {using var db=factory.CreateDbContext();db.Database.EnsureDeleted();return;}
 if (args.FirstOrDefault() == "--migrate") { using var db=factory.CreateDbContext();db.Database.Migrate();return; }
 if (args.FirstOrDefault() == "--probe") {
     var actor=new Gate5CSqlFixture.Actor();using var sessions=new InMemoryUniversalDocSessionStore(TimeProvider.System);var w=new UniversalDocWorkflowOrchestrator(actor,sessions);
     var store=new SqlUniversalDocDraftStore(factory,new DraftCipher(Gate5CSqlFixture.Configuration(connection)));
     if(args[1]=="uncommitted") {
         using var db=factory.CreateDbContext();using var tx=db.Database.BeginTransaction();
-        db.Database.ExecuteSqlInterpolated($"UPDATE ude.Drafts SET Ciphertext=0x0102 WHERE Id={args[2]}");
+        db.Database.ExecuteSqlInterpolated($"UPDATE ude.Drafts SET Revision=Revision+1 WHERE Id={args[2]}");
         Console.WriteLine("UNCOMMITTED_READY");Console.Out.Flush();await Task.Delay(Timeout.Infinite);return;
     }
     if(args[1]=="save") {var s=Gate5CSqlFixture.Ready(w);var saved=w.SaveDraft(store,s.Id,s.Version,null,0);Console.WriteLine(JsonSerializer.Serialize(saved.Draft));return;}

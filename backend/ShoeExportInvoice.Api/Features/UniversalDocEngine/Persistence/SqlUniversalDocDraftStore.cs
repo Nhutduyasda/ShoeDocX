@@ -47,6 +47,12 @@ public sealed class SqlUniversalDocDraftStore(IDbContextFactory<UniversalDocDraf
         if (db.Leases.Count() >= 16 || db.Leases.Count(x => x.TenantId == actor.TenantId) >= 6 || db.Leases.Count(x => x.TenantId == actor.TenantId && x.OwnerId == actor.UserId) >= 2) throw new StudioFault(429, "SESSION_CAPACITY_REACHED");
         var lease = new ResumeLease { Id = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), OwnerId = actor.UserId, TenantId = actor.TenantId, ExpiresAt = now + InMemoryUniversalDocSessionStore.Lifetime }; db.Leases.Add(lease); return lease.Id;
     });
+    public void CompleteResume(UniversalDocActor actor, string lease, string id, long revision, DateTimeOffset sessionExpiresAt) => Transaction(actor, (db, now) => {
+        Find(db, actor, id, revision, now);
+        var row = db.Leases.SingleOrDefault(x => x.Id == lease && x.OwnerId == actor.UserId && x.TenantId == actor.TenantId && x.ExpiresAt > now) ?? throw new StudioFault(409, "DRAFT_RESUME_EXPIRED");
+        if (sessionExpiresAt <= now || sessionExpiresAt > now + InMemoryUniversalDocSessionStore.Lifetime + TimeSpan.FromSeconds(5)) throw new StudioFault(409, "DRAFT_RESUME_EXPIRED");
+        row.ExpiresAt = sessionExpiresAt; return 0;
+    });
     public void ReleaseResume(string lease) => Transaction<int>(null, (db, now) => { db.Leases.Where(x => x.Id == lease).ExecuteDelete(); return 0; });
     public void Cleanup() => Transaction<int>(null, (db, now) => { Purge(db, now); return 0; });
 }

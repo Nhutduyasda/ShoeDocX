@@ -120,7 +120,7 @@ export default function UniversalDocStudio() {
     </section>}
     <nav aria-label="Studio steps" className="uds-steps">{steps.map((name, index) => <button key={name} aria-current={step === index ? 'step' : undefined}
       onClick={() => changeStep(index)}><span>{index + 1}</span>{name}</button>)}</nav>
-    {error && <div role="alert" className="uds-error">{error}{error.includes('409') && session && <button disabled={busy} onClick={() => void run(async () => { setSession(await api.read(session.id)); })}>Reload server state</button>}</div>}
+    {error && <div role="alert" className="uds-error">{error}{(error.includes('409') || error.includes('DRAFT_STORAGE_UNAVAILABLE') || error.includes('DRAFT_PAYLOAD_LIMIT')) && session && <button disabled={busy} onClick={() => void run(async () => { setSession(await api.read(session.id)); })}>Reload server state</button>}</div>}
     {hasUnsavedConfiguration && <p role="status" className="uds-error">Unsaved configuration edits are not confirmed server state. Apply or discard them before continuing.</p>}
     {notice && <p role="status" className="uds-success">{notice}</p>}
     {session && <aside className="uds-state">Server mapping: <strong>{session.mappingState}</strong> · Review: <strong>{session.reviewState}</strong> · Session version {session.version}

@@ -17,7 +17,7 @@ public sealed class DraftCipher
                 var key = Convert.FromBase64String(entry.Value ?? ""); if (key.Length != 32 || entry.Key.Length > 64) throw new FormatException(); keys.Add(entry.Key, key);
             }
             if (!keys.ContainsKey(ActiveKeyId)) throw new FormatException();
-        } catch (Exception e) when (e is FormatException or ArgumentException) { throw new StudioFault(503, "DRAFT_CONFIGURATION_UNAVAILABLE"); }
+        } catch (Exception e) when (e is FormatException or ArgumentException or InvalidOperationException) { throw new StudioFault(503, "DRAFT_CONFIGURATION_UNAVAILABLE"); }
     }
     private static byte[] Aad(DraftRecord r) => JsonSerializer.SerializeToUtf8Bytes(new object[] {
         r.Id, r.OwnerId, r.TenantId, r.Workflow, r.Revision, r.CreatedAt, r.ExpiresAt, r.Format, r.KeyId });

@@ -1,6 +1,6 @@
 # Gate 6A — runtime and dependency security
 
-Status: **PARTIAL / NOT READY**. Verification in progress; no production readiness claim.
+Status is determined by the latest exact-HEAD Gate 6A CI summary attached to PR #19. A build or an older successful run is insufficient for acceptance. No production readiness claim.
 
 ## Scope and provenance
 
@@ -60,3 +60,13 @@ Bounded acceptance criteria: only version-controlled trusted CSS/TSX enters the 
 ## SQLite provenance
 
 EF Core Sqlite 10.0.13 -> SQLitePCLRaw.bundle_e_sqlite3/core/provider 2.1.13 -> SQLitePCLRaw.lib.e_sqlite3 2.1.13. The API production graph uses SQL Server; SQLite occurs in tests/demo hosts only. Local native sqlite_version() is 3.53.3; Linux x64 library SHA-256 b0f5c48026fedcf9f05cf31c6fadf9e1e001ca59cd85aa68b8b6814e52c18a07. The NuGet package is the maintainer-built library, not an arbitrary DLL substitution. CI records package content SHA-512, native file SHA-256, nuspec license/project metadata and executes the actual provider on both hosts. Current official NuGet feed scan of the restored graph is clean; this does not claim every future native CVE is absent.
+
+## Observed CI evidence and authoritative final record
+
+Initial preflight run 40076661880 correctly failed SDK selection before tests: dotnet selected the workspace-parent .NET 8 SDK despite a net10 project path. Correction: run feature builds from the feature checkout; baseline commands remain in baseline and explicitly select SDK 8.0.426. No acceptance was inferred from that run.
+
+Run https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40076877789 verifies implementation HEAD 1eade5a51a7aceaac8aeb25325d3abb410a50f0c. Observed Ubuntu results: 636/636 engine; full suite 823 pass / 10 inherited failures / 833 total. Baseline: 625/625 engine; 812 pass / 10 inherited failures / 822 full. Identity and failure-hash comparison passes; no resolved failures or skipped mandatory tests. Frontend build/model, all 61 inherited authenticated browser checks, five Office journeys, SQL recovery/process restart and 12 independent downloaded/corpus XLSX reopen checks pass. This is historical incremental evidence, not acceptance of later HEADs.
+
+Final verification adds the snapshot-parity test, JWT negative cases, native file provenance and both container builds. The authoritative final Windows/Ubuntu records are each run's `gate6a-summary.json`, `gate6a-dependencies.json`, inherited browser summaries, SQL/workbook QA JSON and Linux `container.json` artifacts. Each summary binds the actual baseline and final feature SHA and reports the dynamically discovered executed inventory. See [PR #19 checks](https://github.com/Nhutduyasda/ShoeDocX/pull/19/checks) for exact final run URLs; do not substitute historical 636-test evidence for the final inventory. Mandatory evidence must all pass before Ready for review.
+
+No explicit High/Critical production risk acceptance is requested. The one inherited Moderate build advisory has the bounded criteria stated above. SQL production certificate/ACL/key-ring controls, backup restoration, actual target hosting limits and deployment remain Gate 6B operator prerequisites.

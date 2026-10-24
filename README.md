@@ -10,7 +10,7 @@ Turn photographed warehouse slips and manually entered quantities into reviewed 
 Commercial Invoices and Packing Lists. Built for the handoff between warehouse,
 export-import and accounting teams, with React and ASP.NET Core.
 
-![.NET 8](https://img.shields.io/badge/.NET-8-512BD4?style=flat-square)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?style=flat-square)
 ![React 19](https://img.shields.io/badge/React-19-087EA4?style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square)
 ![SQL Server](https://img.shields.io/badge/SQL_Server-CC2927?style=flat-square)
@@ -106,7 +106,7 @@ Versions below describe the checked-in manifests, rather than a claim to use the
 
 | Layer | Technology |
 | --- | --- |
-| API & identity | ASP.NET Core / .NET 8, ASP.NET Core Identity, JWT bearer authentication |
+| API & identity | ASP.NET Core / .NET 10, ASP.NET Core Identity, JWT bearer authentication |
 | Persistence | Entity Framework Core 8, SQL Server; SQLite for isolated backend tests |
 | Web application | React 19, TypeScript 6, Vite 8, Ant Design 6, Tailwind CSS 3, Axios |
 | Spreadsheet processing | ClosedXML 0.104.2, Open XML, ExcelDataReader 3.9 |
@@ -180,7 +180,7 @@ Open [http://localhost:5173](http://localhost:5173). The API is at
 [http://localhost:5270/api](http://localhost:5270/api) (a route prefix, not a landing page).
 Swagger is available only when the API runs in Development mode.
 
-For native development, use .NET 8 and Node 22.12+; see [SETUP.md](docs/SETUP.md) for secrets,
+For native development, use the pinned .NET 10 SDK (global.json) and Node 22.12+; see [SETUP.md](docs/SETUP.md) for secrets,
 administrator setup, storage, OCR configuration and known container limitations.
 Instructions were checked against configuration; a complete local stack was not started during this audit.
 

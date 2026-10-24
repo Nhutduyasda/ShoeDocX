@@ -47,19 +47,23 @@ public sealed class Gate6AHttpSqlTests
                 await Task.Delay(500);
             }
             Assert.True(ready,"Real API readiness timed out");
+            var openapi=await client.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json");
+            Assert.Equal("Bearer",openapi.GetProperty("components").GetProperty("securitySchemes").EnumerateObject().Single().Name);
             var login=await client.PostAsJsonAsync("/api/auth/login",new {username="admin",password="@Admin1234"});Assert.Equal(HttpStatusCode.OK,login.StatusCode);
             var cookie=login.Headers.GetValues("Set-Cookie").Single(x=>x.StartsWith("shoedocx_access="));Assert.Contains("httponly",cookie.ToLowerInvariant());Assert.Contains("samesite=strict",cookie.ToLowerInvariant());
             var token=(await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
             client.DefaultRequestHeaders.Authorization=new("Bearer",token);
             Assert.Equal(HttpStatusCode.OK,(await client.GetAsync("/api/auth/me")).StatusCode);
-            foreach(var kind in new[]{"expired","audience","signature"})
+            var originalClaims=new JwtSecurityTokenHandler().ReadJwtToken(token).Claims
+                .Where(c=>c.Type is not ("iss" or "aud" or "exp" or "nbf" or "iat")).ToArray();
+            foreach(var kind in new[]{"valid","expired","audience","signature"})
             {
                 var key=kind=="signature"?"Gate6A_Wrong_Signature_Key_Only_2026_1234567890":"Gate6A_Synthetic_Jwt_Key_Only_2026_1234567890";
-                var jwt=new JwtSecurityToken("gate6a-issuer",kind=="audience"?"wrong-audience":"gate6a-audience",null,
+                var jwt=new JwtSecurityToken("gate6a-issuer",kind=="audience"?"wrong-audience":"gate6a-audience",originalClaims,
                     DateTime.UtcNow.AddHours(-2),kind=="expired"?DateTime.UtcNow.AddHours(-1):DateTime.UtcNow.AddHours(1),
                     new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),SecurityAlgorithms.HmacSha256));
                 client.DefaultRequestHeaders.Authorization=new("Bearer",new JwtSecurityTokenHandler().WriteToken(jwt));
-                Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/auth/me")).StatusCode);
+                Assert.Equal(kind=="valid"?HttpStatusCode.OK:HttpStatusCode.Unauthorized,(await client.GetAsync("/api/auth/me")).StatusCode);
             }
             client.DefaultRequestHeaders.Authorization=new("Bearer",token);
             var data=new {styleCode="SYNTH-00123",description="Sản phẩm tổng hợp",unitPriceCMT=2.50m,unitPriceDAP=3m,hsCode="64041990",unit="đôi",pairPerCarton=12};

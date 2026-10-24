@@ -1,3 +1,4 @@
+from runtime_target import host_dll
 """Gate 4A isolation and real-browser checks; no raw host logs or credentials published."""
 import json
 import os
@@ -57,7 +58,7 @@ def browser(ci):
     environment = os.environ.copy()
     environment.update(STUDIO_DEMO_PORT="5288", XNK_API_TARGET="http://127.0.0.1:5288",
                        STUDIO_BASE_URL="http://127.0.0.1:5176", STUDIO_EVIDENCE_DIR=str(ci.EVIDENCE / "studio"))
-    commands = [(["dotnet", str(feature / "tests/Gate4ADemoHost/bin/Debug/net8.0/Gate4ADemoHost.dll")], feature),
+    commands = [(["dotnet", str(host_dll(feature, 'Gate4ADemoHost'))], feature),
                 (["node", str(feature / "frontend/node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", "5176", "--strictPort"], feature / "frontend")]
     processes = []
     with tempfile.TemporaryDirectory(prefix="gate4a-host-logs-") as temporary:

@@ -55,9 +55,9 @@ public class Gate4B2ATests
     public void DotNetEightUsesSharedFrameworkImplementation(string kind)
     {
         var assembly = kind == "http" ? typeof(HttpClient).Assembly : typeof(Regex).Assembly;
-        Assert.Equal(8, assembly.GetName().Version!.Major);
+        Assert.Equal(10, assembly.GetName().Version!.Major);
         var location = assembly.Location.Replace('\\', '/');
-        Assert.Contains("/shared/Microsoft.NETCore.App/8.", location);
+        Assert.Contains("/shared/Microsoft.NETCore.App/10.", location);
         Assert.DoesNotContain("/.nuget/", location);
     }
 }

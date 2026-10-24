@@ -70,6 +70,10 @@ export function ruleText(rule: StudioRule, session: StudioSession): string {
   const label=(key:string|null)=>session.schemaDraft?.fields.find(f=>f.key===key&&!f.omit)?.label ?? 'Mục chưa chọn';
   return rule.kind==='CrossFoot' ? `Tổng cột ${label(rule.fieldA)} = ${label(rule.target)}` : `${label(rule.fieldA)} ${{Add:'+',Subtract:'−',Multiply:'×',Divide:'÷'}[rule.operator||'Multiply'] || '?'} ${label(rule.fieldB)} = ${label(rule.target)}`;
 }
+export function entryValue(type: string, value: string | null): string {
+  if(type==='Boolean'&&(value==='True'||value==='False')) return value.toLowerCase();
+  return value??'';
+}
 export function validEntry(field: LearnedField, value: string): boolean {
   if(value==='') return true; // Missing required values are reported by the server, never marked PASS here.
   if(field.type==='Decimal') return /^[+-]?\d+(?:\.\d+)?$/.test(value);

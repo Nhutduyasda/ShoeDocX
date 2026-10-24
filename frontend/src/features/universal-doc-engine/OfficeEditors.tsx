@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { LearnedField, StudioMapping, StudioRule, StudioSession } from './studioApi';
-import { colName, ruleText, scopeLabel, typeLabel, validEntry } from './officeModel';
+import { colName, entryValue, ruleText, scopeLabel, typeLabel, validEntry } from './officeModel';
 export type OfficeSection = 'schema'|'mapping'|'rules'|'data';
 export type OfficeApply = (action:string, body:Record<string,unknown>, section:OfficeSection, method?:string)=>Promise<void>;
 type Props = { session:StudioSession; busy:boolean; apply:OfficeApply; report:(section:OfficeSection,dirty:boolean)=>void };
@@ -79,7 +79,7 @@ function ValueInput({field,value,set,busy,label}:{field:LearnedField;value:strin
 }
 export function OfficeData({session,busy,apply,report}:Props) {
   const fields=session.schemaDraft?.fields.filter(f=>!f.omit)??[];const headers=fields.filter(f=>f.scope==='Header');const columns=fields.filter(f=>f.scope==='LineItem');
-  const [values,setValues]=useState<Record<string,string>>(()=>Object.fromEntries(session.fields.map(f=>[`${f.scope}:${f.row??0}:${f.key}`,f.value??''])));const [initial]=useState(values);
+  const [values,setValues]=useState<Record<string,string>>(()=>Object.fromEntries(session.fields.map(f=>[`${f.scope}:${f.row??0}:${f.key}`,entryValue(f.type,f.value)])));const [initial]=useState(values);
   const [rows,setRows]=useState(()=>Math.max(1,...session.fields.filter(f=>f.row!==null).map(f=>f.row!+1)));const [initialRows]=useState(rows);
   const key=(f:LearnedField,row:number)=>`${f.scope}:${row}:${f.key}`;
   const dirty=JSON.stringify(values)!==JSON.stringify(initial)||rows!==initialRows;useDirty('data',dirty,report);

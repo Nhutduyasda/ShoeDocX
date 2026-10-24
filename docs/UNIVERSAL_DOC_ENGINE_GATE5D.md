@@ -1,6 +1,6 @@
 # Gate 5D — Office-friendly Excel wizard and bounded compatibility
 
-Status: implementation in progress, **PARTIAL** until exact-HEAD Windows Server 2022 and Ubuntu 24.04 acceptance passes. No merge, deployment, shared database migration, paid API/hosting or Gate 6 work.
+Status: implementation acceptance **PASS** on Windows Server 2022 and Ubuntu 24.04 at `6c25665eaed1e0ca44c2eff6351bb9627ea27855`. Recommendation: **MERGE READY for the bounded Gate 5D MVP**, subject to successful exact-HEAD checks on the final documentation delivery commit. PR #18 must remain open; no merge, deployment, shared database migration, paid API/hosting or Gate 6 work is authorized.
 
 ## Baseline and observed UX issues
 
@@ -49,7 +49,7 @@ New backend tests exercise corpus output, preview bounds and immutability, owner
 
 CI uses the accepted baseline-versus-feature architecture, discovers inventories, compares complete identities/normalized failure fingerprints, runs all old engine/full/browser checks, all 72 accepted Gate 5C SQL cases, frontend builds/tests, real SQL migration/recovery, corpus/browser/openpyxl and dependency advisory comparison. Only JSON metadata is uploaded; workbook bytes and screenshots are private temporary synthetic verification files and removed before publication.
 
-Local TypeScript/build and 18 model tests pass at the initial implementation stage. Backend/browser/SQL/corpus results remain unverified until GitHub Actions completes. No invented completion time, click savings, usability score or real-user study is claimed. Exact tested HEAD, CI URLs, refreshed inventories, workbook hashes and final changed-file inventory will be recorded after actual acceptance.
+Local TypeScript/build and 18 model tests passed at the initial implementation stage; these were preliminary evidence only. The final Boolean regression increases the discovered model inventory to 19 passing tests. No invented completion time, click savings, usability score or real-user study is claimed.
 
 ### First exact-HEAD run and targeted correction
 
@@ -61,6 +61,30 @@ Code review also found a Medium draft lifecycle defect: the initial null binding
 
 The next browser run exposed a Medium Boolean editor defect: the accepted API serializes displayed Boolean values as `True`/`False`, whereas native Office select options use `true`/`false`. Reopening the data step after server validation could therefore disable resubmission. The Office form now adapts only these two Boolean display strings on initialization; Text identifiers and Decimal strings remain unchanged. A focused model test failed before the correction and passes afterward; the real-browser journey retains correction/resubmission after a failed arithmetic check and recovery/reapproval after restart. Full final-HEAD evidence is still required.
 
+### Completed implementation acceptance
+
+[Run 40070948078](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40070948078) is successful on both Windows Server 2022 and Ubuntu 24.04, testing exact implementation HEAD `6c25665eaed1e0ca44c2eff6351bb9627ea27855` against main `0671c99ad5743e2d234190c464fc496989a71012`. The documentation delivery commit changes this report only; its exact SHA and rerun URL are recorded in PR #18 metadata/checks before Draft is removed.
+
+| Evidence per operating system | Windows Server 2022 | Ubuntu 24.04 |
+|---|---|---|
+| Engine inventory | 625/625 pass, 0 skipped | 625/625 pass, 0 skipped |
+| Gate 5C–5D focused inventory | 93/93 pass, 0 skipped | 93/93 pass, 0 skipped |
+| Full feature inventory | 820 pass / 2 inherited failures / 822 total | 812 pass / 10 inherited failures / 822 total |
+| Baseline inventory | 604 engine; 799 pass / 2 failures / 801 full | 604 engine; 791 pass / 10 failures / 801 full |
+| Frontend | TypeScript/build, inherited draft tests, 19 model tests pass | Same |
+| Authenticated browser | 61 inherited checks + 5 Office journeys / 16 check groups pass | Same |
+| SQL | Gate 5C migration/concurrency/regression and actual process restart pass | Same |
+| Office XLSX | 4 real UI downloads + 7 corpus exports independently reopened | Same |
+| Dependencies | Official npm/NuGet sources checked; no new advisories | Same |
+
+All 21 added engine cases pass in the engine and full inventories. Failure identities and normalized fingerprints match the accepted baseline; inherited failures are not masked. There are no skipped mandatory checks. No High/Critical defect was demonstrated in this bounded review. The two Medium lifecycle/editor defects and the Low locator defect described above are corrected; no unresolved Gate 5D blocker remains in implementation acceptance.
+
+The authenticated Office journeys prove actual ambiguous header selection, dirty-schema navigation rejection without version mutation, required arithmetic failure and correction, owner/tenant preview denial, stale-approval blocking, refresh/update of the same SQL draft, real backend restart and fresh confirmation/review/approval, two- and three-sheet output, 20-row entry, native keyboard focus and internal scrolling at 390px, and atomic rejection of an unsupported replacement workbook. Runtime exception inventory is empty. Desktop viewport is 1360×1000; mobile is 390×844. These are synthetic acceptance checks, not a real-user usability study.
+
+Corpus A–G exports pass. H rejects cross-sheet formulas, far destinations, changed reference structure and merged example rows with bounded errors and no workbook release. ClosedXML engine assertions and independent openpyxl checks cover leading-zero Text IDs, dates/booleans, printed Decimal values, every mapped sheet, formats, formulas, borders, relocated footer/signature merges, sheet order and unchanged reference cells. Ubuntu metadata includes UI three-sheet/20-row workbook SHA-256 `76e5f10073998a5b7441fbd108ff020e3429d9c91fb408c57850f47f8825535c`; all eleven per-OS workbook hashes are retained in the sanitized CI JSON artifacts. Only JSON metadata was published; synthetic workbook bytes and private logs were removed by the verification runner.
+
+Security conclusion: the new preview remains informational and bounded; authenticated owner/tenant/session checks and expected-version checks gate access. Existing trusted actor resolution, CSRF, pre-binding authorization, TTL/quotas, source/template/example fingerprints, AES-GCM/SQL persistence, approval invalidation and original final export authorization remain in effect. Recovery does not restore approval authority. No browser-provided document or preview flag becomes export authority. The 23-file change inventory is confined to the Studio feature/controller, synthetic tests/host, CI scripts/workflow and this report; no decoder or legacy footwear implementation changes are included.
+
 ## Production exclusions
 
-Gate 5D does not resolve inherited SQLite/npm advisories, runtime/dependency hardening (Gate 6A), process-local runtime sessions, SQL/key/migration/backup operations, conservative resume leases, recognition/decoder compatibility or hosting. Protected stable keys, approved retention/erasure, encrypted SQL transport, narrow permissions and a maintained future EF snapshot remain operator prerequisites. No real/shared database migration was run. Final verdict remains PARTIAL until all mandatory evidence exists.
+Gate 5D does not resolve inherited SQLite/npm advisories, runtime/dependency hardening (Gate 6A), process-local runtime sessions, SQL/key/migration/backup operations, conservative resume leases, recognition/decoder compatibility or hosting. Protected stable keys, approved retention/erasure, encrypted SQL transport, narrow permissions and a maintained future EF snapshot remain operator prerequisites. No real/shared database migration was run. This is bounded MVP merge readiness, not production readiness. Separate owner approval is required to merge PR #18.

@@ -8,7 +8,7 @@ const browser=await chromium.launch({headless:true});let context=await browser.n
 page.on('pageerror',e=>errors.push(e.name));
 const click=name=>page.getByRole('button',{name,exact:true}).click();
 async function mutate(name,suffix){const pending=page.waitForResponse(r=>r.url().endsWith(suffix)&&r.request().method()!=='GET');await click(name);const r=await pending;assert.equal(r.status(),200);return r.json();}
-async function login(p,name){await p.goto(base+'/universal-doc-studio');await p.getByRole('textbox',{name:/Tên đăng nhập/}).fill(name);await p.getByLabel(/Mật khẩu/).fill('Studio@Test2026!');await p.getByRole('button',{name:/Đăng nhập/}).click();await p.getByRole('heading',{name:'Universal Document Studio',exact:true}).waitFor();}
+async function login(p,name){await p.goto(base+'/universal-doc-studio?mode=demo');await p.getByRole('textbox',{name:/Tên đăng nhập/}).fill(name);await p.getByLabel(/Mật khẩu/).fill('Studio@Test2026!');await p.getByRole('button',{name:/Đăng nhập/}).click();await p.getByRole('heading',{name:'Universal Document Studio',exact:true}).waitFor();}
 try{
  await login(page,'admin-a');await page.getByRole('heading',{name:'My drafts',exact:true}).waitFor();checks.push('AUTHENTICATED_MY_DRAFTS');
  await page.getByLabel('Template mode').selectOption('example');await click('Create private session');

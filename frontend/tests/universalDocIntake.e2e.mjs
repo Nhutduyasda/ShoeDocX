@@ -29,7 +29,7 @@ async function exportDenied() {
   await click('6 Excel export'); await click('Export Excel'); await page.getByRole('alert').filter({ hasText: 'EXTRACTION_REQUIRED' }).waitFor();
 }
 try {
-  await page.goto(base + '/universal-doc-studio');
+  await page.goto(base + '/universal-doc-studio?mode=demo');
   await page.getByRole('textbox', { name: /Tên đăng nhập/ }).fill('admin-a'); await page.getByLabel(/Mật khẩu/).fill('Studio@Test2026!');
   await page.getByRole('button', { name: /Đăng nhập/ }).click(); await page.getByRole('heading', { name: 'Universal Document Studio', exact: true }).waitFor();
   const created = page.waitForResponse(r => r.url().endsWith('/api/universal-doc/sessions') && r.request().method() === 'POST');

@@ -1,3 +1,4 @@
+import { OfficeRequestError, officeErrors } from './officeModel';
 export type ConfigurationSection = 'schema' | 'mapping' | 'rules' | 'sample';
 export type ConfigurationDirtyChange = (section: ConfigurationSection, dirty: boolean) => void;
 export interface StudioRule { id: string; kind: string; fieldA: string; operator: string | null; fieldB: string | null; target: string; tolerance: number; required: boolean; severity: string }
@@ -30,7 +31,10 @@ export interface StudioSession {
 export interface StudioBootstrap { draftsEnabled?: boolean; csrfToken: string; workflows: string[]; canReview: boolean; canApprove: boolean }
 
 export interface StudioDraft { id: string; workflow: string; revision: number; createdAt: string; updatedAt: string; expiresAt: string }
+export interface OfficePreview { sessionId: string; version: number; readiness: { mappingConfirmed: boolean; dataValid: boolean; canReviewNow: boolean; canApproveNow: boolean; canExport: boolean; blockers: string[] }; fields: { key: string; label: string; scope: string; type: string; required: boolean; row: number | null; value: string | null; missing: boolean; destinations: { sheet: string; cell: string }[] }[] }
 export class StudioApi {
+  private readonly office: boolean;
+  constructor(office = false) { this.office = office; }
   private csrf = '';
   private readonly base = `${(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')}/universal-doc`;
   private async request(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<Response> {
@@ -43,6 +47,7 @@ export class StudioApi {
     if (!response.ok) {
       if (response.status === 401) window.dispatchEvent(new Event('auth:unauthorized'));
       const error = await response.json().catch(() => ({})) as { code?: string; title?: string; details?: string[] };
+      if (this.office) throw new OfficeRequestError(typeof error.code === 'string' ? error.code : 'REQUEST_FAILED', response.status);
       const code = error.code || error.title || 'STUDIO_REQUEST_FAILED';
       const messages: Record<string, string> = {
         DRAFT_REVISION_CONFLICT: 'This draft changed. Refresh My drafts before choosing to save or resume again.',
@@ -79,7 +84,8 @@ export class StudioApi {
         SCHEMA_CORRECTION_REQUIRED: 'Apply your field corrections before confirming the schema and mapping.',
         UNSUPPORTED_OR_INVALID_TEMPLATE: 'This workbook contains an unsupported or invalid structure. Use the documented bounded XLSX subset.',
       };
-      throw new Error(`${messages[code] || code}${error.details?.length ? ` Details: ${error.details.join("; ")}` : ""} [${code}] (HTTP ${response.status})`);
+      const safeCode = Object.hasOwn(messages, code) || Object.hasOwn(officeErrors, code) ? code : 'STUDIO_REQUEST_FAILED';
+      throw new Error(`${messages[safeCode] || 'Studio request could not be completed.'} [${safeCode}] (HTTP ${response.status})`);
     }
     return response;
   }
@@ -87,6 +93,7 @@ export class StudioApi {
     const data = await (await this.request('/bootstrap', 'GET', undefined, signal)).json() as StudioBootstrap;
     this.csrf = data.csrfToken; return data;
   }
+  async officePreview(session: StudioSession): Promise<OfficePreview> { return (await this.request(`/sessions/${session.id}/office-preview?expectedVersion=${session.version}`)).json(); }
   async drafts(): Promise<StudioDraft[]> { return (await this.request('/drafts')).json(); }
   async saveDraft(session: StudioSession, draft?: StudioDraft): Promise<{ draft: StudioDraft; session: StudioSession }> {
     return (await this.request(`/sessions/${session.id}/save-draft`, 'POST', { expectedVersion: session.version, draftId: draft?.id ?? null, expectedRevision: draft?.revision ?? 0 })).json();

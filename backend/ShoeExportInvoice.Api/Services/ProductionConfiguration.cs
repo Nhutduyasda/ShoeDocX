@@ -1,5 +1,5 @@
 using Microsoft.Data.SqlClient;
-using Microsoft.AspNetCore.DataProtection;
+using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 
 namespace ShoeExportInvoice.Api.Services;
 
@@ -21,7 +21,10 @@ public static class ProductionConfiguration
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
             throw new InvalidOperationException("PRODUCTION_DATA_PROTECTION_PATH_REQUIRED");
         if (configuration.GetValue<bool>("UniversalDocDrafts:Enabled"))
+        {
             ValidateSql(configuration["UniversalDocDrafts:ConnectionString"] ?? configuration.GetConnectionString("DefaultConnection"));
+            _ = new DraftCipher(configuration);
+        }
     }
 
     private static void ValidateSql(string? connection)

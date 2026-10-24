@@ -13,6 +13,7 @@ import gate5b_browser
 import gate5c_browser
 import gate5d_browser
 from gate6a_dependencies import audit
+from runtime_target import host_dll
 BASELINE = '3d07a4f1db7e95cccb1f36e7de23569e5f57c2c5'
 
 def main():
@@ -32,6 +33,7 @@ def main():
         runs={}
         with tempfile.TemporaryDirectory(prefix='gate6a-trx-') as temporary:
             for name in ('baseline','feature'):
+                os.environ['GATE5C_PROBE']=str(host_dll(ci.ROOT/name,'Gate5CDemoHost'))
                 for scope in ('engine','full'):
                     label=name+'-'+scope
                     runs[label]=ci.execute(label,ci.ROOT/name,scope=='engine',Path(temporary))

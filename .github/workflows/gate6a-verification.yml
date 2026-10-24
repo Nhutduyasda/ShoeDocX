@@ -60,11 +60,12 @@ jobs:
         shell: bash
         run: |
           python -c 'import json; from pathlib import Path; Path("global.json").write_text(json.dumps({"sdk":{"version":"8.0.426","rollForward":"disable"}}))'
-          dotnet build feature/tests/Gate5CDemoHost/Gate5CDemoHost.csproj
-          dotnet build feature/tests/Gate5DDemoHost/Gate5DDemoHost.csproj
+          cd feature
+          dotnet build tests/Gate5CDemoHost/Gate5CDemoHost.csproj
+          dotnet build tests/Gate5DDemoHost/Gate5DDemoHost.csproj
           export GATE5C_PROBE="$GITHUB_WORKSPACE/feature/tests/Gate5CDemoHost/bin/Debug/net10.0/Gate5CDemoHost.dll"
           echo "GATE5C_PROBE=$GATE5C_PROBE" >> "$GITHUB_ENV"
-          dotnet test feature/tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter 'FullyQualifiedName~UniversalDocEngine.Gate5C|FullyQualifiedName~UniversalDocEngine.Gate5D|FullyQualifiedName~UniversalDocEngine.Gate6A'
+          dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter 'FullyQualifiedName~UniversalDocEngine.Gate5C|FullyQualifiedName~UniversalDocEngine.Gate5D|FullyQualifiedName~UniversalDocEngine.Gate6A'
       - name: Install isolated verification tools
         shell: bash
         run: |

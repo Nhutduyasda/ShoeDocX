@@ -51,6 +51,14 @@ CI uses the accepted baseline-versus-feature architecture, discovers inventories
 
 Local TypeScript/build and 18 model tests pass at the initial implementation stage. Backend/browser/SQL/corpus results remain unverified until GitHub Actions completes. No invented completion time, click savings, usability score or real-user study is claimed. Exact tested HEAD, CI URLs, refreshed inventories, workbook hashes and final changed-file inventory will be recorded after actual acceptance.
 
+### First exact-HEAD run and targeted correction
+
+[Run 40061606388](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40061606388) tested `d24b192bc7c42cd080ead5ed43cec321bc64e4a0` on Windows Server 2022 and Ubuntu 24.04. Both built all required projects and passed 625/625 engine tests (604 accepted plus 21 Gate 5D), with zero skipped tests. Full-suite discovery found 822 feature tests versus 801 baseline tests: the same two Windows and ten Ubuntu inherited failures remained. All 61 inherited authenticated browser checks, including the actual Gate 5C SQL process restart and downloaded-workbook reopen, passed. Advisory comparison found no new findings.
+
+The new Office browser suite stopped at an ambiguous `getByRole('alert')` locator because more than one alert was present. This is a Low verification defect, not evidence of a security bypass. The correction selects the exact expected unapplied-change warning while retaining the unchanged-server-version and unchanged-step assertions. No application validation or assertion was weakened. The subsequent exact-HEAD run must complete all five Office journeys and all eleven independent XLSX checks before readiness can be claimed.
+
+Code review also found a Medium draft lifecycle defect: the initial null binding effect removed the opaque draft link before asynchronous bootstrap could restore it. After refresh, a subsequent Save could create an unintended second draft. Persistence now waits until bootstrap has restored the authorized binding. The existing real-browser regression explicitly requires the same draft ID, revision increment by one and exactly one listed draft after refresh; Saved status still requires a new successful server save. No approval metadata is persisted.
+
 ## Production exclusions
 
 Gate 5D does not resolve inherited SQLite/npm advisories, runtime/dependency hardening (Gate 6A), process-local runtime sessions, SQL/key/migration/backup operations, conservative resume leases, recognition/decoder compatibility or hosting. Protected stable keys, approved retention/erasure, encrypted SQL transport, narrow permissions and a maintained future EF snapshot remain operator prerequisites. No real/shared database migration was run. Final verdict remains PARTIAL until all mandatory evidence exists.

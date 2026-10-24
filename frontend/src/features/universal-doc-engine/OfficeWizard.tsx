@@ -13,7 +13,7 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
   const [step,setStep]=useState(0);const [busy,setBusy]=useState(true);const [error,setError]=useState('');const [notice,setNotice]=useState('');
   const templateInput=useRef<HTMLInputElement>(null), exampleInput=useRef<HTMLInputElement>(null);
   const [template,setTemplate]=useState<File|null>(null);const [example,setExample]=useState<File|null>(null);const [loaded,setLoaded]=useState<{name:string;size:number}|null>(null);
-  const [drafts,setDrafts]=useState<StudioDraft[]>([]);const [binding,setBinding]=useState<Binding|null>(null);const [savedVersion,setSavedVersion]=useState<number|null>(null);
+  const [drafts,setDrafts]=useState<StudioDraft[]>([]);const [binding,setBinding]=useState<Binding|null>(null);const [bindingLoaded,setBindingLoaded]=useState(false);const [savedVersion,setSavedVersion]=useState<number|null>(null);
   const [dirty,setDirty]=useState<Partial<Record<OfficeSection,boolean>>>({});const formsDirty=Object.values(dirty).some(Boolean);const unsaved=formsDirty||!!template||!!example;
   const report=useCallback((section:OfficeSection,value:boolean)=>{setDirty(old=>old[section]===value?old:{...old,[section]:value});if(value)setNotice('');},[]);
   const refresh=async(s:StudioSession)=>{setSession(s);setPreview(null);const p=await api.officePreview(s);if(p.version!==s.version||p.sessionId!==s.id)throw new OfficeRequestError('SESSION_VERSION_CONFLICT',409);setPreview(p);};
@@ -25,10 +25,10 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
       if(results[1].status==='fulfilled'&&results[1].value){const s=results[1].value;await refresh(s);if(stopped)return;
         try {const link=JSON.parse(sessionStorage.getItem(LINK)||'null');const d=list.find(d=>d.id===link?.draftId);if(d&&link.sessionId===s.id&&Number.isSafeInteger(link.revision)&&link.revision>0)setBinding({sessionId:s.id,draft:{...d,revision:link.revision}});}catch{/* Opaque convenience metadata has no authority. */}
       }else if(id){sessionStorage.removeItem(SESSION);}
-    }catch(e){if(!stopped)setError(e instanceof OfficeRequestError?e.message:officeError('REQUEST_FAILED'));}finally{if(!stopped)setBusy(false);}
+    }catch(e){if(!stopped)setError(e instanceof OfficeRequestError?e.message:officeError('REQUEST_FAILED'));}finally{if(!stopped){setBindingLoaded(true);setBusy(false);}}
   })();return()=>{stopped=true;abort.abort();};},[api]);
   useEffect(()=>{if(session)sessionStorage.setItem(SESSION,session.id);},[session]);
-  useEffect(()=>{if(binding)sessionStorage.setItem(LINK,JSON.stringify({sessionId:binding.sessionId,draftId:binding.draft.id,revision:binding.draft.revision}));else sessionStorage.removeItem(LINK);},[binding]);
+  useEffect(()=>{if(!bindingLoaded)return;if(binding)sessionStorage.setItem(LINK,JSON.stringify({sessionId:binding.sessionId,draftId:binding.draft.id,revision:binding.draft.revision}));else sessionStorage.removeItem(LINK);},[binding,bindingLoaded]);
   useEffect(()=>{if(!unsaved)return;const guard=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue='';};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[unsaved]);
   async function run(operation:()=>Promise<void>) {setBusy(true);setError('');setNotice('');try{await operation();}catch(e){setSavedVersion(null);setPreview(null);setError(e instanceof OfficeRequestError?e.message:officeError('REQUEST_FAILED'));}finally{setBusy(false);}}
   function navigate(next:number){if(busy)return;if(unsaved&&next!==step){setError(officeError('UNSAVED_CHANGES'));return;}setStep(next);setError('');}

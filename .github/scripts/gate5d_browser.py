@@ -1,3 +1,4 @@
+from runtime_target import host_dll
 import hashlib
 import json
 import os
@@ -19,7 +20,7 @@ def browser(ci):
     environment = os.environ.copy()
     environment.update(GATE5C_DATABASE=os.environ['GATE5C_SQL'] + ';Database=gate5c_browser_' + uuid.uuid4().hex,
                        STUDIO_DEMO_PORT='5291', XNK_API_TARGET='http://127.0.0.1:5291', STUDIO_BASE_URL='http://127.0.0.1:5179', STUDIO_EVIDENCE_DIR=str(private_folder))
-    host = str(feature / 'tests/Gate5DDemoHost/bin/Debug/net8.0/Gate5DDemoHost.dll')
+    host = str(host_dll(feature, 'Gate5DDemoHost'))
     def command(args):
         return subprocess.run(['dotnet', host, *args], cwd=feature, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=90)
     assert command(['--migrate']).returncode == 0, 'Ephemeral browser SQL migration failed'

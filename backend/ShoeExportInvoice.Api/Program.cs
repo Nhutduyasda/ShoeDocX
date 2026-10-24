@@ -1,11 +1,12 @@
 using System.Text;
+using Microsoft.AspNetCore.DataProtection;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using System.Threading.RateLimiting;
 using ShoeExportInvoice.Api.Data;
 using ShoeExportInvoice.Api.Models.Entities;
@@ -13,6 +14,11 @@ using ShoeExportInvoice.Api.Services;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 
 var builder = WebApplication.CreateBuilder(args);
+ProductionConfiguration.Validate(builder.Configuration, builder.Environment.IsProduction());
+var protectionPath = builder.Configuration["DataProtection:KeyPath"];
+if (!string.IsNullOrWhiteSpace(protectionPath))
+    builder.Services.AddDataProtection().SetApplicationName("ShoeDocX")
+        .PersistKeysToFileSystem(new DirectoryInfo(protectionPath));
 
 // Keep local/CLI startup independent from the Windows Event Log, which may
 // require elevated permissions and must never make a successful migration fail.
@@ -75,7 +81,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = false;
+    options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
     options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
@@ -190,19 +196,9 @@ builder.Services.AddSwaggerGen(c =>
         Scheme = "Bearer"
     });
 
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    c.AddSecurityRequirement(document => new OpenApiSecurityRequirement
     {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
+        [new OpenApiSecuritySchemeReference("Bearer", document)] = []
     });
 });
 
@@ -214,7 +210,7 @@ app.Use(async (context, next) =>
     try { await next(context); }
     catch (Exception ex)
     {
-        app.Logger.LogError(ex, "Request failed: {TraceId}", context.TraceIdentifier);
+        app.Logger.LogError("Request failed: {ExceptionType} {TraceId}", ex.GetType().Name, context.TraceIdentifier);
         context.Response.StatusCode = ex switch {
             DbUpdateException => 409,
             KeyNotFoundException => 404,
@@ -223,7 +219,7 @@ app.Use(async (context, next) =>
         };
         await context.Response.WriteAsJsonAsync(new { message = context.Response.StatusCode == 409
             ? "Dữ liệu đã thay đổi hoặc bị trùng. Vui lòng tải lại và thử lại."
-            : context.Response.StatusCode == 400 ? ex.Message : "Không thể hoàn tất yêu cầu.",
+            : "Không thể hoàn tất yêu cầu.",
             traceId = context.TraceIdentifier });
     }
 });
@@ -237,7 +233,11 @@ using (var scope = app.Services.CreateScope())
     var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
     try
     {
-        await DbInitializer.InitializeAsync(context, logger);
+        var applyMigrations = args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage") ||
+            builder.Configuration.GetValue<bool?>("Database:ApplyMigrationsOnStartup") == true || app.Environment.IsDevelopment();
+        if (!applyMigrations && (await context.Database.GetPendingMigrationsAsync()).Any())
+            throw new InvalidOperationException("DATABASE_MIGRATION_REQUIRED");
+        await DbInitializer.InitializeAsync(context, logger, applyMigrations);
         var storageOptions = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<XnkOptions>>().Value;
         var environment = services.GetRequiredService<IWebHostEnvironment>();
         if (args.Contains("--migrate-customs-storage"))
@@ -256,7 +256,7 @@ using (var scope = app.Services.CreateScope())
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Lỗi xảy ra trong quá trình khởi tạo cơ sở dữ liệu.");
+        logger.LogError("Database initialization failed: {ExceptionType}", ex.GetType().Name);
         throw;
     }
 }

@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-  <PropertyGroup><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../backend/ShoeExportInvoice.Api/ShoeExportInvoice.Api.csproj" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
     <Compile Include="../ShoeExportInvoice.Tests/UniversalDocEngine/Gate4AHost.cs" Link="Gate4AHost.cs" />
     <Compile Include="../ShoeExportInvoice.Tests/UniversalDocEngine/Gate5BFixtures.cs" Link="Gate5BFixtures.cs" />
     <Compile Include="../ShoeExportInvoice.Tests/UniversalDocEngine/Gate5CSqlFixture.cs" Link="Gate5CSqlFixture.cs" />

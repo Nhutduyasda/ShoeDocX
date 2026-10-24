@@ -44,7 +44,7 @@ public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrato
     [RequestSizeLimit(SourceIntake.MaximumFileBytes + 16384)]
     [RequestFormLimits(MemoryBufferThreshold = SourceIntake.MaximumFileBytes + 16384,
         MultipartBodyLengthLimit = SourceIntake.MaximumFileBytes, ValueLengthLimit = 128, ValueCountLimit = 2)]
-    public async Task<IActionResult> AddSource(string id, [FromForm] IFormFile file, [FromForm] long expectedVersion, CancellationToken cancellationToken)
+    public async Task<IActionResult> AddSource(string id, IFormFile file, [FromForm] long expectedVersion, CancellationToken cancellationToken)
     {
         if (Request.Form.Files.Count != 1 || Request.Form.Files[0].Name != "file" ||
             Request.Form.Keys.Any(k => k != "expectedVersion") || !Request.Form.ContainsKey("expectedVersion") ||
@@ -62,7 +62,7 @@ public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrato
     [Consumes("multipart/form-data")]
     [RequestFormLimits(MemoryBufferThreshold = InMemoryUniversalDocSessionStore.MaximumTemplateBytes + 65536,
         MultipartBodyLengthLimit = InMemoryUniversalDocSessionStore.MaximumTemplateBytes, ValueLengthLimit = 128, ValueCountLimit = 4)]
-    public async Task<IActionResult> Upload(string id, [FromForm] IFormFile file, [FromForm] long expectedVersion, CancellationToken cancellationToken)
+    public async Task<IActionResult> Upload(string id, IFormFile file, [FromForm] long expectedVersion, CancellationToken cancellationToken)
     {
         if (Request.Form.Files.Count != 1 || Request.Form.Files[0].Name != "file" ||
             Request.Form.Keys.Any(k => k != "expectedVersion") || Request.Form["expectedVersion"].Count != 1)

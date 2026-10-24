@@ -33,12 +33,12 @@ public sealed class UniversalDocDraftDb(DbContextOptions<UniversalDocDraftDb> op
     public DbSet<ResumeLease> Leases => Set<ResumeLease>();
     protected override void OnModelCreating(ModelBuilder model)
     {
-        var d = model.Entity<DraftRecord>(); d.ToTable("Drafts", "ude"); d.HasKey(x => x.Id);
-        d.Property(x => x.Id).HasMaxLength(64); d.Property(x => x.OwnerId).HasMaxLength(256); d.Property(x => x.TenantId).HasMaxLength(256);
+        var d = model.Entity<DraftRecord>(); d.ToTable("Drafts", "ude", table => { table.HasCheckConstraint("CK_ude_DraftBytes", "DATALENGTH(Ciphertext) BETWEEN 29 AND 5242908"); }); d.HasKey(x => x.Id);
+        d.Property(x => x.Id).HasMaxLength(64).UseCollation("Latin1_General_100_BIN2"); d.Property(x => x.OwnerId).HasMaxLength(256).UseCollation("Latin1_General_100_BIN2"); d.Property(x => x.TenantId).HasMaxLength(256).UseCollation("Latin1_General_100_BIN2");
         d.Property(x => x.Workflow).HasMaxLength(32); d.Property(x => x.KeyId).HasMaxLength(64); d.Property(x => x.RowVersion).IsRowVersion(); d.Property(x => x.Revision).IsConcurrencyToken();
         d.HasIndex(x => x.ExpiresAt); d.HasIndex(x => new { x.TenantId, x.OwnerId });
         var l = model.Entity<ResumeLease>(); l.ToTable("ResumeLeases", "ude"); l.HasKey(x => x.Id);
-        l.Property(x => x.Id).HasMaxLength(64); l.Property(x => x.OwnerId).HasMaxLength(256); l.Property(x => x.TenantId).HasMaxLength(256); l.HasIndex(x => x.ExpiresAt);
+        l.Property(x => x.Id).HasMaxLength(64).UseCollation("Latin1_General_100_BIN2"); l.Property(x => x.OwnerId).HasMaxLength(256).UseCollation("Latin1_General_100_BIN2"); l.Property(x => x.TenantId).HasMaxLength(256).UseCollation("Latin1_General_100_BIN2"); l.HasIndex(x => x.ExpiresAt);
     }
 }
 [DbContext(typeof(UniversalDocDraftDb))]

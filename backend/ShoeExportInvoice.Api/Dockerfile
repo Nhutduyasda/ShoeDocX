@@ -1,5 +1,5 @@
-# Stage 1: Build .NET 8 Web API
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+# Stage 1: Build .NET 10 Web API
+FROM mcr.microsoft.com/dotnet/sdk:10.0.402 AS build
 WORKDIR /src
 
 # Copy csproj and restore dependencies
@@ -12,18 +12,20 @@ WORKDIR "/src/backend/ShoeExportInvoice.Api"
 RUN dotnet publish "ShoeExportInvoice.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # Stage 2: Final ASP.NET Core Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.13 AS final
 WORKDIR /app
 
-# Create directory for SQLite persistent database and templates
-RUN mkdir -p /app/data /app/Templates
+# Writable application directories, owned by the built-in unprivileged .NET user
+RUN mkdir -p /app/data /app/Templates && chown -R app:app /app/data /app/Templates
 
-COPY --from=build /app/publish .
+COPY --chown=app:app --from=build /app/publish .
+RUN chmod 700 /app/data /app/Templates
 
 # Environment variables
 ENV ASPNETCORE_URLS=http://+:5270
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV ConnectionStrings__DefaultConnection="Data Source=/app/data/shoe_export.db"
+USER app
+# SQL Server connection and keys must be injected by the operator. No database defaults.
 
 EXPOSE 5270
 

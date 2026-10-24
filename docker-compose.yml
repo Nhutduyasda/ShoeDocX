@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. Backend Service: ASP.NET Core 8 Web API
+  # 1. Backend Service: ASP.NET Core 10 Web API
   backend:
     build:
       context: .
@@ -16,6 +16,9 @@ services:
       - Xnk__CustomsStoragePath=/app/data/customs
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - Jwt__Key=${JWT_KEY:?JWT_KEY must be configured}
+      - DataProtection__KeyPath=/app/data/protection-keys
+      - Xnk__AllowedOrigins__0=${FRONTEND_ORIGIN:?FRONTEND_ORIGIN must be an explicit HTTPS origin}
+      - Database__ApplyMigrationsOnStartup=false
       - BootstrapAdmin__Enabled=${BOOTSTRAP_ADMIN_ENABLED:-false}
       - BootstrapAdmin__Username=${BOOTSTRAP_ADMIN_USERNAME:-}
       - BootstrapAdmin__Password=${BOOTSTRAP_ADMIN_PASSWORD:-}

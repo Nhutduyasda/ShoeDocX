@@ -240,6 +240,7 @@ public sealed class Gate5CTests : IAsyncLifetime
     [Theory][InlineData("owner")][InlineData("tenant")]
     public void SqlPaddingCannotAliasTrustedOwnerOrTenant(string member) {
         var draft=SaveReady();var actor=Actor().Value;actor=member=="owner"?actor with{UserId=actor.UserId+" "}:actor with{TenantId=actor.TenantId+" "};
+        using(var db=sql.DbFactory.CreateDbContext())Assert.Equal(1,db.Drafts.Count(x=>x.OwnerId==actor.UserId&&x.TenantId==actor.TenantId)); // Actual BIN2 predicate aliases the padded identifier.
         Assert.Equal(401,Assert.Throws<StudioFault>(()=>sql.Store.List(actor)).Status);
         Assert.Equal(401,Assert.Throws<StudioFault>(()=>sql.Store.Read(actor,draft.Id,1)).Status);
         Assert.Equal(401,Assert.Throws<StudioFault>(()=>sql.Store.AcquireResume(actor,draft.Id,1)).Status);

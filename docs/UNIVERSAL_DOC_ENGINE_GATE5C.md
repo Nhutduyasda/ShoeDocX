@@ -1,6 +1,6 @@
 # Gate 5C — secure durable Studio drafts
 
-Status: bounded Gate 5C implementation PASS at the verified revision below. Final documentation/upload-allowlist delivery requires its exact-HEAD CI result recorded in PR #17. No deployment or Gate 5C merge authorized.
+Status: independent final review found and corrected three Medium and two Low issues. Corrected application revision `4fb63cd3297a5bf8e2e726dc779340817c58c16c` passes both hosts as recorded below. Recommendation: MERGE READY for the bounded MVP once the exact final delivery HEAD/run recorded in PR #17 is successful. No deployment or Gate 5C merge authorized.
 
 Gate 5B PR #16 was explicitly approved by the owner and merged into accepted main `6469be3480115c05b9efd8e0a650bdbc27f38df9`. Feature parent `424fa56ffe56003a56fc5889459bc0e46d04dcc8` is retained in its ancestry. Decoder PRs #13/#14 remain untouched.
 
@@ -134,7 +134,7 @@ Review baseline: main `6469be3480115c05b9efd8e0a650bdbc27f38df9`; starting PR #1
 
 The first two regression tests were committed before application corrections at `a161d1a3668ccf60d8bdad3a9905435ada19a7e2`. [Run 40052950453](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40052950453) reproduced both failures on real Windows LocalDB and Ubuntu SQL Server: 47 pass, exactly two fail, zero skipped. Errors were respectively `EXAMPLE_SHARED_ORDERED_IDENTIFIER_REQUIRED` and `DRAFT_PAYLOAD_INVALID`. This intentionally red run is retained as root-cause evidence, not acceptance evidence.
 
-The additional owner/tenant padding regressions were committed without their correction at `c173f2215acead2cecc4b43275ac7fd6ba1f4bb9`. [Run 40053815653](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40053815653) reproduced both aliases on real Ubuntu SQL Server (68 pass, two fail, zero skipped): the ownership boundary accepted the differently spelled trusted identities. The minimal correction rejects trailing ASCII spaces rather than trimming an identifier into another identity. Windows evidence and the corrected final inventories are recorded in the final delivery result below/PR #17.
+The additional owner/tenant padding regressions were committed without their correction at `c173f2215acead2cecc4b43275ac7fd6ba1f4bb9`. [Run 40053815653](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40053815653) reproduced both aliases on real Windows LocalDB and Ubuntu SQL Server (68 pass, two fail, zero skipped on each): the ownership boundary accepted the differently spelled trusted identities. The minimal correction rejects trailing ASCII spaces rather than trimming an identifier into another identity. The strengthened regression also asserts that the raw BIN2 SQL predicate matches the padded identity, while the application rejects it before any ownership lookup/decryption/mutation. Corrected inventories are recorded below and in PR #17.
 
 The added browser selector initially matched both active and omitted worksheet fields with the same Quantity label. It now selects the active Manual row; no assertion or acceptance requirement was removed.
 
@@ -152,4 +152,30 @@ Trusted membership, owner/tenant checks, CSRF authorization before sensitive bin
 
 ### Final verification record
 
-The final delivery HEAD and exact-HEAD CI URLs are recorded in PR #17 and immutable sanitized `summary.json` artifacts, avoiding a self-referential commit hash inside this document. The independent-review result is **PARTIAL / NOT READY until the final two-host rerun succeeds**. The final PR delivery record supersedes this pending verification condition only after actual inventory, full baseline comparison, real SQL, authenticated browser restart, XLSX reopen and dependency/artifact checks pass. Historical evidence above is preserved.
+The corrected application at **`4fb63cd3297a5bf8e2e726dc779340817c58c16c`** passed [run 40054028411](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40054028411): [Windows Server 2022 job 120752875866](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40054028411/job/120752875866) and [Ubuntu 24.04 job 120752876041](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40054028411/job/120752876041). This supersedes the independent-review pending status. Both metadata archives were downloaded and independently checked in Work, including complete identities and inherited failure fingerprints.
+
+| Actual corrected-application evidence | Windows Server 2022 | Ubuntu 24.04 |
+|---|---|---|
+| Gate 5C discovered/executed | 70 PASS, zero skipped | 70 PASS, zero skipped |
+| Baseline engine | 532 PASS | 532 PASS |
+| Feature engine | 602 PASS | 602 PASS |
+| Baseline full | 727 PASS + 2 inherited failures / 729 | 719 PASS + 10 inherited failures / 729 |
+| Feature full | 797 PASS + same 2 failures / 799 | 789 PASS + same 10 failures / 799 |
+| Existing authenticated browser | 43 PASS | 43 PASS |
+| Gate 5C authenticated browser | 17 PASS, zero runtime errors | 17 PASS, zero runtime errors |
+| SQL Server | LocalDB Express 15.0.4382.1 | Developer 16.0.4305.5 |
+| A–G independent-process exits/recovery; migration apply/rollback/reapply | PASS | PASS |
+| Lock timeout, rowversion, revisions, quotas, killed transaction rollback | PASS | PASS |
+| Actual backend restart, fresh login, review/approval and downloaded XLSX reopen | PASS | PASS |
+| New packages / dependency findings | 0 / 0 | 0 / 0 |
+
+70 Gate 5C cases are 29 more than the starting revision. Complete discovered identities equal the executed new identities in both engine and full suites. Baseline failures are preserved by identity and normalized diagnostic fingerprint; no mandatory test is skipped or assertion weakened. Standard backend/frontend builds and the 13 inherited draft tests pass. The current audit still reports the inherited SQLite native High advisory and five npm findings (two High, three Moderate), equal on baseline/feature.
+
+- [Windows metadata artifact 12544243881](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40054028411/artifacts/12544243881), SHA-256 `4b4861f13f6c13511fcb4828f6c752d01452ffe0afecd655cd6bc96598366426`.
+- [Ubuntu metadata artifact 12544628292](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40054028411/artifacts/12544628292), SHA-256 `9d6ef329ed4351aaf020c659717f4cbcfbdf52a824b82e1aee25d08576590af6`.
+
+Actual browser XLSX downloads were independently reopened with openpyxl before removal: Windows 8669 bytes, SHA-256 `c2ca7730b42a56414ce51aa4a7cb612529a0bba95cd108b2dacf109fcec7814c`; Ubuntu 8648 bytes, SHA-256 `3146f13bab51d65c8b329fc96eb2778672e952abb13f3e364b7cb8629208adf7`. Both data sheets, typed/leading-zero values, formats, formulas, borders, merges, sheet order and the reference sheet pass. Real-SQL engine tests additionally reopen three-sheet output. Archives contain JSON metadata only; no plaintext documents, source bytes, workbook binaries, screenshots or secrets are published.
+
+The final delivery adds only this acceptance record and two regression strengthenings: the raw SQL padding predicate assertion and actual browser Save as a new draft/distinct identity/deletion checks. The browser verifier now requires 18 Gate 5C checks (61 total with the unchanged 43); that addition is subject to the full exact-final-HEAD run. The exact delivery SHA, its successful CI URL, final inventories and inspected artifact hashes are recorded in PR #17 and immutable sanitized `summary.json` to avoid a self-referential commit hash in its own document. The delivery recommendation is **MERGE READY only with that successful exact-HEAD record; otherwise NOT READY**.
+
+Cryptography/key lifecycle, SQL transaction/concurrency, incomplete A–G recovery, trusted auth/tenant isolation and fresh-approval export boundaries pass the bounded review. No Critical/High finding remains from this review; all three Medium and two Low findings above are corrected. Operational prerequisites remain stable protected keys, supported SQL Server and narrowly scoped permissions, explicit authorized migration, a future maintained EF model snapshot, clock/session routing, conservative lease capacity and approved backup/retention/erasure procedures. Old malformed missing/empty snapshots fail closed; users must re-save from a valid active session. This is not production readiness. PR #17 remains open for separate owner merge approval; main, decoder PRs #13/#14 and shared infrastructure are unchanged.

@@ -1,6 +1,6 @@
 # Gate 5C — secure durable Studio drafts
 
-Status: independent final review remains PARTIAL / NOT READY pending verification of the additional historical padded-record ownership boundary described at the end. Earlier successful run tables are historical evidence. No deployment or Gate 5C merge authorized.
+Status: independent final review PASS at corrected application HEAD `51370b42dcc6eb1d24c8a72394cfd2718e088c66`. Three Medium and two Low findings corrected. MERGE READY for the bounded MVP subject to the exact final documentation-delivery CI recorded in PR #17. No merge or deployment authorized.
 
 Gate 5B PR #16 was explicitly approved by the owner and merged into accepted main `6469be3480115c05b9efd8e0a650bdbc27f38df9`. Feature parent `424fa56ffe56003a56fc5889459bc0e46d04dcc8` is retained in its ancestry. Decoder PRs #13/#14 remain untouched.
 
@@ -150,7 +150,7 @@ Resume leases remain additional conservative DB admission, not replacement runti
 
 Trusted membership, owner/tenant checks, CSRF authorization before sensitive binding, strict client DTOs, source/template/example hashes, expected runtime versions and the original export chokepoint remain in force. Recovered values are Manual and Unreviewed; no recognition/source authority or prior approval is restored. Legacy footwear entities/migrations/export remain unchanged. Existing baseline and authenticated browser regressions must pass on the final exact HEAD.
 
-### Final verification record
+### First correction verification record (historical)
 
 The corrected application at **`4fb63cd3297a5bf8e2e726dc779340817c58c16c`** passed [run 40054028411](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40054028411): [Windows Server 2022 job 120752875866](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40054028411/job/120752875866) and [Ubuntu 24.04 job 120752876041](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40054028411/job/120752876041). This supersedes the independent-review pending status. Both metadata archives were downloaded and independently checked in Work, including complete identities and inherited failure fingerprints.
 
@@ -183,8 +183,42 @@ Cryptography/key lifecycle, SQL transaction/concurrency, incomplete A–G recove
 
 ### Historical padded-record ownership boundary
 
-The SQL padding finding also applies in reverse to correctly encrypted records written by an older configuration whose stored owner/tenant ends in ASCII space. Rejecting padded incoming actors alone is insufficient. New regressions seed an authenticated historical row and require an unpadded actor to receive no list metadata and 404 for read, update, resume admission and delete. At `f4585159a4e97237be7022e2fdab37ebf8d0bf5a`, [run 40055425339](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40055425339) demonstrated both nonempty unauthorized listings on real Ubuntu SQL Server: 70 pass, two fail, zero skipped. This is a refinement of the same Medium ownership finding, not a new feature.
+The SQL padding finding also applies in reverse to correctly encrypted records written by an older configuration whose stored owner/tenant ends in ASCII space. Rejecting padded incoming actors alone is insufficient. New regressions seed an authenticated historical row and require an unpadded actor to receive no list metadata and 404 for read, update, resume admission and delete. At `f4585159a4e97237be7022e2fdab37ebf8d0bf5a`, [run 40055425339](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40055425339) demonstrated both nonempty unauthorized listings on real Windows LocalDB and Ubuntu SQL Server: 70 pass, two fail, zero skipped on each. This is a refinement of the same Medium ownership finding, not a new feature.
 
 `Find` now compares stored owner/tenant spelling with the trusted actor using ordinal equality before expiry/revision diagnostics, decryption or mutation. `List` projects bounded metadata only and applies the same exact comparison before returning it; no ciphertext is loaded for listing. Incoming padded actors remain rejected. Historical ambiguous rows are not reassigned, trimmed or automatically decrypted; they can conservatively consume capacity until retention cleanup or separately authorized operator remediation. No actual/shared database was accessed. Operators must configure unambiguous membership identifiers.
 
-The prior 70-test pass does not certify this additional boundary. The next corrected revision must pass the expanded 72-case inventory, both full baseline comparisons and all 61 authenticated browser checks, including Save as a new draft, actual restart and XLSX reopen. Exact corrected and final delivery HEAD/run evidence will supersede this pending status below/PR #17. No merge readiness is claimed while it remains pending.
+The prior 70-test pass did not certify this additional boundary. The expanded corrected revision passed the 72-case inventory and complete acceptance below, superseding the pending status and earlier ownership conclusion.
+
+
+## Final independent review acceptance — 24 October 2026
+
+Exact corrected application/test HEAD: **`51370b42dcc6eb1d24c8a72394cfd2718e088c66`**. [Run 40055694739](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40055694739) completed SUCCESS on [Windows Server 2022](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40055694739/job/120758068418) and [Ubuntu 24.04](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40055694739/job/120758068209). Both archives were downloaded, unpacked and independently checked in Work, including full test identities and failure fingerprints, browser outcomes, dependency comparison, SQL metadata and workbook QA.
+
+| Actual discovered/executed evidence | Windows Server 2022 | Ubuntu 24.04 |
+|---|---|---|
+| Gate 5C | 72 PASS, zero skipped | 72 PASS, zero skipped |
+| Baseline engine | 532 PASS | 532 PASS |
+| Feature engine | 604 PASS | 604 PASS |
+| Baseline full | 727 PASS + 2 inherited failures / 729 | 719 PASS + 10 inherited failures / 729 |
+| Feature full | 799 PASS + same 2 failures / 801 | 791 PASS + same 10 failures / 801 |
+| Existing authenticated browser | 43 PASS | 43 PASS |
+| Gate 5C authenticated browser | 18 PASS | 18 PASS |
+| Total authenticated browser / runtime errors | 61 PASS / zero | 61 PASS / zero |
+| Real SQL Server | LocalDB Express 15.0.4382.1 | Developer 16.0.4305.5 |
+| Migration apply/rollback/reapply; interrupted writer rollback | PASS | PASS |
+| A–G process-exit recovery, lock/revision/rowversion/quota boundaries | PASS | PASS |
+| Actual backend restart/re-login, renewed approval, downloaded XLSX/openpyxl | PASS | PASS |
+| New packages / dependency findings | 0 / 0 | 0 / 0 |
+
+The 72 Gate 5C cases add 31 cases to the starting revision. Discovery equals executed new identities in both engine and full suites; no mandatory test is skipped or acceptance assertion weakened. Existing failures match same-host baseline identity and diagnostic fingerprint. All standard builds and 13 inherited frontend draft tests pass. Browser checks include Save as a new draft producing a distinct authorized record and deletion of both records, unapplied field edits clearing Saved state, refresh association, explicit conflicts, cross-owner/tenant denial, renewed confirmation/review/approval and 390px controls.
+
+- [Windows artifact 12545058461](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40055694739/artifacts/12545058461): ZIP SHA-256 `933ec7935d038171c24eb99d648a9f513a5f47d849628ac7beb607c9b2897efc`.
+- [Ubuntu artifact 12545169413](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40055694739/artifacts/12545169413): ZIP SHA-256 `75943c439ad3b74f870b72bda8e4f7eb80b14c92dc1a669fa2a5b0bba0e24c87`.
+
+Actual independently reopened XLSX: Windows 8669 bytes, SHA-256 `a13c5f6c28004423ae9a3021ee5884e4fcdf8d6e5143e7be73b163b1302e9f56`; Ubuntu 8648 bytes, SHA-256 `e95875874058b683438f81c1dded861bcf5252a35181a223d3e8346fd5ba1bfc`. Both sheets' values, leading-zero identifiers, formats, formulas, borders, merges, worksheet order and reference content pass. Three-sheet output is additionally reopened in real-SQL engine tests. Workbooks are removed before artifact publication; archives contain JSON metadata only, with no plaintext document/source bytes or secrets.
+
+**Final security conclusions:** AES-GCM nonce/tag/AAD, key rotation and fail-closed formats pass. SQL transactions, expected revisions, rowversion, global locks, fixed expiry and quotas pass, including both directions of padded ownership and authenticated historical rows. A–G incomplete recovery passes without old confirmation/review/approval. Auth, CSRF, trusted tenant ownership, expected versions and the unchanged export chokepoint pass. All three Medium and two Low findings are corrected; no unresolved Critical/High finding was identified by this bounded review.
+
+Operational exclusions remain: example-based durable drafts only; normal sessions are process-local; successful leases conservatively occupy capacity until expiry; deletion does not revoke an independently recovered session; historical ambiguous identities and malformed missing/empty snapshots fail closed. Operators need stable protected keys, approved key/backup retention and erasure procedures, supported SQL Server, validated encrypted production transport, narrow runtime DML/application-lock permissions, separate authorized DDL migration, clock/session routing and a reviewed EF model snapshot before future scaffolding. Commit acknowledgement loss remains ambiguous and requires refreshed metadata before deliberate retry. The inherited SQLite native High advisory and five npm findings (two High, three Moderate) remain unchanged.
+
+**Recommendation: MERGE READY for the bounded Gate 5C MVP**, conditioned on the successful exact-final-HEAD delivery run recorded in PR #17 and its immutable `summary.json`. This final commit changes documentation only; application/tests remain exactly the verified revision above. The PR record supplies the final delivery SHA/run to avoid embedding a self-referential SHA in its own document. No merge, deployment, paid hosting, real/shared database migration, Gate 5D or decoder changes were performed. This is not production readiness.

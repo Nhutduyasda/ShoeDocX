@@ -31,7 +31,7 @@ try{
  const saved=await mutate('Save draft','/save-draft');const draft=saved.draft;await page.getByText('Draft saved durably.',{exact:true}).waitFor();checks.push('ACTUAL_SAVE_CONFIRMED');
  const update=await mutate('Save draft','/save-draft');assert.equal(update.draft.id,draft.id);assert.equal(update.draft.expiresAt,draft.expiresAt);assert.equal(update.draft.revision,draft.revision+1);Object.assign(draft,update.draft);
  assert.equal((await(await context.request.get(base+'/api/universal-doc/drafts')).json()).length,1);checks.push('REPEATED_SAVE_UPDATES_WITHOUT_DUPLICATION');
- await page.getByText(/^Draft saved at /).waitFor();await click('4 Data review');const quantity=page.getByRole('textbox',{name:'LineItem row 1 Quantity',exact:true});await quantity.fill('9.5');
+ await page.getByText(/^Draft saved at /).waitFor();await click('4 Data review');const quantity=page.getByRole('row').filter({has:page.getByRole('rowheader').filter({hasText:'Decimal · Manual'})}).getByRole('textbox',{name:'LineItem row 1 Quantity',exact:true});await quantity.fill('9.5');
  assert.ok(await page.getByRole('button',{name:'Save draft',exact:true}).isDisabled());await page.getByText('Current work is not saved as a durable draft. Apply form edits and save explicitly.',{exact:true}).waitFor();
  await quantity.fill('2.5');await page.getByText(/^Draft saved at /).waitFor();await click('5 Human approval');checks.push('UNAPPLIED_FIELD_EDIT_BLOCKS_DURABLE_SAVE');
  await page.reload();await page.getByRole('button',{name:'Save draft',exact:true}).waitFor();

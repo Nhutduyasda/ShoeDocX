@@ -13,7 +13,8 @@ public sealed class SqlUniversalDocDraftStore(IDbContextFactory<UniversalDocDraf
             using var db = factory.CreateDbContext(); using var transaction = db.Database.BeginTransaction();
             db.Database.ExecuteSqlRaw("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource=N'ude.draft-admission.v1', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=5000; IF @r<0 THROW 51000,'Draft lock unavailable',1;");
             DateTimeOffset Now() => db.Database.SqlQueryRaw<DateTimeOffset>("SELECT SYSDATETIMEOFFSET() AS [Value]").Single();
-            void Identity(DateTimeOffset now) { if (actor is not null && (actor.IdentityExpiresAt <= now || string.IsNullOrWhiteSpace(actor.UserId) || string.IsNullOrWhiteSpace(actor.TenantId) || actor.UserId.Length > 256 || actor.TenantId.Length > 256)) throw new StudioFault(401, "IDENTITY_EXPIRED"); }
+            // SQL string equality pads trailing ASCII spaces even under BIN2. Reject ambiguous trusted identifiers.
+            void Identity(DateTimeOffset now) { if (actor is not null && (actor.IdentityExpiresAt <= now || string.IsNullOrWhiteSpace(actor.UserId) || string.IsNullOrWhiteSpace(actor.TenantId) || actor.UserId.Length > 256 || actor.TenantId.Length > 256 || actor.UserId.EndsWith(' ') || actor.TenantId.EndsWith(' '))) throw new StudioFault(401, "IDENTITY_EXPIRED"); }
             var now = Now(); Identity(now); var result = action(db, now); db.SaveChanges(); Identity(Now()); transaction.Commit(); return result;
         } catch (DbUpdateConcurrencyException) { throw new StudioFault(409, "DRAFT_REVISION_CONFLICT"); }
         catch (Exception e) when (e is SqlException or DbUpdateException or TimeoutException) { throw new StudioFault(503, "DRAFT_STORAGE_UNAVAILABLE"); }

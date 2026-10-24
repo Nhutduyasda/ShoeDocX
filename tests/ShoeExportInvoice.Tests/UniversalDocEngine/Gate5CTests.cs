@@ -237,4 +237,13 @@ public sealed class Gate5CTests : IAsyncLifetime
         using var recover=Start("--probe","recover-point",draft.Id);var result=await recover.StandardOutput.ReadToEndAsync();await recover.WaitForExitAsync();Assert.Equal(0,recover.ExitCode);Assert.Contains("PROCESS_SAVE_POINT_RECOVERY_PASS",result);
     }
 
+    [Theory][InlineData("owner")][InlineData("tenant")]
+    public void SqlPaddingCannotAliasTrustedOwnerOrTenant(string member) {
+        var draft=SaveReady();var actor=Actor().Value;actor=member=="owner"?actor with{UserId=actor.UserId+" "}:actor with{TenantId=actor.TenantId+" "};
+        Assert.Equal(401,Assert.Throws<StudioFault>(()=>sql.Store.List(actor)).Status);
+        Assert.Equal(401,Assert.Throws<StudioFault>(()=>sql.Store.Read(actor,draft.Id,1)).Status);
+        Assert.Equal(401,Assert.Throws<StudioFault>(()=>sql.Store.AcquireResume(actor,draft.Id,1)).Status);
+        Assert.Equal(401,Assert.Throws<StudioFault>(()=>sql.Store.Delete(actor,draft.Id,1)).Status);
+    }
+
 }

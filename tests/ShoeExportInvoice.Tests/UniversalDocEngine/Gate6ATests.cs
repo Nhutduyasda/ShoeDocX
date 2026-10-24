@@ -6,7 +6,7 @@ using ShoeExportInvoice.Api.Data;
 using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 namespace ShoeExportInvoice.Tests.UniversalDocEngine;
 
-public sealed class Gate6ATests
+public sealed class Gate6ATests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private static IConfiguration Config(string connection = "Server=sql.example;Database=synthetic;Integrated Security=True;Encrypt=True;TrustServerCertificate=False", string origin="https://office.example") =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> {
@@ -34,7 +34,9 @@ public sealed class Gate6ATests
     {
         using var connection=new SqliteConnection("Data Source=:memory:");connection.Open();
         using var command=connection.CreateCommand();command.CommandText="SELECT sqlite_version()";
-        Assert.True(Version.Parse((string)command.ExecuteScalar()!)>=new Version(3,49,1));
+        var native=(string)command.ExecuteScalar()!;
+        Assert.True(Version.Parse(native)>=new Version(3,53,3));
+        output.WriteLine("native_sqlite_version="+native);
         using(var transaction=connection.BeginTransaction()) { command.Transaction=transaction;command.CommandText="CREATE TABLE synthetic (id TEXT); INSERT INTO synthetic VALUES ('00123')";command.ExecuteNonQuery();transaction.Commit(); }
         command.Transaction=null;command.CommandText="SELECT id FROM synthetic";Assert.Equal("00123",command.ExecuteScalar());
     }

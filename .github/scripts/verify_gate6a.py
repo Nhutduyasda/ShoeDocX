@@ -5,6 +5,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 import platform
+import re
+import xml.etree.ElementTree as ET
 import verify_gate2 as ci
 import gate4a_checks
 import gate4b1_checks
@@ -38,6 +40,13 @@ def main():
                     label=name+'-'+scope
                     runs[label]=ci.execute(label,ci.ROOT/name,scope=='engine',Path(temporary))
                     report['runs'][label]={k:v for k,v in runs[label].items() if k!='tests'}
+                    if label=='feature-engine':
+                        tree=ET.parse(Path(temporary)/label/'results.trx')
+                        versions=[]
+                        for node in tree.findall('.//t:UnitTestResult',ci.NS):
+                            versions.extend(re.findall(r'native_sqlite_version=([0-9.]+)',node.findtext('t:Output/t:StdOut','',ci.NS)))
+                        assert len(versions)==1,'Native SQLite execution version evidence missing'
+                        report['native_sqlite_version']=versions[0]
         fixed=[]
         for scope in ('engine','full'):
             old,new=runs['baseline-'+scope],runs['feature-'+scope]

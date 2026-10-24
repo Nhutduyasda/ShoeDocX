@@ -80,6 +80,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gate5c-verification-${{ matrix.os }}
-          path: verification-evidence/
+          path: verification-evidence/**/*.json
           if-no-files-found: error
           retention-days: 14

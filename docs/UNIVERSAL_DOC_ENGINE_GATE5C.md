@@ -1,6 +1,6 @@
 # Gate 5C — secure durable Studio drafts
 
-Status: IMPLEMENTATION / PARTIAL until real SQL Server, process restart, full regression and browser evidence completes. No deployment or Gate 5C merge authorized.
+Status: bounded Gate 5C implementation PASS at the verified revision below. Final documentation/upload-allowlist delivery requires its exact-HEAD CI result recorded in PR #17. No deployment or Gate 5C merge authorized.
 
 Gate 5B PR #16 was explicitly approved by the owner and merged into accepted main `6469be3480115c05b9efd8e0a650bdbc27f38df9`. Feature parent `424fa56ffe56003a56fc5889459bc0e46d04dcc8` is retained in its ancestry. Decoder PRs #13/#14 remain untouched.
 
@@ -81,3 +81,41 @@ Inherited risks remain: test-only SQLite native advisory and npm build-tool advi
 - `tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate4AHost.cs`
 - `tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5CSqlFixture.cs`
 - `tests/ShoeExportInvoice.Tests/UniversalDocEngine/Gate5CTests.cs`
+
+
+## Final supported-scope verification — 24 October 2026
+
+The complete implementation and final UI at `6d01c04f467db83d5e3b97640f0eb682fea03522` passed [run 40049598233](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40049598233) on both hosts:
+[Windows job 120739059114](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40049598233/job/120739059114) and [Ubuntu job 120739059412](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40049598233/job/120739059412).
+This supersedes the earlier pending implementation status. The final delivery changes only this evidence documentation and the artifact upload path, which now accepts JSON directly in the workflow as well as removing binaries in the verifier. Its exact successful delivery HEAD/run is recorded in PR #17 and `summary.json`; application/test source remains identical to this verified revision.
+
+| Mandatory evidence | Windows Server 2022 | Ubuntu 24.04 |
+|---|---|---|
+| Standard backend/frontend builds, 13 draft tests | PASS | PASS |
+| Gate 5C, actual discovered/executed SQL tests | 41 PASS, zero skipped | 41 PASS, zero skipped |
+| Complete engine | 573 PASS | 573 PASS |
+| Feature full suite | 768 PASS + same 2 inherited failures / 770 | 760 PASS + same 10 inherited failures / 770 |
+| Baseline full suite | 727 PASS + 2 inherited failures / 729 | 719 PASS + 10 inherited failures / 729 |
+| Existing authenticated browser checks | 43 PASS | 43 PASS |
+| Final Gate 5C authenticated browser checks | 16 PASS, zero runtime errors | 16 PASS, zero runtime errors |
+| Real SQL Server, migration apply/rollback/reapply | PASS (LocalDB Express 15.0.4382.1) | PASS (Developer 16.0.4305.5) |
+| Separate-process save/recovery, killed transaction rollback | PASS | PASS |
+| Real backend restart, re-login, recovery and renewed approval | PASS | PASS |
+| Actual XLSX download and independent openpyxl reopen | PASS | PASS |
+| New packages / new dependency findings | 0 / 0 | 0 / 0 |
+
+Same-host complete identities and normalized diagnostic hashes were checked; there are no missing or skipped mandatory tests and no newly failing application test. Existing advisory data was refreshed: SQLitePCLRaw.lib.e_sqlite3 2.1.6 High remains; the current npm audit reports five inherited build-tool findings (two High, three Moderate), identical for baseline/feature. Historical seven-finding reports above are not substituted for current audit results.
+
+The browser proves repeated saves update one draft, refresh keeps only reauthorized convenience metadata, and a concurrent save is rejected until the user reloads and explicitly chooses replacement. It also proves actual cross-owner/tenant denial, loss of old approval, renewed confirmation/review/approval, 390px controls, deletion and denial of later resume. Original/example hashes, two/three-sheet recovery, rule recovery, typed manual values, leading-zero identifiers and source re-admission are checked against real persisted state. Corrupt ciphertext, swapped identities, unsupported format, wrong/missing keys, bad workbook/schema/rules/fingerprints and expiry fail closed. Database-backed quotas and expected revisions are exercised with competing connections; process probes verify persistence across independent application processes and interrupted transaction rollback.
+
+Both artifacts were downloaded and independently inspected in Work:
+[Windows 12543038116](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40049598233/artifacts/12543038116) and [Ubuntu 12542658740](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40049598233/artifacts/12542658740). They contain only JSON metadata, with no plaintext workbook/source binary. The downloaded workbook is reopened in CI before removal; only its hash and QA result are published.
+
+| Actual downloaded XLSX | Bytes | SHA-256 |
+|---|---:|---|
+| Windows | 8,669 | `f383df3f389cf45be2893c3601bece5640deb26d0771cedc93acb20dd616407a` |
+| Ubuntu | 8,648 | `bd30c7a241b902d8c4975554e54e4cd869b1a6471f67d56ed9cc633cce5dcf47` |
+
+Reopen assertions cover both data sheets, leading-zero identifiers, quantities/prices/printed amounts, row/footer formulas, numeric formats, borders, signature merges, worksheet order and the unchanged Vietnamese reference sheet. No actual workbook bytes are retained in GitHub artifacts.
+
+Recommendation: **PASS for the bounded Gate 5C MVP**, with the final delivery SHA subject to its successful exact-HEAD rerun recorded in PR #17. Retention, conservative resume leases, process-local ordinary sessions, explicit operator migration/key setup, backup/secure-erasure limitations and inherited advisories remain as documented. This is not production readiness. No real/shared database migration, paid cloud provisioning, deployment, Gate 5D, decoder changes or Gate 5C merge was performed.

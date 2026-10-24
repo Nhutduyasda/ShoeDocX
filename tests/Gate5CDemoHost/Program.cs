@@ -22,6 +22,15 @@ if (args.FirstOrDefault() == "--probe") {
         db.Database.ExecuteSqlInterpolated($"UPDATE ude.Drafts SET Revision=Revision+1 WHERE Id={args[2]}");
         Console.WriteLine("UNCOMMITTED_READY");Console.Out.Flush();await Task.Delay(Timeout.Infinite);return;
     }
+    if(args[1]=="save-point") {var s=Gate5CSqlFixture.SavePoint(w,args[2]);Console.WriteLine(JsonSerializer.Serialize(w.SaveDraft(store,s.Id,s.Version,null,0).Draft));return;}
+    if(args[1]=="recover-point") {
+        var persisted=store.Read(actor.Value,args[2],1);var snapshot=JsonSerializer.Deserialize<DraftSnapshot>(persisted.Payload,DraftSnapshot.Json)!;
+        var resumed=w.ResumeDraft(store,args[2],1,TimeProvider.System);var restored=sessions.Read(actor.Value,resumed.Id);
+        if(!restored.Template.SequenceEqual(snapshot.Template)||!restored.Example.SequenceEqual(snapshot.Example)||restored.Confirmation is not null||restored.Document?.Approval is not null||restored.Document?.ReviewEvidence is not null)throw new Exception("Recovered save point mismatch");
+        if(resumed.Mappings.Length!=snapshot.Mappings.Length||!resumed.ValidationRules.SequenceEqual(snapshot.Rules))throw new Exception("Recovered configuration mismatch");
+        try {w.Export(resumed.Id,resumed.Version);throw new Exception("Stale export released");}catch(StudioFault){}
+        Console.WriteLine("PROCESS_SAVE_POINT_RECOVERY_PASS");return;
+    }
     if(args[1]=="save") {var s=Gate5CSqlFixture.Ready(w);var saved=w.SaveDraft(store,s.Id,s.Version,null,0);Console.WriteLine(JsonSerializer.Serialize(saved.Draft));return;}
     var result=w.ResumeDraft(store,args[2],long.Parse(args[3]),TimeProvider.System);
     if(result.MappingState!="DraftSuggested"||result.ReviewState=="Approved")throw new Exception("Stale authority restored");

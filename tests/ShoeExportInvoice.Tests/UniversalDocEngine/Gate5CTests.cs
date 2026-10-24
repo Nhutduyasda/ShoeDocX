@@ -162,19 +162,7 @@ public sealed class Gate5CTests : IAsyncLifetime
     [Theory][InlineData("A")][InlineData("B")][InlineData("C")][InlineData("D")][InlineData("E")][InlineData("F")][InlineData("G")]
     public void EverySupportedSavePointRecoversWithoutApproval(string point) {
         var actor=Actor();using var original=new InMemoryUniversalDocSessionStore(TimeProvider.System);var w=new UniversalDocWorkflowOrchestrator(actor,original);
-        var s=w.Create("example-template");s=w.Upload(s.Id,s.Version,Gate5BFixtures.Workbook(),"template.xlsx");
-        if(point!="A")s=w.UploadLearning(s.Id,s.Version,Gate5BFixtures.Workbook(2,2,true),"example.xlsx",true);
-        if(point is "C" or "D" or "E") {
-            // C deliberately retains distinct business fields on both sheets. Common-row correspondence is not yet confirmed.
-            var corrections=s.SchemaDraft!.Fields.Select(f=>new SchemaFieldCorrection(f.Key,f.Label,f.Scope,f.Label=="Item ID"?"Text":"Decimal",false,point!="C"&&f.Candidates[0].Worksheet!="Data1",0)).ToImmutableArray();
-            s=w.CorrectSchema(s.Id,s.Version,corrections);
-            if(point is "D" or "E")s=w.ChangeMultisheetMapping(s.Id,s.Version,Enumerable.Range(1,2).Select(i=>new StudioSheetMapping("Data"+i,4,s.Mapping!.Headers,s.Mapping.Columns)).ToImmutableArray());
-            if(point=="E") {
-                string Key(string label)=>s.SchemaDraft!.Fields.Single(f=>!f.Omit&&f.Label==label).Key;
-                s=w.ChangeValidationRules(s.Id,s.Version,[new("amount","Arithmetic",Key("Quantity"),"Multiply",Key("Price"),Key("Amount"),0,true,"BlockingError")]);
-            }
-        }
-        if(point is "F" or "G") {w.Remove(s.Id,s.Version);s=Gate5CSqlFixture.Ready(w,approved:point=="G");}
+        var s=Gate5CSqlFixture.SavePoint(w,point);
         var before=original.Read(actor.Value,s.Id);var saved=w.SaveDraft(sql.Store,s.Id,s.Version,null,0);
         original.Dispose();using var restarted=new InMemoryUniversalDocSessionStore(TimeProvider.System);var freshActor=Actor();var recovery=new UniversalDocWorkflowOrchestrator(freshActor,restarted);
         var resumed=recovery.ResumeDraft(sql.Store,saved.Draft.Id,1,TimeProvider.System);var after=restarted.Read(freshActor.Value,resumed.Id);
@@ -239,6 +227,14 @@ public sealed class Gate5CTests : IAsyncLifetime
         using var db=sql.DbFactory.CreateDbContext();using var tx=db.Database.BeginTransaction();
         db.Database.ExecuteSqlRaw("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource=N'ude.draft-admission.v1', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=5000; IF @r<0 THROW 51000,'Test lock unavailable',1;");
         Assert.Equal("DRAFT_STORAGE_UNAVAILABLE",Assert.Throws<StudioFault>(()=>sql.Store.Save(Actor().Value,null,0,[1])).Code);tx.Rollback();Assert.Empty(sql.Store.List(Actor().Value));
+    }
+
+    [Theory][InlineData("A")][InlineData("B")][InlineData("C")][InlineData("D")][InlineData("E")][InlineData("F")][InlineData("G")]
+    public async Task EverySavePointSurvivesActualBackendProcessExit(string point) {
+        var executable=Environment.GetEnvironmentVariable("GATE5C_PROBE")??throw new Exception("Mandatory process probe missing");
+        Process Start(params string[] args){var info=new ProcessStartInfo("dotnet"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false};info.ArgumentList.Add(executable);foreach(var arg in args)info.ArgumentList.Add(arg);info.Environment["GATE5C_DATABASE"]=sql.Connection;return Process.Start(info)!;}
+        using var save=Start("--probe","save-point",point);var output=await save.StandardOutput.ReadToEndAsync();await save.WaitForExitAsync();Assert.Equal(0,save.ExitCode);var draft=JsonSerializer.Deserialize<DraftInfo>(output.Trim())!;
+        using var recover=Start("--probe","recover-point",draft.Id);var result=await recover.StandardOutput.ReadToEndAsync();await recover.WaitForExitAsync();Assert.Equal(0,recover.ExitCode);Assert.Contains("PROCESS_SAVE_POINT_RECOVERY_PASS",result);
     }
 
 }

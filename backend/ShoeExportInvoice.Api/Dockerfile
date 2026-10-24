@@ -18,7 +18,8 @@ WORKDIR /app
 # Writable application directories, owned by the built-in unprivileged .NET user
 RUN mkdir -p /app/data /app/Templates && chown -R app:app /app/data /app/Templates
 
-COPY --from=build /app/publish .
+COPY --chown=app:app --from=build /app/publish .
+RUN chmod 700 /app/data /app/Templates
 
 # Environment variables
 ENV ASPNETCORE_URLS=http://+:5270

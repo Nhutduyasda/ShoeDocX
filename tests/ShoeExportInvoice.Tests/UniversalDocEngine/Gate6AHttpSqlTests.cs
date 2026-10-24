@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.IdentityModel.Tokens.Jwt;
+using System.Text;
+using Microsoft.IdentityModel.Tokens;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
@@ -26,6 +29,7 @@ public sealed class Gate6AHttpSqlTests
         start.Environment["ASPNETCORE_ENVIRONMENT"]="Development";start.Environment["ASPNETCORE_URLS"]=$"http://127.0.0.1:{port}";
         start.Environment["ConnectionStrings__DefaultConnection"]=builder.ConnectionString;
         start.Environment["Jwt__Key"]="Gate6A_Synthetic_Jwt_Key_Only_2026_1234567890";
+        start.Environment["Jwt__Issuer"]="gate6a-issuer";start.Environment["Jwt__Audience"]="gate6a-audience";
         start.Environment["DevelopmentUsers__Enabled"]="true";
         start.Environment["UniversalDocDrafts__Enabled"]="false";
         using var process=new Process { StartInfo=start };
@@ -48,6 +52,16 @@ public sealed class Gate6AHttpSqlTests
             var token=(await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
             client.DefaultRequestHeaders.Authorization=new("Bearer",token);
             Assert.Equal(HttpStatusCode.OK,(await client.GetAsync("/api/auth/me")).StatusCode);
+            foreach(var kind in new[]{"expired","audience","signature"})
+            {
+                var key=kind=="signature"?"Gate6A_Wrong_Signature_Key_Only_2026_1234567890":"Gate6A_Synthetic_Jwt_Key_Only_2026_1234567890";
+                var jwt=new JwtSecurityToken("gate6a-issuer",kind=="audience"?"wrong-audience":"gate6a-audience",null,
+                    DateTime.UtcNow.AddHours(-2),kind=="expired"?DateTime.UtcNow.AddHours(-1):DateTime.UtcNow.AddHours(1),
+                    new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),SecurityAlgorithms.HmacSha256));
+                client.DefaultRequestHeaders.Authorization=new("Bearer",new JwtSecurityTokenHandler().WriteToken(jwt));
+                Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/auth/me")).StatusCode);
+            }
+            client.DefaultRequestHeaders.Authorization=new("Bearer",token);
             var data=new {styleCode="SYNTH-00123",description="Sản phẩm tổng hợp",unitPriceCMT=2.50m,unitPriceDAP=3m,hsCode="64041990",unit="đôi",pairPerCarton=12};
             var created=await client.PostAsJsonAsync("/api/product-masters",data);Assert.Equal(HttpStatusCode.Created,created.StatusCode);
             var id=(await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();

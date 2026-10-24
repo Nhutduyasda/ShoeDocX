@@ -46,6 +46,21 @@ def native_provenance(data, identity, entry):
     assert rows,'Native SQLite provenance missing'
     return rows
 
+def dependency_paths(inventory, target):
+    result=[]
+    for project in sorted({r['project'] for r in inventory}):
+        graph={r['package']:r for r in inventory if r['project']==project}
+        queue=deque([[n] for n,r in graph.items() if r['direct']]);seen=set()
+        while queue:
+            path=queue.popleft();name=path[-1]
+            if name in seen:continue
+            seen.add(name)
+            if name==target:
+                result.append({'project':project,'path':[n+'/'+graph[n]['version'] if n in graph else n for n in path]});break
+            queue.extend(path+[dep.lower()] for dep in graph.get(name,{}).get('dependencies',{}) if dep.lower() not in seen)
+    assert result,'Advisory dependency path missing'
+    return result
+
 def audit(ci):
     report={}
     for name in ('baseline','feature'):
@@ -54,6 +69,7 @@ def audit(ci):
         for finding in scan['findings']:
             finding['exposures']=sorted({r['exposure'] for r in inventory if r['package']==finding['package'] and r['version']==finding['version']})
             finding['projects']=sorted({r['project'] for r in inventory if r['package']==finding['package'] and r['version']==finding['version']})
+            finding['paths']=dependency_paths(inventory,finding['package'])
         report[name]={'nuget':scan,'graph':inventory,'npm':{}}
         for label,extra in [('complete',[]),('production',['--omit=dev'])]:
             result=ci.command(['npm.cmd' if os.name=='nt' else 'npm','audit','--json',*extra],root/'frontend')
@@ -61,11 +77,23 @@ def audit(ci):
             data=json.loads(result.stdout);assert 'error' not in data and 'vulnerabilities' in data,'npm advisory response invalid'
             report[name]['npm'][label]=data
         report[name]['npm_lock']=json.loads((root/'frontend/package-lock.json').read_text())['packages']
+    report['remaining_decisions']=[{
+        'advisory':'GHSA-rj75-hqrm-r3gf','severity':'moderate','package':'postcss-selector-parser','resolved':'6.1.4',
+        'verified_affected_range':'<7.1.6','classification':'build',
+        'paths':['tailwindcss -> postcss-selector-parser','tailwindcss -> postcss-nested -> postcss-selector-parser'],
+        'available_fix':'Tailwind 4 migration; no unsupported transitive major override',
+        'unresolved_reason':'Preserve Tailwind 3 CSS/configuration behavior pending dedicated visual migration',
+        'acceptance_criteria':['trusted version-controlled CSS/TSX only','no customer input in build sources','no public Vite service','production static dist only','isolated finite CI timeout','cross-platform browser regression','no new advisory']
+    }]
     (ci.EVIDENCE/'gate6a-dependencies.json').write_text(json.dumps(report,indent=2))
     high=[f for f in report['feature']['nuget']['findings'] if f['severity'] in ('high','critical')]
     assert not high,'Unresolved NuGet High/Critical finding'
     for label in ('production','complete'):
         counts=report['feature']['npm'][label]['metadata']['vulnerabilities']
         assert counts.get('high',0)==counts.get('critical',0)==0,'Unresolved npm High/Critical finding'
+    allowed={'tailwindcss','postcss-nested','postcss-selector-parser'}
+    assert set(report['feature']['npm']['complete']['vulnerabilities'])<=allowed,'New npm advisory package'
+    for value in report['feature']['npm']['complete']['vulnerabilities'].values():
+        assert all(not isinstance(v,dict) or v['url'].endswith('/GHSA-rj75-hqrm-r3gf') for v in value['via']),'Unexpected residual npm advisory'
     old={(f['package'],f['url']) for f in report['baseline']['nuget']['findings']}
     assert all((f['package'],f['url']) in old for f in report['feature']['nuget']['findings']),'New NuGet advisory'

@@ -1,6 +1,6 @@
 # Gate 6A — runtime and dependency security
 
-Status is determined by the latest exact-HEAD Gate 6A CI summary attached to PR #19. A build or an older successful run is insufficient for acceptance. No production readiness claim.
+Technical verification status is determined by the latest exact-HEAD Gate 6A CI summary attached to PR #19. The delivery recommendation remains Draft / NOT READY while the inherited Moderate build advisory remains unresolved, following the requested delivery condition; a green technical CI is not automatic security acceptance. A build or an older successful run is insufficient for acceptance. No production readiness claim.
 
 ## Scope and provenance
 
@@ -70,3 +70,7 @@ Run https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40076877789 verifies im
 Final verification adds the snapshot-parity test, JWT negative cases, native file provenance and both container builds. The authoritative final Windows/Ubuntu records are each run's `gate6a-summary.json`, `gate6a-dependencies.json`, inherited browser summaries, SQL/workbook QA JSON and Linux `container.json` artifacts. Each summary binds the actual baseline and final feature SHA and reports the dynamically discovered executed inventory. See [PR #19 checks](https://github.com/Nhutduyasda/ShoeDocX/pull/19/checks) for exact final run URLs; do not substitute historical 636-test evidence for the final inventory. Mandatory evidence must all pass before Ready for review.
 
 No explicit High/Critical production risk acceptance is requested. The one inherited Moderate build advisory has the bounded criteria stated above. SQL production certificate/ACL/key-ring controls, backup restoration, actual target hosting limits and deployment remain Gate 6B operator prerequisites.
+
+## Demonstrated legacy ZIP regression and correction
+
+Run 40076877789 Windows had 636 engine passes but 10 full-suite failures versus baseline 2. The verifier correctly failed. Eight previously passing legacy Excel tests exposed `System.NotSupportedException: Memory stream is not expandable` while OpenXML disposed its writable ZIP. Local targeted execution reproduced the same exception at ZipArchive.WriteFile / MemoryStream.EnsureCapacity. The legacy stamp-removal helper constructed a fixed-capacity byte-array MemoryStream. It now copies the template into an expandable stream, rewinds before opening OpenXML, and disposes the stream on failure. Drawing-removal and export semantics are unchanged. This is an independently implemented minimal runtime compatibility correction, not an integration of the excluded legacy deployment PR. Existing actual Excel export assertions must pass after the fix; the same-run baseline comparison records any inherited Linux failures that resolve, without suppressing them.

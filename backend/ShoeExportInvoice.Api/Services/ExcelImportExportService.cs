@@ -169,23 +169,35 @@ public class ExcelImportExportService : IExcelImportExportService
     /// </summary>
     private static MemoryStream OpenStampFreeTemplate(string templatePath)
     {
-        var stream = new MemoryStream(File.ReadAllBytes(templatePath));
-        using (var document = SpreadsheetDocument.Open(stream, true))
+        // OpenXML updates can grow the ZIP central directory under newer runtimes.
+        // The byte-array MemoryStream overload is fixed-capacity and fails on dispose.
+        var stream = new MemoryStream();
+        try
         {
-            foreach (var worksheetPart in document.WorkbookPart!.WorksheetParts)
+            using (var source = File.OpenRead(templatePath)) source.CopyTo(stream);
+            stream.Position = 0;
+            using (var document = SpreadsheetDocument.Open(stream, true))
             {
-                worksheetPart.Worksheet.RemoveAllChildren<Drawing>();
-                worksheetPart.Worksheet.RemoveAllChildren<LegacyDrawing>();
-                worksheetPart.Worksheet.RemoveAllChildren<LegacyDrawingHeaderFooter>();
-                if (worksheetPart.DrawingsPart != null)
-                    worksheetPart.DeletePart(worksheetPart.DrawingsPart);
-                foreach (var vmlPart in worksheetPart.VmlDrawingParts.ToList())
-                    worksheetPart.DeletePart(vmlPart);
-                worksheetPart.Worksheet.Save();
+                foreach (var worksheetPart in document.WorkbookPart!.WorksheetParts)
+                {
+                    worksheetPart.Worksheet.RemoveAllChildren<Drawing>();
+                    worksheetPart.Worksheet.RemoveAllChildren<LegacyDrawing>();
+                    worksheetPart.Worksheet.RemoveAllChildren<LegacyDrawingHeaderFooter>();
+                    if (worksheetPart.DrawingsPart != null)
+                        worksheetPart.DeletePart(worksheetPart.DrawingsPart);
+                    foreach (var vmlPart in worksheetPart.VmlDrawingParts.ToList())
+                        worksheetPart.DeletePart(vmlPart);
+                    worksheetPart.Worksheet.Save();
+                }
             }
+            stream.Position = 0;
+            return stream;
         }
-        stream.Position = 0;
-        return stream;
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
     }
 
     public async Task<byte[]> ExportShipmentToExcelAsync(ShipmentExportModel model)

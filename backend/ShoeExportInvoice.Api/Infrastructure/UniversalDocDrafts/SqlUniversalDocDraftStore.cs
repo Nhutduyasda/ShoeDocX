@@ -28,10 +28,12 @@ public sealed class SqlUniversalDocDraftStore(IDbContextFactory<UniversalDocDraf
     {
         if (id.Length != 64 || !id.All(Uri.IsHexDigit)) throw new StudioFault(404, "DRAFT_NOT_FOUND");
         var row = db.Drafts.SingleOrDefault(x => x.Id == id && x.OwnerId == actor.UserId && x.TenantId == actor.TenantId) ?? throw new StudioFault(404, "DRAFT_NOT_FOUND");
+        // SQL predicates can match historical padded identities. Authenticate the stored spelling before decryption/mutation.
+        if (!string.Equals(row.OwnerId, actor.UserId, StringComparison.Ordinal) || !string.Equals(row.TenantId, actor.TenantId, StringComparison.Ordinal)) throw new StudioFault(404, "DRAFT_NOT_FOUND");
         if (row.ExpiresAt <= now) throw new StudioFault(410, "DRAFT_EXPIRED");
         if (row.Revision != revision) throw new StudioFault(409, "DRAFT_REVISION_CONFLICT"); return row;
     }
-    public DraftInfo[] List(UniversalDocActor actor) => Transaction(actor, (db, now) => db.Drafts.AsNoTracking().Where(x => x.OwnerId == actor.UserId && x.TenantId == actor.TenantId && x.ExpiresAt > now).OrderByDescending(x => x.UpdatedAt).Take(2).Select(x => new DraftInfo(x.Id, x.Workflow, x.Revision, x.CreatedAt, x.UpdatedAt, x.ExpiresAt)).ToArray());
+    public DraftInfo[] List(UniversalDocActor actor) => Transaction(actor, (db, now) => db.Drafts.AsNoTracking().Where(x => x.OwnerId == actor.UserId && x.TenantId == actor.TenantId && x.ExpiresAt > now).OrderByDescending(x => x.UpdatedAt).Take(2).Select(x => new { x.OwnerId, x.TenantId, Draft = new DraftInfo(x.Id, x.Workflow, x.Revision, x.CreatedAt, x.UpdatedAt, x.ExpiresAt) }).AsEnumerable().Where(x => string.Equals(x.OwnerId, actor.UserId, StringComparison.Ordinal) && string.Equals(x.TenantId, actor.TenantId, StringComparison.Ordinal)).Select(x => x.Draft).ToArray());
     public DraftInfo Save(UniversalDocActor actor, string? id, long revision, byte[] payload) => Transaction(actor, (db, now) => {
         if (payload.Length is <= 0 or > DraftSnapshot.MaximumPayload || (id is null ? revision != 0 : revision < 1)) throw new StudioFault(400, "DRAFT_REQUEST_INVALID");
         DraftRecord row;

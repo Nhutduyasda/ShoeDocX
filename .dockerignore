@@ -1,0 +1,15 @@
+.git
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/*.pfx
+**/*.p12
+**/*.pem
+**/*.key
+**/appsettings.Production.json
+**/appsettings.Development.json
+**/Properties/launchSettings.json
+verification-evidence

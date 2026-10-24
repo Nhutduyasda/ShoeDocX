@@ -158,4 +158,38 @@ public sealed class Gate5CTests : IAsyncLifetime
         Assert.NotNull(restored.SchemaDraft);Assert.Equal("NoDocument",restored.ReviewState);Assert.Equal("DraftSuggested",restored.MappingState);
     }
 
+    [Theory][InlineData("A")][InlineData("B")][InlineData("C")][InlineData("D")][InlineData("E")][InlineData("F")][InlineData("G")]
+    public void EverySupportedSavePointRecoversWithoutApproval(string point) {
+        var actor=Actor();using var original=new InMemoryUniversalDocSessionStore(TimeProvider.System);var w=new UniversalDocWorkflowOrchestrator(actor,original);
+        var s=w.Create("example-template");s=w.Upload(s.Id,s.Version,Gate5BFixtures.Workbook(),"template.xlsx");
+        if(point!="A")s=w.UploadLearning(s.Id,s.Version,Gate5BFixtures.Workbook(2,2,true),"example.xlsx",true);
+        if(point is "C" or "D" or "E") {
+            // C deliberately retains distinct business fields on both sheets. Common-row correspondence is not yet confirmed.
+            var corrections=s.SchemaDraft!.Fields.Select(f=>new SchemaFieldCorrection(f.Key,f.Label,f.Scope,f.Label=="Item ID"?"Text":"Decimal",false,point!="C"&&f.Candidates[0].Worksheet!="Data1",0)).ToImmutableArray();
+            s=w.CorrectSchema(s.Id,s.Version,corrections);
+            if(point is "D" or "E")s=w.ChangeMultisheetMapping(s.Id,s.Version,Enumerable.Range(1,2).Select(i=>new StudioSheetMapping("Data"+i,4,s.Mapping!.Headers,s.Mapping.Columns)).ToImmutableArray());
+            if(point=="E") {
+                string Key(string label)=>s.SchemaDraft!.Fields.Single(f=>!f.Omit&&f.Label==label).Key;
+                s=w.ChangeValidationRules(s.Id,s.Version,[new("amount","Arithmetic",Key("Quantity"),"Multiply",Key("Price"),Key("Amount"),0,true,"BlockingError")]);
+            }
+        }
+        if(point is "F" or "G") {w.Remove(s.Id,s.Version);s=Gate5CSqlFixture.Ready(w,approved:point=="G");}
+        var before=original.Read(actor.Value,s.Id);var saved=w.SaveDraft(sql.Store,s.Id,s.Version,null,0);
+        original.Dispose();using var restarted=new InMemoryUniversalDocSessionStore(TimeProvider.System);var freshActor=Actor();var recovery=new UniversalDocWorkflowOrchestrator(freshActor,restarted);
+        var resumed=recovery.ResumeDraft(sql.Store,saved.Draft.Id,1,TimeProvider.System);var after=restarted.Read(freshActor.Value,resumed.Id);
+        Assert.NotEqual(s.Id,resumed.Id);Assert.Equal(before.Template.ToArray(),after.Template.ToArray());Assert.Equal(before.Example.ToArray(),after.Example.ToArray());
+        Assert.Equal(JsonSerializer.Serialize(saved.Session.Mappings),JsonSerializer.Serialize(resumed.Mappings));Assert.Equal(saved.Session.ValidationRules.ToArray(),resumed.ValidationRules.ToArray());Assert.Equal(saved.Session.Fields.Select(f=>(f.Key,f.Row,f.Value)),resumed.Fields.Select(f=>(f.Key,f.Row,f.Value)));
+        Assert.Null(after.Confirmation);Assert.Null(after.Document?.Approval);Assert.Null(after.Document?.ReviewEvidence);
+        Assert.Throws<StudioFault>(()=>recovery.Export(resumed.Id,resumed.Version));
+        if(point=="C")Assert.Equal("EXAMPLE_SHARED_ORDERED_IDENTIFIER_REQUIRED",Assert.Throws<StudioFault>(()=>recovery.ConfirmMapping(resumed.Id,resumed.Version)).Code);
+    }
+    [Fact] public void MissingAndObservedEmptySampleValuesRemainDistinctAfterRecovery() {
+        var actor=Actor();using var original=new InMemoryUniversalDocSessionStore(TimeProvider.System);var w=new UniversalDocWorkflowOrchestrator(actor,original);var s=Gate5CSqlFixture.Ready(w,approved:false);
+        string Key(string label)=>s.SchemaDraft!.Fields.Single(f=>!f.Omit&&f.Label==label).Key;
+        s=w.SetManualSample(s.Id,s.Version,new(ImmutableDictionary<string,string?>.Empty,[ImmutableDictionary<string,string?>.Empty.Add(Key("Item ID"),"0001").Add(Key("Quantity"),"")]));
+        var saved=w.SaveDraft(sql.Store,s.Id,s.Version,null,0);using var restarted=new InMemoryUniversalDocSessionStore(TimeProvider.System);var fresh=new UniversalDocWorkflowOrchestrator(actor,restarted);var resumed=fresh.ResumeDraft(sql.Store,saved.Draft.Id,1,TimeProvider.System);
+        var doc=restarted.Read(actor.Value,resumed.Id).Document!;Assert.Empty(doc.Header);Assert.False(doc.LineItems[0].ContainsKey(Key("Price")));Assert.True(doc.LineItems[0].ContainsKey(Key("Quantity")));Assert.Null(doc.LineItems[0][Key("Quantity")].Number);Assert.Null(doc.Approval);
+        Assert.Throws<StudioFault>(()=>fresh.Export(resumed.Id,resumed.Version));
+    }
+
 }

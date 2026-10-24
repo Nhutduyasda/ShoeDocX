@@ -247,4 +247,16 @@ public sealed class Gate5CTests : IAsyncLifetime
         Assert.Equal(401,Assert.Throws<StudioFault>(()=>sql.Store.Delete(actor,draft.Id,1)).Status);
     }
 
+    [Theory][InlineData("owner")][InlineData("tenant")]
+    public void HistoricalAuthenticatedPaddedRowsCannotAliasUnpaddedActor(string member) {
+        var draft=SaveReady();var actor=Actor().Value;var payload=sql.Store.Read(actor,draft.Id,1).Payload;
+        // Simulate a correctly authenticated record written by the previous implementation, not a broken GCM tag.
+        using(var db=sql.DbFactory.CreateDbContext()){var row=db.Drafts.Single();if(member=="owner")row.OwnerId+=" ";else row.TenantId+=" ";row.Ciphertext=sql.Cipher.Encrypt(row,payload);db.SaveChanges();}
+        Assert.Empty(sql.Store.List(actor));
+        Assert.Equal(404,Assert.Throws<StudioFault>(()=>sql.Store.Read(actor,draft.Id,1)).Status);
+        Assert.Equal(404,Assert.Throws<StudioFault>(()=>sql.Store.Save(actor,draft.Id,1,payload)).Status);
+        Assert.Equal(404,Assert.Throws<StudioFault>(()=>sql.Store.AcquireResume(actor,draft.Id,1)).Status);
+        Assert.Equal(404,Assert.Throws<StudioFault>(()=>sql.Store.Delete(actor,draft.Id,1)).Status);
+    }
+
 }

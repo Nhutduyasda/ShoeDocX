@@ -1,0 +1,30 @@
+{
+  "events": [
+    {
+      "operation": "capable",
+      "errno": null
+    },
+    {
+      "operation": "capable",
+      "errno": null
+    },
+    {
+      "operation": "open",
+      "errno": -13
+    },
+    {
+      "operation": "capable",
+      "errno": null
+    },
+    {
+      "operation": "capable",
+      "errno": null
+    },
+    {
+      "operation": "open",
+      "errno": -13
+    }
+  ],
+  "raw_audit_archived": false,
+  "note": "Absence of events is not evidence AppArmor allowed the operation."
+}

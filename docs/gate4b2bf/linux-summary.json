@@ -1,0 +1,147 @@
+{
+  "gate": "4B.2B-F",
+  "head": "b77040603b49597b2e9efa77c03257b379133b54",
+  "kernel": "6.17.0-1022-azure",
+  "reference_pr13": "98dae66b96efdf8fefb33d15f69e73e40489cac8",
+  "phase2_authorized": false,
+  "checks": {
+    "nonroot": {
+      "status": "SUPPORTED",
+      "uid": 1001
+    },
+    "direct_user_mapping": {
+      "status": "SECURITY_POLICY_OR_HOST_DENIAL",
+      "exit_code": 1,
+      "timeout": false,
+      "wall_ms": 0.54,
+      "probe": {
+        "stage": "setgroups",
+        "errno": 13,
+        "uid": 65534,
+        "gid": 65534
+      }
+    },
+    "direct_pid": {
+      "status": "NOT_RUN"
+    },
+    "direct_net": {
+      "status": "NOT_RUN"
+    },
+    "direct_mount": {
+      "status": "NOT_RUN"
+    },
+    "bwrap_mapping": {
+      "status": "BLOCKED",
+      "exit_code": 1,
+      "timeout": false,
+      "wall_ms": 1.52,
+      "category": "ID_MAPPING_FAILURE",
+      "denied_namespace_flags": [],
+      "denied_syscalls": [],
+      "stderr_sha256": "6722ac7f6d5dd369bd7fe48142072295d4894a41818c22da36804bd329388bbc"
+    },
+    "confined_bootstrap": {
+      "status": "NOT_RUN"
+    },
+    "namespace_identity": {
+      "status": "NOT_RUN"
+    },
+    "nnp_seccomp": {
+      "status": "NOT_RUN"
+    },
+    "network": {
+      "status": "NOT_RUN"
+    },
+    "read": {
+      "status": "NOT_RUN"
+    },
+    "write": {
+      "status": "NOT_RUN"
+    },
+    "spawn": {
+      "status": "NOT_RUN"
+    },
+    "tmp": {
+      "status": "NOT_RUN"
+    },
+    "parent_env_fd": {
+      "status": "NOT_RUN"
+    },
+    "memory": {
+      "status": "NOT_RUN"
+    },
+    "cpu_primitive": {
+      "status": "NOT_RUN"
+    },
+    "pids": {
+      "status": "NOT_RUN"
+    },
+    "cancellation": {
+      "status": "NOT_RUN"
+    },
+    "parent_death": {
+      "status": "NOT_RUN"
+    },
+    "pdf_budget": {
+      "status": "BLOCKED",
+      "code": "NO_VERIFIED_32MIB_CUMULATIVE_PDF_ACCOUNTING",
+      "basis": "STATIC_REVIEW_PR13_WORKER_AND_NATIVE_INVENTORY",
+      "dynamic_pdf_test": "NOT_RUN"
+    },
+    "pdf_image_decode": {
+      "status": "NOT_RUN"
+    }
+  },
+  "measurements": [],
+  "host_apparmor_confined": false,
+  "policies_changed": false,
+  "decoder_executed": false,
+  "host_settings": {
+    "unprivileged_userns_clone": "1",
+    "apparmor_restrict_unprivileged_userns": "1",
+    "max_user_namespaces": "63838"
+  },
+  "binary_sha256": "6b5b2bf87dfa838938456d166ac5d869f8d9ec4f56e84bbc74d1f103c80c49dc",
+  "package_versions": [
+    "bubblewrap=0.9.0-1ubuntu0.3",
+    "gcc=4:13.2.0-7ubuntu1",
+    "libc6-dev=2.39-0ubuntu8.9",
+    "strace=6.8-0ubuntu2"
+  ],
+  "trusted_control": {
+    "exit_code": 0,
+    "timeout": false,
+    "wall_ms": 0.55,
+    "identity": {
+      "uid": 1001,
+      "gid": 1001,
+      "nnp": 0,
+      "seccomp": 0
+    }
+  },
+  "bootstrap_diagnostic": {
+    "untraced": {
+      "exit_code": 1,
+      "timeout": false,
+      "wall_ms": 1.52
+    },
+    "traced": {
+      "exit_code": 1,
+      "timeout": false,
+      "wall_ms": 185.35
+    },
+    "category": "ID_MAPPING_FAILURE",
+    "denied_namespace_flags": [],
+    "denied_syscalls": [
+      {
+        "operation": "openat",
+        "errno": "EACCES"
+      }
+    ],
+    "stderr_sha256": "6722ac7f6d5dd369bd7fe48142072295d4894a41818c22da36804bd329388bbc",
+    "trace_is_trusted_probe_only": true,
+    "raw_trace_archived": false
+  },
+  "status": "BLOCKED",
+  "recommendation": "STOP"
+}

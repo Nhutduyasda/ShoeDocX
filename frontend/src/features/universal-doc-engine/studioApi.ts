@@ -52,6 +52,8 @@ export class StudioApi {
         DRAFT_STORAGE_UNAVAILABLE: 'The durable save did not complete. Reload server state and My drafts before retrying.',
         DRAFT_CAPACITY_REACHED: 'Draft storage is full. Delete an old draft before creating another.',
         DRAFT_PAYLOAD_LIMIT: 'This draft exceeds the bounded storage limit. It has not been saved.',
+        DRAFT_FINGERPRINT_MISMATCH: 'The saved configuration did not match its verified identity. Recovery was blocked.',
+        DRAFT_RESUME_EXPIRED: 'Recovery took too long. Refresh My drafts and resume again.',
         DRAFT_PAYLOAD_INVALID: 'This stored draft could not be verified. Recovery was blocked.',
         MAPPING_CONFIRMATION_REQUIRED: 'Review and confirm the template mapping before continuing.',
         MAPPING_CORRECTION_REQUIRED: 'Correct unresolved mapping fields before confirming.',

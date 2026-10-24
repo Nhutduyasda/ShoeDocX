@@ -71,19 +71,33 @@ export default function UniversalDocStudio() {
     void api.bootstrap(abort.signal).then(async bootstrap => {
       if (abort.signal.aborted) return;
       setBootstrap(bootstrap);
-      if (bootstrap.draftsEnabled) setDrafts(await api.drafts());
+      const availableDrafts = bootstrap.draftsEnabled ? await api.drafts() : [];
+      if (abort.signal.aborted) return;
+      setDrafts(availableDrafts);
       const id = sessionStorage.getItem('universal-doc-session');
       if (id) {
-        try { const restored = await api.read(id); if (!abort.signal.aborted) setSession(restored); }
+        try {
+          const restored = await api.read(id);
+          if (!abort.signal.aborted) {
+            setSession(restored);
+            try {
+              const link = JSON.parse(sessionStorage.getItem('universal-doc-draft-link') || 'null') as { sessionId?: string; draftId?: string; revision?: number } | null;
+              const draft = availableDrafts.find(d => d.id === link?.draftId);
+              if (link?.sessionId === restored.id && draft && Number.isSafeInteger(link.revision) && link.revision! > 0)
+                setSavedDraft({ sessionId: restored.id, version: -1, draft: { ...draft, revision: link.revision! } });
+            } catch { /* Convenience metadata never restores content or Saved authority. */ }
+          }
+        }
         catch { sessionStorage.removeItem('universal-doc-session'); }
       }
     }).catch((reason: unknown) => { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : 'Unable to open Studio'); });
     return () => abort.abort();
   }, [api]);
   useEffect(() => { if (session) sessionStorage.setItem('universal-doc-session', session.id); }, [session]);
+  useEffect(() => { if (savedDraft) sessionStorage.setItem('universal-doc-draft-link', JSON.stringify({ sessionId: savedDraft.sessionId, draftId: savedDraft.draft.id, revision: savedDraft.draft.revision })); }, [savedDraft]);
   async function run(operation: () => Promise<void>) {
     setBusy(true); setError(''); setNotice('');
-    try { await operation(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Studio request failed'); }
+    try { await operation(); } catch (reason) { setSavedDraft(previous => previous ? { ...previous, version: -1 } : null); setError(reason instanceof Error ? reason.message : 'Studio request failed'); }
     finally { setBusy(false); }
   }
   function act(action: string, data: Record<string, unknown> = {}, method = 'POST') {
@@ -109,8 +123,17 @@ export default function UniversalDocStudio() {
           setSession(result.session); setSavedDraft({ sessionId: result.session.id, version: result.session.version, draft: result.draft });
           setDrafts(await api.drafts()); setNotice('Draft saved durably.');
         })}>Save draft</button>
+        {savedDraft?.sessionId === session.id && <button disabled={busy || hasUnsavedConfiguration} onClick={() => void run(async () => {
+          const result = await api.saveDraft(session); setSession(result.session);
+          setSavedDraft({ sessionId: result.session.id, version: result.session.version, draft: result.draft });
+          setDrafts(await api.drafts()); setNotice('A separate new draft was saved.');
+        })}>Save as a new draft</button>}
       </>}
       {drafts.map(draft => <article key={draft.id} className="uds-state"><strong>Example workflow draft</strong><p>{draft.workflow} · Revision {draft.revision} · Updated {new Date(draft.updatedAt).toLocaleString()} · Expires {new Date(draft.expiresAt).toLocaleString()}</p>
+        {session && savedDraft?.sessionId === session.id && savedDraft.draft.id === draft.id && savedDraft.draft.revision !== draft.revision && <>
+          <p>Another request updated this draft. Resume that version, or choose to replace it with this session on the next save.</p>
+          <button disabled={busy} onClick={() => setSavedDraft({ sessionId: session.id, version: -1, draft })}>Replace this draft on next save</button>
+        </>}
         <button disabled={busy || hasUnsavedConfiguration} aria-label={`Resume draft ${draft.id}`} onClick={() => void run(async () => {
           const restored = await api.resumeDraft(draft); setSession(restored); setSavedDraft({ sessionId: restored.id, version: restored.version, draft }); setStep(1);
           setNotice('Draft resumed in a new session. Confirm mapping and repeat human review and approval before export.');

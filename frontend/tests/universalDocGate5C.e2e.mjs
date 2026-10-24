@@ -29,6 +29,18 @@ try{
  assert.ok(await page.getByRole('button',{name:'Save draft',exact:true}).isDisabled());checks.push('UNAPPLIED_FORMS_CANNOT_BE_SAVED');
  s=await mutate('Validate manual sample','/manual-sample');await click('5 Human approval');await mutate('Complete human review','/review');await mutate('Approve document','/approve');
  const saved=await mutate('Save draft','/save-draft');const draft=saved.draft;await page.getByText('Draft saved durably.',{exact:true}).waitFor();checks.push('ACTUAL_SAVE_CONFIRMED');
+ const update=await mutate('Save draft','/save-draft');assert.equal(update.draft.id,draft.id);assert.equal(update.draft.expiresAt,draft.expiresAt);assert.equal(update.draft.revision,draft.revision+1);Object.assign(draft,update.draft);
+ assert.equal((await(await context.request.get(base+'/api/universal-doc/drafts')).json()).length,1);checks.push('REPEATED_SAVE_UPDATES_WITHOUT_DUPLICATION');
+ await page.reload();await page.getByRole('button',{name:'Save draft',exact:true}).waitFor();
+ const link=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('universal-doc-draft-link')));assert.deepEqual(Object.keys(link).sort(),['draftId','revision','sessionId']);assert.equal(link.draftId,draft.id);checks.push('REFRESH_REAUTHORIZES_NON_AUTHORITATIVE_LINK');
+ const csrf=await(await context.request.get(base+'/api/universal-doc/bootstrap')).json();
+ const otherSave=await context.request.post(base+`/api/universal-doc/sessions/${update.session.id}/save-draft`,{headers:{'X-Studio-CSRF':csrf.csrfToken},data:{expectedVersion:update.session.version,draftId:draft.id,expectedRevision:draft.revision}});assert.equal(otherSave.status(),200);const concurrent=await otherSave.json();
+ const stale=page.waitForResponse(r=>r.url().endsWith('/save-draft'));await click('Save draft');assert.equal((await stale).status(),409);
+ await page.getByRole('alert').waitFor();await page.getByText('Current work is not saved as a durable draft. Apply form edits and save explicitly.',{exact:true}).waitFor();
+ const reload=page.waitForResponse(r=>r.url().endsWith(`/sessions/${update.session.id}`)&&r.request().method()==='GET');await click('Reload server state');assert.equal((await reload).status(),200);
+ await click('Refresh my drafts');await page.getByRole('button',{name:'Replace this draft on next save',exact:true}).waitFor();await click('Replace this draft on next save');
+ const replaced=await mutate('Save draft','/save-draft');assert.equal(replaced.draft.revision,concurrent.draft.revision+1);Object.assign(draft,replaced.draft);checks.push('CONFLICT_REQUIRES_EXPLICIT_REPLACEMENT_NO_FAKE_SAVED');
+
  for(const user of ['other-a','admin-b']){const other=await browser.newContext(),p=await other.newPage();await login(p,user);const list=await other.request.get(base+'/api/universal-doc/drafts');assert.deepEqual(await list.json(),[]);const boot=await(await other.request.get(base+'/api/universal-doc/bootstrap')).json();const denied=await other.request.post(base+`/api/universal-doc/drafts/${draft.id}/resume`,{headers:{'X-Studio-CSRF':boot.csrfToken},data:{expectedRevision:draft.revision}});assert.equal(denied.status(),404);await other.close();}checks.push('REAL_CROSS_OWNER_TENANT_DENIED');
  await writeFile(join(folder,'restart-requested'),'restart');const until=Date.now()+120000;while(true){try{await access(join(folder,'restart-completed'));break;}catch{assert.ok(Date.now()<until);await new Promise(r=>setTimeout(r,200));}}
  await context.close();context=await browser.newContext({acceptDownloads:true});page=await context.newPage();page.on('pageerror',e=>errors.push(e.name));await login(page,'admin-a');
@@ -42,5 +54,5 @@ try{
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));const resume=page.getByLabel(`Resume draft ${draft.id}`,{exact:true});await resume.scrollIntoViewIfNeeded();const box=await resume.boundingBox();assert.ok(box&&box.x>=0&&box.x+box.width<=391);checks.push('MOBILE_DRAFT_CONTROLS');
  const deleting=page.waitForResponse(r=>r.url().endsWith(`/drafts/${draft.id}`)&&r.request().method()==='DELETE');await page.getByLabel(`Delete draft ${draft.id}`,{exact:true}).click();assert.equal((await deleting).status(),204);await page.getByLabel(`Resume draft ${draft.id}`,{exact:true}).waitFor({state:'detached'});
  const boot=await(await context.request.get(base+'/api/universal-doc/bootstrap')).json();const denied=await context.request.post(base+`/api/universal-doc/drafts/${draft.id}/resume`,{headers:{'X-Studio-CSRF':boot.csrfToken},data:{expectedRevision:draft.revision}});assert.equal(denied.status(),404);checks.push('DELETE_PREVENTS_RESUME');
- assert.deepEqual(errors,[]);assert.equal(checks.length,13);await writeFile(join(folder,'gate5c-summary.json'),JSON.stringify({status:'PASS',checks,runtimeErrors:errors},null,2));
+ assert.deepEqual(errors,[]);assert.equal(checks.length,16);await writeFile(join(folder,'gate5c-summary.json'),JSON.stringify({status:'PASS',checks,runtimeErrors:errors},null,2));
 }catch(e){console.error(e);process.exitCode=1;}finally{await context.close();await browser.close();}

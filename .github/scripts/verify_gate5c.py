@@ -96,9 +96,10 @@ def main():
         gate4b1_checks.dependencies(ci)
         dependency_report = json.loads((ci.EVIDENCE / 'dependencies.json').read_text())
         reviewed = {tuple(p) for p in dependency_report['nuget']['baseline']['resolved_packages']}
-        assets = json.loads((ci.ROOT / 'feature/tests/Gate5ADemoHost/obj/project.assets.json').read_text(encoding='utf-8-sig'))
-        host_packages = {tuple(identity.lower().split('/')) for identity, row in assets['libraries'].items() if row['type'] == 'package'}
-        assert host_packages <= reviewed, 'Unreviewed synthetic-host dependency'
+        for host in ('Gate5ADemoHost', 'Gate5CDemoHost'):
+            assets = json.loads((ci.ROOT / ('feature/tests/' + host + '/obj/project.assets.json')).read_text(encoding='utf-8-sig'))
+            host_packages = {tuple(identity.lower().split('/')) for identity, row in assets['libraries'].items() if row['type'] == 'package'}
+            assert host_packages <= reviewed, 'Unreviewed synthetic-host dependency: ' + host
         gate4b1_checks.browser(ci)
         import gate5a_browser
         gate5a_browser.browser(ci)
@@ -111,8 +112,8 @@ def main():
         report['blocker'] = str(error) if isinstance(error, AssertionError) else type(error).__name__
     finally:
         # Never publish plaintext workbook/source bytes or document screenshots, even from synthetic fixtures.
-        for extension in ('*.xlsx', '*.png', '*.pdf', '*.jpg', '*.webp'):
-            for artifact in ci.EVIDENCE.rglob(extension): artifact.unlink()
+        for artifact in ci.EVIDENCE.rglob('*'):
+            if artifact.is_file() and artifact.suffix != '.json': artifact.unlink()
         (ci.EVIDENCE / 'summary.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         print(json.dumps(report, indent=2), flush=True)
     return 0 if report['status'] == 'PASS' else 1

@@ -222,4 +222,23 @@ public sealed class Gate5CTests : IAsyncLifetime
         var fault=Assert.Throws<StudioFault>(()=>scope.ServiceProvider.GetRequiredService<IUniversalDocDraftStore>().List(Actor().Value));Assert.Equal(503,fault.Status);Assert.Equal("DRAFT_CONFIGURATION_UNAVAILABLE",fault.Code);
     }
 
+    [Theory][InlineData("tenant",6)][InlineData("global",16)]
+    public void ResumeLeasesEnforceTenantAndGlobalCapacity(string level,int limit) {
+        for(var i=0;i<limit;i++) {var actor=Actor().Value with {UserId="person"+i,TenantId=level=="global"?"tenant"+i:"tenant"};var d=sql.Store.Save(actor,null,0,[1]);sql.Store.AcquireResume(actor,d.Id,1);}
+        // A second draft for an existing owner is below that owner's limit; the aggregate must reject it.
+        var next=Actor().Value with {UserId="person0",TenantId=level=="global"?"tenant0":"tenant"};
+        var first=sql.Store.List(next).Single();Assert.Equal(429,Assert.Throws<StudioFault>(()=>sql.Store.AcquireResume(next,first.Id,1)).Status);
+        using var db=sql.DbFactory.CreateDbContext();Assert.Equal(limit,db.Leases.Count());
+    }
+    [Fact] public void SqlRowversionRejectsWriterOutsideApplicationLock() {
+        var draft=SaveReady();using var first=sql.DbFactory.CreateDbContext();using var second=sql.DbFactory.CreateDbContext();
+        var stale=first.Drafts.Single();var latest=second.Drafts.Single();latest.UpdatedAt=latest.UpdatedAt.AddTicks(1);second.SaveChanges();
+        stale.UpdatedAt=stale.UpdatedAt.AddTicks(2);Assert.Throws<DbUpdateConcurrencyException>(()=>first.SaveChanges());Assert.Equal(1,sql.Store.Read(Actor().Value,draft.Id,1).Info.Revision);
+    }
+    [Fact] public void ApplicationLockTimeoutIsBoundedAndDoesNotWrite() {
+        using var db=sql.DbFactory.CreateDbContext();using var tx=db.Database.BeginTransaction();
+        db.Database.ExecuteSqlRaw("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource=N'ude.draft-admission.v1', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=5000; IF @r<0 THROW 51000,'Test lock unavailable',1;");
+        Assert.Equal("DRAFT_STORAGE_UNAVAILABLE",Assert.Throws<StudioFault>(()=>sql.Store.Save(Actor().Value,null,0,[1])).Code);tx.Rollback();Assert.Empty(sql.Store.List(Actor().Value));
+    }
+
 }

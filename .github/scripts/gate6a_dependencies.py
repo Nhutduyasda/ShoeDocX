@@ -1,6 +1,9 @@
 """Live official advisory scans and per-project resolved dependency/native graphs."""
 import json
 import os
+import hashlib
+import xml.etree.ElementTree as ET
+from pathlib import Path
 from collections import deque
 import gate4b1_dependencies as nuget
 
@@ -18,8 +21,29 @@ def graph(root):
                     'exposure':'production' if project.startswith('backend/') else 'test',
                     'dependencies':entry.get('dependencies',{}),
                     'native_assets':sorted(entry.get('native',{})),
-                    'runtime_targets':sorted(entry.get('runtimeTargets',{}))})
+                    'runtime_targets':sorted(entry.get('runtimeTargets',{})),
+                    'content_sha512':data['libraries'][identity].get('sha512'),
+                    'native_provenance':native_provenance(data,identity,entry)})
     assert rows,'No package assets'
+    return rows
+
+def native_provenance(data, identity, entry):
+    if not identity.lower().startswith('sqlitepclraw.lib.e_sqlite3/'):
+        return []
+    package=data['libraries'][identity]['path']
+    rows=[]
+    for folder in data['packageFolders']:
+        root=Path(folder)/package
+        if not root.exists(): continue
+        for file in root.rglob('*'):
+            if file.is_file() and file.suffix.lower() in ('.so','.dll','.dylib','.nuspec'):
+                item={'path':file.relative_to(root).as_posix(),'sha256':hashlib.sha256(file.read_bytes()).hexdigest()}
+                if file.suffix.lower()=='.nuspec':
+                    metadata=ET.parse(file).getroot()
+                    item['license']=[node.text for node in metadata.iter() if node.tag.split('}')[-1]=='license']
+                    item['project_url']=[node.text for node in metadata.iter() if node.tag.split('}')[-1]=='projectUrl']
+                rows.append(item)
+    assert rows,'Native SQLite provenance missing'
     return rows
 
 def audit(ci):

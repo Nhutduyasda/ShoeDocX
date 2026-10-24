@@ -1,6 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using ShoeExportInvoice.Api.Services;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using ShoeExportInvoice.Api.Data;
+using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 namespace ShoeExportInvoice.Tests.UniversalDocEngine;
 
 public sealed class Gate6ATests
@@ -20,6 +23,13 @@ public sealed class Gate6ATests
     public void ProductionRejectsUnsafeOrigins(string origin) => Assert.Throws<InvalidOperationException>(()=>ProductionConfiguration.Validate(Config(origin:origin),true));
     [Fact] public void ExplicitTrustedProductionConfigurationIsAccepted() => ProductionConfiguration.Validate(Config(),true);
     [Fact] public void DevelopmentConfigurationRemainsCompatible() => ProductionConfiguration.Validate(Config("Data Source=test.db","http://localhost:5173"),false);
+    [Fact] public void BothEfSnapshotsMatchCurrentModelsWithoutDatabaseAccess()
+    {
+        const string connection="Server=localhost;Database=gate5c_model_only;Integrated Security=True;Encrypt=False";
+        using var legacy=new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(connection).Options);
+        using var drafts=new UniversalDocDraftDb(new DbContextOptionsBuilder<UniversalDocDraftDb>().UseSqlServer(connection).Options);
+        Assert.False(legacy.Database.HasPendingModelChanges());Assert.False(drafts.Database.HasPendingModelChanges());
+    }
     [Fact] public void ActualNativeSqliteVersionIsReportedAndExecutesTransactions()
     {
         using var connection=new SqliteConnection("Data Source=:memory:");connection.Open();

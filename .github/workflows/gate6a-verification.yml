@@ -79,6 +79,14 @@ jobs:
         run: |
           export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
           python feature/.github/scripts/verify_gate6a.py
+      - name: Build container images without deploying
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker build -f feature/backend/ShoeExportInvoice.Api/Dockerfile -t gate6a-api feature
+          docker build -t gate6a-web feature/frontend
+          docker image inspect gate6a-api --format '{{json .Config.User}}' > "$RUNNER_TEMP/gate6a-user.json"
+          python -c 'import json,os; from pathlib import Path; user=json.loads((Path(os.environ["RUNNER_TEMP"])/"gate6a-user.json").read_text()); assert user=="app"; Path("verification-evidence/container.json").write_text(json.dumps({"backend_build":"PASS","frontend_build":"PASS","runtime_user":user,"deployed":False}))'
       - name: Upload sanitized metadata only
         if: always()
         uses: actions/upload-artifact@v4

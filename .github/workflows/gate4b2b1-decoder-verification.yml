@@ -1,0 +1,127 @@
+name: Gate 4B.2B-1 isolated decoder security acceptance
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-4b2b1-decoder-poc'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: feature
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 5ff844e3761de65b14acf9a69b8a090d43a40152
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.426'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Provision Linux test-only delegated resource subtree
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bubblewrap libseccomp2
+          cg="/sys/fs/cgroup/shoedocx-decoder-$(id -u)"
+          if sudo sh -c 'echo "+cpu +memory +pids" > /sys/fs/cgroup/cgroup.subtree_control' && sudo mkdir "$cg"; then
+            sudo sh -c 'echo "+cpu +memory +pids" > "$1/cgroup.subtree_control"' sh "$cg" || true
+            sudo mkdir "$cg/supervisor"
+            sudo chown "$(id -u):$(id -g)" "$cg" "$cg/cgroup.procs" "$cg/cgroup.subtree_control" "$cg/cgroup.threads" || true
+          else
+            echo 'Delegation unavailable: actual verifier must report BLOCKED; no privileged worker fallback.'
+          fi
+      - name: Install isolated existing Studio browser runtime
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/studio-browser" --no-package-lock --no-save playwright@1.62.1
+          node "$RUNNER_TEMP/studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Baseline regression and actual sandbox security acceptance
+        shell: bash
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "${{ runner.os }}" = Linux ]; then
+            cg="/sys/fs/cgroup/shoedocx-decoder-$(id -u)"
+            # Administrative test provisioning only: migrate this trusted shell, never a worker.
+            # Future children start within the delegated tree, so non-root sibling migration is legal.
+            if [ -d "$cg/supervisor" ]; then
+              if ! sudo sh -c 'echo "$1" > "$2/supervisor/cgroup.procs"' sh "$$" "$cg"; then
+                echo 'SUPERVISOR_DELEGATION_MIGRATION_BLOCKED'
+              fi
+            fi
+          fi
+          export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
+          python feature/.github/scripts/verify_gate4b2b1.py
+      - name: Sanitized Windows startup event codes
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $result = @{ available = $false; events = @(); securityEvidence = $false }
+          try {
+            $events = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = @(1000,1001,26); StartTime = (Get-Date).AddMinutes(-20) } -ErrorAction Stop
+            $result.available = $true
+            foreach ($event in $events) {
+              if ($event.Message -match 'UniversalDocDecoder\.(Probe|Worker)') {
+                $codes = @([regex]::Matches($event.Message, '0x[0-9a-fA-F]{8}') | ForEach-Object { $_.Value } | Select-Object -Unique)
+                $result.events += @{ id = $event.Id; codes = $codes }
+              }
+            }
+          } catch { }
+          New-Item -ItemType Directory -Force verification-evidence | Out-Null
+          $result | ConvertTo-Json -Depth 5 | Set-Content verification-evidence/windows-startup-events.json
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate4b2b1-${{ matrix.os }}
+          path: verification-evidence/
+          if-no-files-found: error
+          retention-days: 14
+  acceptance:
+    if: always() && needs.verify.result != 'skipped'
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Negative tests for acceptance evaluator
+        run: python -m unittest discover -s .github/scripts -p test_gate4b2b1_acceptance.py
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gate4b2b1-*
+          path: host-evidence
+      - name: Require both exact-HEAD host reports and every mandatory predicate
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+          HOST_JOBS_RESULT: ${{ needs.verify.result }}
+        run: |
+          python .github/scripts/gate4b2b1_acceptance.py host-evidence "$VERIFIED_HEAD"
+          test "$HOST_JOBS_RESULT" = success

@@ -1,0 +1,288 @@
+{
+  "official_feed": [
+    {
+      "@name": "base",
+      "@id": "https://api.nuget.org/v3-vulnerabilities/2026.10.15.05.26.01/vulnerability.base.json",
+      "@updated": "2026-10-15T05:26:01.9165571Z",
+      "comment": "The base data for vulnerability update periodically"
+    },
+    {
+      "@name": "update",
+      "@id": "https://api.nuget.org/v3-vulnerabilities/2026.10.15.05.26.01/2026.10.15.05.26.01/vulnerability.update.json",
+      "@updated": "2026-10-15T05:26:01.9165571Z",
+      "comment": "The patch data for the vulnerability. Contains all the vulnerabilities since base was last updated."
+    }
+  ],
+  "findings": [],
+  "native_files": [
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-arm/native/libSkiaSharp.so",
+      "sha256": "ae64e427e92fed4eee8e49e6780ab74ae7e88d32efd808a416d8621c770396e8"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-arm64/native/libSkiaSharp.so",
+      "sha256": "04abf9a9f59b7a53487b9118b4d1a7c8c8d7e4e0690baf6a77ef6069af17d220"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-bionic-arm64/native/libSkiaSharp.so",
+      "sha256": "a2a7254a9e64627ed22202068bb94bb6c1cdd30a9dd6fa0cfc06e5fd47b39159"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-bionic-x64/native/libSkiaSharp.so",
+      "sha256": "7b73e3761cf7bcb6460a75165393ced26eb41754d2757ff1ce0e22d99d737c5d"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-loongarch64/native/libSkiaSharp.so",
+      "sha256": "16a1d9eb24a4c12f883ba039b451cf6340d530188152e01ce74d5a0afeea5c0f"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-musl-arm/native/libSkiaSharp.so",
+      "sha256": "f60514995b98de7814925f085e849f68e60aea5e8349161df003d22f4fc4b8d9"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-musl-arm64/native/libSkiaSharp.so",
+      "sha256": "337e632e157afd8769aee87806ff03dab83c7d1c0a060083329d15fb53c05715"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-musl-loongarch64/native/libSkiaSharp.so",
+      "sha256": "b559c6b692571abc4cedd8bca72ea8657c1e99dd42b4ce8d600f52706fcd83f1"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-musl-riscv64/native/libSkiaSharp.so",
+      "sha256": "dd8fab2040b50dd662e4808107e56464283f53d1c77a24bfc6027942483d0c6f"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-musl-x64/native/libSkiaSharp.so",
+      "sha256": "0d16b0f62b33f23f53d7f6a9aed0e45a028e1edf74a5b7a323598e2ef67433fc"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-riscv64/native/libSkiaSharp.so",
+      "sha256": "ac1f95b09a71a7f09015947e9403df94a2528af13e5438870e71f330a96d9b5b"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-x64/native/libSkiaSharp.so",
+      "sha256": "b25029b255f3fcfdf758187826b3a802376ec9ec4e8cb17a1e7a41c8f5243d2a"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "file": "runtimes/linux-x86/native/libSkiaSharp.so",
+      "sha256": "b3c2309e636cb063dba4ec67c702cf275dc77dd696ae21f90529bda36cace084"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Win32/4.153.1",
+      "file": "runtimes/win-arm64/native/libSkiaSharp.dll",
+      "sha256": "009e49c2c9d3cc0d75643754d42ec62bbc8f62ac54ed236e60984060e01b1f81"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Win32/4.153.1",
+      "file": "runtimes/win-x64/native/libSkiaSharp.dll",
+      "sha256": "935ef4a00462e6b0c4dadb870f734fa43679b4f561287fe0d28cbe2ba147e832"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.Win32/4.153.1",
+      "file": "runtimes/win-x86/native/libSkiaSharp.dll",
+      "sha256": "1c6f7a9f863184ab50063a2c0ddcdc534cc87262940ce6a5c4fd435d6ea51723"
+    },
+    {
+      "package": "SkiaSharp.NativeAssets.macOS/4.153.1",
+      "file": "runtimes/osx/native/libSkiaSharp.dylib",
+      "sha256": "11a672e8df0701967aa041b449bb4db6f9af040a5e8b0ed9ea44a922ec0effaa"
+    },
+    {
+      "package": "bblanchon.PDFium.Linux/157.0.8100",
+      "file": "runtimes/linux-arm/native/libpdfium.so",
+      "sha256": "9f1aad3a50bd7beacd2c6cbe2a008eeb8c9e93af1b4f8dc1a466a8716543ae83"
+    },
+    {
+      "package": "bblanchon.PDFium.Linux/157.0.8100",
+      "file": "runtimes/linux-arm64/native/libpdfium.so",
+      "sha256": "51faba3b1b580d8da572b560442f51e1e629180bae70ed37294a19f220623026"
+    },
+    {
+      "package": "bblanchon.PDFium.Linux/157.0.8100",
+      "file": "runtimes/linux-musl-arm/native/libpdfium.so",
+      "sha256": "7106796df3abdb69fcb31a28c478784e71e8e9f880d38a1a19a8627ab589145f"
+    },
+    {
+      "package": "bblanchon.PDFium.Linux/157.0.8100",
+      "file": "runtimes/linux-musl-arm64/native/libpdfium.so",
+      "sha256": "b2bbb7a59e8576d2d782d853304fc04164dead4daf5aaaa60e2bc502c237f70a"
+    },
+    {
+      "package": "bblanchon.PDFium.Linux/157.0.8100",
+      "file": "runtimes/linux-musl-x64/native/libpdfium.so",
+      "sha256": "5bfff543acca50d3a8dd6459ee7d1e2cea20066a25306645da278a6131c66b47"
+    },
+    {
+      "package": "bblanchon.PDFium.Linux/157.0.8100",
+      "file": "runtimes/linux-musl-x86/native/libpdfium.so",
+      "sha256": "46438d0934603780b016cbf7b95b5f2f5429923d000258a1f9b6e2892517b159"
+    },
+    {
+      "package": "bblanchon.PDFium.Linux/157.0.8100",
+      "file": "runtimes/linux-x64/native/libpdfium.so",
+      "sha256": "b8784cbd652ad2993332b7695e2c80f3a797f877fc47d9be97b66bca9639539e"
+    },
+    {
+      "package": "bblanchon.PDFium.Linux/157.0.8100",
+      "file": "runtimes/linux-x86/native/libpdfium.so",
+      "sha256": "13cef759cebb285844685b24fe013d80baab758dda65c71a965cbbed0962a28a"
+    },
+    {
+      "package": "bblanchon.PDFium.Win32/157.0.8100",
+      "file": "runtimes/win-arm64/native/pdfium.dll",
+      "sha256": "9b73b701916dbbca1a7c2ea79b228a9536bbff90bf9ee67e93b3c13b591f0daa"
+    },
+    {
+      "package": "bblanchon.PDFium.Win32/157.0.8100",
+      "file": "runtimes/win-x64/native/pdfium.dll",
+      "sha256": "ae913f407e8d3f5cdbf08a9869564d647b13e132e01eb376c0a5a33b7a227a45"
+    },
+    {
+      "package": "bblanchon.PDFium.Win32/157.0.8100",
+      "file": "runtimes/win-x86/native/pdfium.dll",
+      "sha256": "fe0525430d1b74b9022c16e7da50977052b6a37ce41f67d89fde56e33263a54d"
+    }
+  ],
+  "native_nested_component_advisory_coverage": "INCOMPLETE: package audit is not a native codec CVE proof",
+  "package_components": [
+    {
+      "type": "library",
+      "name": "SkiaSharp.NativeAssets.Linux.NoDependencies",
+      "version": "4.153.1",
+      "bom-ref": "SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1",
+      "purl": "pkg:nuget/SkiaSharp.NativeAssets.Linux.NoDependencies@4.153.1",
+      "properties": [
+        {
+          "name": "nuget.contentHash",
+          "value": "NrnPjcxjcRau4GMOY0BTpUdMey+MnmLU3jC5AuExEFHPS2NkX1tdkXW0n/c5nQMMHBTAMpHnt7qEOpXs2FNfIQ=="
+        },
+        {
+          "name": "repository",
+          "value": "{\"type\": \"git\", \"url\": \"https://go.microsoft.com/fwlink/?linkid=868515\", \"branch\": \"release/4.153.1\", \"commit\": \"4783f51448f9b070dda4f87b83e941c9599e466e\"}"
+        },
+        {
+          "name": "nuget.license",
+          "value": "MIT"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "SkiaSharp.NativeAssets.Win32",
+      "version": "4.153.1",
+      "bom-ref": "SkiaSharp.NativeAssets.Win32/4.153.1",
+      "purl": "pkg:nuget/SkiaSharp.NativeAssets.Win32@4.153.1",
+      "properties": [
+        {
+          "name": "nuget.contentHash",
+          "value": "Yqg6rChTVh0BUE8QQxtOA3uUBnihfgID4yex/AvDa0+os2bVcBjmI3Qj9tnOB+R1hd/Jry1Gwl8qw5JI9HZG8Q=="
+        },
+        {
+          "name": "repository",
+          "value": "{\"type\": \"git\", \"url\": \"https://go.microsoft.com/fwlink/?linkid=868515\", \"branch\": \"release/4.153.1\", \"commit\": \"4783f51448f9b070dda4f87b83e941c9599e466e\"}"
+        },
+        {
+          "name": "nuget.license",
+          "value": "MIT"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "SkiaSharp.NativeAssets.macOS",
+      "version": "4.153.1",
+      "bom-ref": "SkiaSharp.NativeAssets.macOS/4.153.1",
+      "purl": "pkg:nuget/SkiaSharp.NativeAssets.macOS@4.153.1",
+      "properties": [
+        {
+          "name": "nuget.contentHash",
+          "value": "YTojWeWIhnpF7uC8vpMxB5wRONKkDB2t3r/nNPA3DL2pgj9fqMXRevA/rIanYazWnco4jo1ufgp3HkXuh1Tz8A=="
+        },
+        {
+          "name": "repository",
+          "value": "{\"type\": \"git\", \"url\": \"https://go.microsoft.com/fwlink/?linkid=868515\", \"branch\": \"release/4.153.1\", \"commit\": \"4783f51448f9b070dda4f87b83e941c9599e466e\"}"
+        },
+        {
+          "name": "nuget.license",
+          "value": "MIT"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "SkiaSharp",
+      "version": "4.153.1",
+      "bom-ref": "SkiaSharp/4.153.1",
+      "purl": "pkg:nuget/SkiaSharp@4.153.1",
+      "properties": [
+        {
+          "name": "nuget.contentHash",
+          "value": "TghYLOUaP3q6rTjQw7U9uQaaXh8lEs9rfA1U7/VtmyAptVDtj/SmjtcWzFWmcC/VMWxe3QgbV9uyvqDL7ySFtQ=="
+        },
+        {
+          "name": "repository",
+          "value": "{\"type\": \"git\", \"url\": \"https://go.microsoft.com/fwlink/?linkid=868515\", \"branch\": \"release/4.153.1\", \"commit\": \"4783f51448f9b070dda4f87b83e941c9599e466e\"}"
+        },
+        {
+          "name": "nuget.license",
+          "value": "MIT"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "bblanchon.PDFium.Linux",
+      "version": "157.0.8100",
+      "bom-ref": "bblanchon.PDFium.Linux/157.0.8100",
+      "purl": "pkg:nuget/bblanchon.PDFium.Linux@157.0.8100",
+      "properties": [
+        {
+          "name": "nuget.contentHash",
+          "value": "+VKTzJDX1aMJ2AX33qxtyLQY2d5IA1o1FwDbQeaJQnYevSFbYAFjVeQeinaPcjiEA4qUSicjhh7uGCQD4qqFyw=="
+        },
+        {
+          "name": "repository",
+          "value": "{\"type\": \"git\", \"url\": \"https://github.com/bblanchon/pdfium-binaries.git\", \"branch\": \"master\", \"commit\": \"5b4d6b2ede1c1b0e17f5dc7b996c42d68d534ca8\"}"
+        },
+        {
+          "name": "nuget.license",
+          "value": "Apache-2.0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "bblanchon.PDFium.Win32",
+      "version": "157.0.8100",
+      "bom-ref": "bblanchon.PDFium.Win32/157.0.8100",
+      "purl": "pkg:nuget/bblanchon.PDFium.Win32@157.0.8100",
+      "properties": [
+        {
+          "name": "nuget.contentHash",
+          "value": "OeimMc5Zn7XFuiczK1/C88Xfe3Ney4fxIxnhKfO44TVIvMhNqEbkbrRYaFGS5SMveaw3uDG0lewgV9qICZjpAQ=="
+        },
+        {
+          "name": "repository",
+          "value": "{\"type\": \"git\", \"url\": \"https://github.com/bblanchon/pdfium-binaries.git\", \"branch\": \"master\", \"commit\": \"5b4d6b2ede1c1b0e17f5dc7b996c42d68d534ca8\"}"
+        },
+        {
+          "name": "nuget.license",
+          "value": "Apache-2.0"
+        }
+      ]
+    }
+  ]
+}

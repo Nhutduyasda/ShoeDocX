@@ -35,7 +35,7 @@ async function exported(name) {
   await page.getByText('Excel workbook exported.', { exact: true }).waitFor(); checks.push('REAL_XLSX_DOWNLOAD');
 }
 try {
-  await page.goto(base + '/universal-doc-studio');
+  await page.goto(base + '/universal-doc-studio?mode=demo');
   await page.getByRole('textbox', { name: /Tên đăng nhập/ }).fill('admin-a');
   await page.getByLabel(/Mật khẩu/).fill('Studio@Test2026!');
   await page.getByRole('button', { name: /Đăng nhập/ }).click();

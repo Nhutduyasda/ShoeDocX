@@ -21,6 +21,8 @@ public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrato
         var actor = workflow.Actor(); var tokens = antiforgery.GetAndStoreTokens(HttpContext);
         return Ok(new { csrfToken = tokens.RequestToken, workflows = StudioDemoCatalog.Workflows, actor.CanReview, actor.CanApprove, draftsEnabled = configuration.GetValue<bool>("UniversalDocDrafts:Enabled") });
     }
+    [HttpGet("sessions/{id}/office-preview")]
+    public IActionResult OfficePreview(string id, [FromQuery] long expectedVersion) => Ok(workflow.PreviewOffice(id, expectedVersion));
     [HttpGet("templates/{workflowId}")]
     public IActionResult Template(string workflowId) => File(workflow.SampleTemplate(workflowId), StudioExport.ContentType, "synthetic-template.xlsx");
     [HttpPost("sessions")]

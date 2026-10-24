@@ -18,3 +18,9 @@
 .uds fieldset { min-width:0; margin:16px 0; border:1px solid #d3deea; border-radius:8px; padding:16px; }
 .uds fieldset label { margin:10px 0; }.uds p,.uds li,.uds legend { overflow-wrap:anywhere; }
 .uds fieldset select,.uds fieldset input { min-width:0; width:100%; }.uds input[type=checkbox] { width:auto; align-self:flex-start; }
+
+.office-wizard { max-width:100%; }.office-wizard .uds-panel { margin-bottom:20px; min-height:0; }
+.office-wizard .uds-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }.office-wizard table { min-width:540px; }
+.office-wizard td input,.office-wizard td select { min-width:130px; width:100%; }.office-wizard th { overflow-wrap:anywhere; }
+.office-wizard .uds-scroll:focus-visible { outline:3px solid #e4af45;outline-offset:2px; }.office-wizard .office-drafts article { border-top:1px solid #dce3ea; }
+@media(max-width:500px){.office-wizard .uds-top>div:last-child { flex-wrap:wrap; }.office-wizard .uds-grid { grid-template-columns:minmax(0,1fr); }.office-wizard .uds-steps { grid-template-columns:repeat(2,minmax(0,1fr)); }.office-wizard .uds-panel { padding:14px; }.office-wizard .uds-state button { margin:8px 4px 0 0; }}

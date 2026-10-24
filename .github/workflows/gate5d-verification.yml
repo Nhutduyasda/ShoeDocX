@@ -1,0 +1,86 @@
+name: Gate 5D office wizard verification
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-5d-office-wizard'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: feature
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 0671c99ad5743e2d234190c464fc496989a71012
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.426'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Ephemeral Linux SQL Server Developer
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker run -d --name gate5c-sql -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD='Gate5C_Synthetic_Only!2026' -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+          echo 'GATE5C_SQL=Server=127.0.0.1,1433;User ID=sa;Password=Gate5C_Synthetic_Only!2026;Encrypt=False;Connect Timeout=15' >> "$GITHUB_ENV"
+          for i in {1..60}; do if docker exec gate5c-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Gate5C_Synthetic_Only!2026' -C -Q 'SELECT 1' >/dev/null 2>&1; then exit 0; fi; sleep 1; done
+          exit 1
+      - name: Ephemeral Windows SQL Server LocalDB
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tool = Get-ChildItem 'C:\Program Files\Microsoft SQL Server' -Filter SqlLocalDB.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
+          if (!$tool) { throw 'Mandatory real SQL Server LocalDB unavailable' }
+          & $tool create Gate5C -s
+          if ($LASTEXITCODE -ne 0) { throw 'Ephemeral SQL Server LocalDB startup failed' }
+          'GATE5C_SQL=Server=(localdb)\Gate5C;Integrated Security=True;Encrypt=False;Connect Timeout=15' >> $env:GITHUB_ENV
+      - name: Compile office host and run Gate 5C–5D security and compatibility tests
+        shell: bash
+        run: |
+          python -c 'import json; from pathlib import Path; Path("global.json").write_text(json.dumps({"sdk":{"version":"8.0.426","rollForward":"disable"}}))'
+          dotnet build feature/tests/Gate5CDemoHost/Gate5CDemoHost.csproj
+          dotnet build feature/tests/Gate5DDemoHost/Gate5DDemoHost.csproj
+          export GATE5C_PROBE="$GITHUB_WORKSPACE/feature/tests/Gate5CDemoHost/bin/Debug/net8.0/Gate5CDemoHost.dll"
+          echo "GATE5C_PROBE=$GATE5C_PROBE" >> "$GITHUB_ENV"
+          dotnet test feature/tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter 'FullyQualifiedName~UniversalDocEngine.Gate5C|FullyQualifiedName~UniversalDocEngine.Gate5D'
+      - name: Install isolated verification tools
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/studio-browser" --no-package-lock --no-save playwright@1.62.1
+          node "$RUNNER_TEMP/studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
+          python -m pip install openpyxl==3.1.5
+      - name: Baseline comparison, SQL regression, actual browser restart and XLSX QA
+        shell: bash
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
+          python feature/.github/scripts/verify_gate5d.py
+      - name: Upload sanitized metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate5d-verification-${{ matrix.os }}
+          path: verification-evidence/**/*.json
+          if-no-files-found: error
+          retention-days: 14

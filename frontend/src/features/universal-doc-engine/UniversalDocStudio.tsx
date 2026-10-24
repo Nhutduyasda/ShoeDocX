@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { StudioApi, type ConfigurationSection, type StudioBootstrap, type StudioDraft, type StudioField, type StudioMapping, type StudioSession } from './studioApi';
 import './studio.css';
@@ -50,7 +50,7 @@ function FieldEditor({ field, busy, edit, displayName, onDirtyChange }: { onDirt
     </td>
   </tr>;
 }
-export default function UniversalDocStudio() {
+function EngineeringStudio({onOffice}:{onOffice:()=>void}) {
   const { user, logout } = useAuth();
   const [api] = useState(() => new StudioApi()); const [bootstrap, setBootstrap] = useState<StudioBootstrap | null>(null);
   const [session, setSession] = useState<StudioSession | null>(null); const [workflow, setWorkflow] = useState('invoice');
@@ -120,7 +120,7 @@ export default function UniversalDocStudio() {
   return <main className="uds">
     <header className="uds-top"><div><p className="uds-eyebrow">SHOEDOCX · INTERNAL DEMO</p><h1>Universal Document Studio</h1>
       <p>Review a template, normalize synthetic observations, and export after human approval.</p></div>
-      <div><span>{user?.fullName}</span><a href="/">Legacy workspace</a><button onClick={logout}>Sign out</button></div>
+      <div><button disabled={busy || hasUnsavedConfiguration} onClick={onOffice}>Về hướng dẫn Excel</button><span>{user?.fullName}</span><a href="/">Legacy workspace</a><button onClick={logout}>Sign out</button></div>
     </header>
     <p className="uds-banner">Demo extraction and private document intake. No OCR recognition or AI calls. Sessions expire after 20 minutes and disappear when the backend restarts.</p>
     {bootstrap?.draftsEnabled && <section className="uds-panel" aria-label="Durable drafts">
@@ -222,4 +222,11 @@ export default function UniversalDocStudio() {
       <footer className="uds-inline"><button disabled={step === 0} onClick={() => changeStep(step - 1)}>Previous step</button><button disabled={step === 5} onClick={() => changeStep(step + 1)}>Next step</button></footer>
     </section>
   </main>;
+}
+
+const OfficeWizard = lazy(() => import('./OfficeWizard'));
+export default function UniversalDocStudio() {
+  const [demo, setDemo] = useState(() => new URLSearchParams(window.location.search).get('mode') === 'demo');
+  function mode(value:boolean) { const url=new URL(window.location.href);if(value)url.searchParams.set('mode','demo');else url.searchParams.delete('mode');window.history.replaceState(null,'',url);setDemo(value); }
+  return demo ? <EngineeringStudio onOffice={()=>mode(false)}/> : <Suspense fallback={<p role="status">Đang mở hướng dẫn Excel…</p>}><OfficeWizard onDemo={()=>mode(true)}/></Suspense>;
 }

@@ -19,7 +19,7 @@ async function deny(code) {
   await click('6 Excel export'); await click('Export Excel'); await page.getByRole('alert').filter({ hasText: code }).waitFor();
 }
 try {
-  await page.goto(base + '/universal-doc-studio'); await page.getByRole('textbox', { name: /Tên đăng nhập/ }).fill('admin-a'); await page.getByLabel(/Mật khẩu/).fill('Studio@Test2026!'); await page.getByRole('button', { name: /Đăng nhập/ }).click();
+  await page.goto(base + '/universal-doc-studio?mode=demo'); await page.getByRole('textbox', { name: /Tên đăng nhập/ }).fill('admin-a'); await page.getByLabel(/Mật khẩu/).fill('Studio@Test2026!'); await page.getByRole('button', { name: /Đăng nhập/ }).click();
   await page.getByRole('heading', { name: 'Universal Document Studio', exact: true }).waitFor();
   await page.getByLabel('Template mode').selectOption('example'); await click('Create private session');
   const template = await (await context.request.get(base + '/api/__test/gate5b-template')).body();

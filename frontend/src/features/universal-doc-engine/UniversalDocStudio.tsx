@@ -30,8 +30,13 @@ function MappingEditor({ session, busy, apply }: { session: StudioSession; busy:
     <p className="uds-muted">Applying a correction clears confirmation and any earlier document approval. Confirmation remains a separate action.</p>
   </form>;
 }
-function FieldEditor({ field, busy, edit, displayName }: { displayName?: string; field: StudioField; busy: boolean; edit: (field: StudioField, value: string) => void }) {
+function FieldEditor({ field, busy, edit, displayName, onDirtyChange }: { onDirtyChange: (id: string, dirty: boolean) => void; displayName?: string; field: StudioField; busy: boolean; edit: (field: StudioField, value: string) => void }) {
   const [value, setValue] = useState(field.value ?? '');
+  const editId = `${field.scope}:${field.row}:${field.key}`;
+  useEffect(() => {
+    onDirtyChange(editId, value !== (field.value ?? ''));
+    return () => onDirtyChange(editId, false);
+  }, [editId, value, field.value, onDirtyChange]);
   const label = `${field.scope} ${field.row === null ? '' : `row ${field.row + 1} `}${displayName || field.key}`;
   return <tr>
     <th scope="row">{label}<small>{field.type} · {field.source} · {field.review}</small></th>
@@ -60,7 +65,12 @@ export default function UniversalDocStudio() {
   const reportConfigurationEdit = useCallback((section: ConfigurationSection, dirty: boolean) => {
     setConfigurationEdits(previous => previous[section] === dirty ? previous : { ...previous, [section]: dirty });
   }, []);
-  const hasUnsavedConfiguration = Object.values(configurationEdits).some(Boolean);
+  const [fieldEdits, setFieldEdits] = useState<Record<string, boolean>>({});
+  const reportFieldEdit = useCallback((id: string, dirty: boolean) => {
+    setFieldEdits(previous => previous[id] === dirty ? previous : { ...previous, [id]: dirty });
+  }, []);
+  const hasUnsavedFields = Object.values(fieldEdits).some(Boolean);
+  const hasUnsavedConfiguration = Object.values(configurationEdits).some(Boolean) || hasUnsavedFields;
   function changeStep(next: number) {
     if (busy) return;
     if (hasUnsavedConfiguration && next !== step) { setError('Apply or discard unsaved edits before changing steps. Server confirmation covers saved configuration only.'); return; }
@@ -102,7 +112,7 @@ export default function UniversalDocStudio() {
   }
   function act(action: string, data: Record<string, unknown> = {}, method = 'POST') {
     const section = ({ schema: 'schema', 'multisheet-mapping': 'mapping', 'validation-rules': 'rules', 'manual-sample': 'sample' } as Record<string, ConfigurationSection>)[action];
-    if (Object.entries(configurationEdits).some(([name, dirty]) => dirty && name !== section)) {
+    if ((hasUnsavedFields && action !== 'fields') || Object.entries(configurationEdits).some(([name, dirty]) => dirty && name !== section)) {
       setError('Apply or discard the other unsaved configuration edits first. Server confirmation covers saved configuration only.'); return;
     }
     if (session) void run(async () => { setSession(await api.act(session, action, data, method)); setNotice('Server state updated.'); });
@@ -197,7 +207,7 @@ export default function UniversalDocStudio() {
         </article>)}</div></>}
       {step === 3 && session && <><p>Edits are sent to the backend and invalidate earlier approval. Original synthetic observation evidence remains visible separately.</p>
         <div className="uds-scroll"><table><thead><tr><th>Field</th><th>Current server value</th><th>Source evidence</th></tr></thead><tbody>
-          {session.fields.map(field => <FieldEditor key={`${session.dataRevision}:${field.scope}:${field.row}:${field.key}`} field={field} busy={busy} displayName={session.schemaDraft?.fields.find(f => f.scope === field.scope && f.key === field.key)?.label}
+          {session.fields.map(field => <FieldEditor key={`${session.dataRevision}:${field.scope}:${field.row}:${field.key}`} field={field} busy={busy} onDirtyChange={reportFieldEdit} displayName={session.schemaDraft?.fields.find(f => f.scope === field.scope && f.key === field.key)?.label}
             edit={(f, value) => act('fields', { scope: f.scope, key: f.key, row: f.row, value }, 'PATCH')} />)}
         </tbody></table></div>
         <h3>Validation results</h3><ul aria-label="Validation results">{session.checks?.map(c => <li key={c.id}>{c.id}: {c.outcome === 'NotEvaluated' ? 'Not evaluated' : c.outcome}{c.required ? ' · Required' : ''}{session.issues.some(i => i.field === c.id) ? ' · See issue below' : ''}</li>)}</ul>

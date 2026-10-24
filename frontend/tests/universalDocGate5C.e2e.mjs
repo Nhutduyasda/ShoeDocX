@@ -28,6 +28,9 @@ try{
  for(const f of fields)for(let row=0;row<vals[f.label].length;row++)await page.getByLabel(`Sample ${f.key} ${row+1}`,{exact:true}).fill(vals[f.label][row]);
  assert.ok(await page.getByRole('button',{name:'Save draft',exact:true}).isDisabled());checks.push('UNAPPLIED_FORMS_CANNOT_BE_SAVED');
  s=await mutate('Validate manual sample','/manual-sample');await click('5 Human approval');await mutate('Complete human review','/review');await mutate('Approve document','/approve');
+ await click('4 Data review');const quantity=page.getByRole('textbox',{name:'LineItem row 1 Quantity',exact:true});await quantity.fill('9.5');
+ assert.ok(await page.getByRole('button',{name:'Save draft',exact:true}).isDisabled());await page.getByText('Current work is not saved as a durable draft. Apply form edits and save explicitly.',{exact:true}).waitFor();
+ await quantity.fill('2.5');await click('5 Human approval');checks.push('UNAPPLIED_FIELD_EDIT_BLOCKS_DURABLE_SAVE');
  const saved=await mutate('Save draft','/save-draft');const draft=saved.draft;await page.getByText('Draft saved durably.',{exact:true}).waitFor();checks.push('ACTUAL_SAVE_CONFIRMED');
  const update=await mutate('Save draft','/save-draft');assert.equal(update.draft.id,draft.id);assert.equal(update.draft.expiresAt,draft.expiresAt);assert.equal(update.draft.revision,draft.revision+1);Object.assign(draft,update.draft);
  assert.equal((await(await context.request.get(base+'/api/universal-doc/drafts')).json()).length,1);checks.push('REPEATED_SAVE_UPDATES_WITHOUT_DUPLICATION');
@@ -54,5 +57,5 @@ try{
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));const resume=page.getByLabel(`Resume draft ${draft.id}`,{exact:true});await resume.scrollIntoViewIfNeeded();const box=await resume.boundingBox();assert.ok(box&&box.x>=0&&box.x+box.width<=391);checks.push('MOBILE_DRAFT_CONTROLS');
  const deleting=page.waitForResponse(r=>r.url().endsWith(`/drafts/${draft.id}`)&&r.request().method()==='DELETE');await page.getByLabel(`Delete draft ${draft.id}`,{exact:true}).click();assert.equal((await deleting).status(),204);await page.getByLabel(`Resume draft ${draft.id}`,{exact:true}).waitFor({state:'detached'});
  const boot=await(await context.request.get(base+'/api/universal-doc/bootstrap')).json();const denied=await context.request.post(base+`/api/universal-doc/drafts/${draft.id}/resume`,{headers:{'X-Studio-CSRF':boot.csrfToken},data:{expectedRevision:draft.revision}});assert.equal(denied.status(),404);checks.push('DELETE_PREVENTS_RESUME');
- assert.deepEqual(errors,[]);assert.equal(checks.length,16);await writeFile(join(folder,'gate5c-summary.json'),JSON.stringify({status:'PASS',checks,runtimeErrors:errors},null,2));
+ assert.deepEqual(errors,[]);assert.equal(checks.length,17);await writeFile(join(folder,'gate5c-summary.json'),JSON.stringify({status:'PASS',checks,runtimeErrors:errors},null,2));
 }catch(e){console.error(e);process.exitCode=1;}finally{await context.close();await browser.close();}

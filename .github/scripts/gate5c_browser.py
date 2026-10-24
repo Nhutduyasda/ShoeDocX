@@ -58,7 +58,7 @@ def browser(ci):
                 print('\n'.join(line for line in (Path(temporary) / 'browser.log').read_text(encoding='utf-8').splitlines() if any(t in line for t in ('Error:', 'waiting for', 'locator.', 'Expected:', 'Actual:'))), flush=True)
             assert browser.returncode == 0 and restarted, 'Real restarted browser acceptance failed'
             summary = json.loads((folder / 'gate5c-summary.json').read_text())
-            assert summary['status'] == 'PASS' and len(summary['checks']) == 16 and not summary['runtimeErrors']
+            assert summary['status'] == 'PASS' and len(summary['checks']) == 17 and not summary['runtimeErrors']
             path = folder / 'synthetic-gate5c.xlsx'; workbook = openpyxl.load_workbook(path)
             assert workbook.sheetnames == ['Data1', 'Data2', 'Reference']
             for name in ['Data1', 'Data2']:
@@ -72,7 +72,7 @@ def browser(ci):
             data = path.read_bytes()
             (folder / 'workbook-qa.json').write_text(json.dumps({'status': 'PASS', 'independent_openpyxl': True, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(), 'sheets': 2, 'values_formats_formulas_merges_reference': True}, indent=2))
             path.unlink()
-            print('Gate 5C: 16 actual authenticated browser checks + real process restart + independent downloaded XLSX reopen PASS', flush=True)
+            print('Gate 5C: 17 actual authenticated browser checks + real process restart + independent downloaded XLSX reopen PASS', flush=True)
         finally:
             for p in processes:
                 if p.poll() is None: p.terminate()

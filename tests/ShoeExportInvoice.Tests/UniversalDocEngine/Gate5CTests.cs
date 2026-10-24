@@ -9,6 +9,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Persistence;
 using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
@@ -190,6 +191,35 @@ public sealed class Gate5CTests : IAsyncLifetime
         var saved=w.SaveDraft(sql.Store,s.Id,s.Version,null,0);using var restarted=new InMemoryUniversalDocSessionStore(TimeProvider.System);var fresh=new UniversalDocWorkflowOrchestrator(actor,restarted);var resumed=fresh.ResumeDraft(sql.Store,saved.Draft.Id,1,TimeProvider.System);
         var doc=restarted.Read(actor.Value,resumed.Id).Document!;Assert.Empty(doc.Header);Assert.False(doc.LineItems[0].ContainsKey(Key("Price")));Assert.True(doc.LineItems[0].ContainsKey(Key("Quantity")));Assert.Null(doc.LineItems[0][Key("Quantity")].Number);Assert.Null(doc.Approval);
         Assert.Throws<StudioFault>(()=>fresh.Export(resumed.Id,resumed.Version));
+    }
+
+    [Fact] public void KeyRotationReadsHistoricalDraftAndReencryptsWithoutRenewal() {
+        var draft=SaveReady();var actor=Actor().Value;var payload=sql.Store.Read(actor,draft.Id,1).Payload;
+        var config=new ConfigurationBuilder().AddConfiguration(Gate5CSqlFixture.Configuration(sql.Connection)).AddInMemoryCollection(new Dictionary<string,string?> {
+            ["UniversalDocDrafts:ActiveKeyId"]="synthetic-v2",["UniversalDocDrafts:Keys:synthetic-v2"]=Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)) }).Build();
+        var rotated=new SqlUniversalDocDraftStore(sql.DbFactory,new DraftCipher(config));Assert.Equal(payload,rotated.Read(actor,draft.Id,1).Payload);
+        var updated=rotated.Save(actor,draft.Id,1,payload);Assert.Equal(draft.ExpiresAt,updated.ExpiresAt);Assert.Equal(payload,rotated.Read(actor,draft.Id,2).Payload);
+        Assert.Equal("DRAFT_PAYLOAD_INVALID",Assert.Throws<StudioFault>(()=>sql.Store.Read(actor,draft.Id,2)).Code);
+        using var db=sql.DbFactory.CreateDbContext();Assert.Equal("synthetic-v2",db.Drafts.Single().KeyId);
+    }
+    [Theory][InlineData("tenant")][InlineData("created")][InlineData("expiry")][InlineData("workflow")][InlineData("id")]
+    public void RemainingAadMetadataCannotBeSubstituted(string member) {
+        var draft=SaveReady();using var db=sql.DbFactory.CreateDbContext();var row=db.Drafts.AsNoTracking().Single();
+        switch(member) {case "tenant":row.TenantId="other";break;case "created":row.CreatedAt=row.CreatedAt.AddTicks(1);break;case "expiry":row.ExpiresAt=row.ExpiresAt.AddDays(1);break;case "workflow":row.Workflow="invoice";break;case "id":row.Id=new string('A',64);break;}
+        Assert.Equal("DRAFT_PAYLOAD_INVALID",Assert.Throws<StudioFault>(()=>sql.Cipher.Decrypt(row)).Code);
+    }
+    [Fact] public void FinalResumeCheckRejectsRevisionReplacementAndExpiredLease() {
+        var draft=SaveReady();var actor=Actor().Value;var lease=sql.Store.AcquireResume(actor,draft.Id,1);var payload=sql.Store.Read(actor,draft.Id,1).Payload;
+        sql.Store.Save(actor,draft.Id,1,payload);Assert.Equal("DRAFT_REVISION_CONFLICT",Assert.Throws<StudioFault>(()=>sql.Store.CompleteResume(actor,lease,draft.Id,1,DateTimeOffset.UtcNow.AddMinutes(20))).Code);
+        using(var db=sql.DbFactory.CreateDbContext()){db.Leases.Single().ExpiresAt=DateTimeOffset.UtcNow.AddSeconds(-1);db.SaveChanges();}
+        Assert.Equal("DRAFT_RESUME_EXPIRED",Assert.Throws<StudioFault>(()=>sql.Store.CompleteResume(actor,lease,draft.Id,2,DateTimeOffset.UtcNow.AddMinutes(20))).Code);sql.Store.ReleaseResume(lease);
+        using var check=sql.DbFactory.CreateDbContext();Assert.Empty(check.Leases);
+    }
+
+    [Fact] public void MalformedDatabaseConfigurationIsBoundedBeforeProviderUse() {
+        var services=new ServiceCollection();services.AddSingleton<IConfiguration>(Gate5CSqlFixture.Configuration("InvalidConnectionKeyword=value"));services.AddUniversalDocDraftPersistence();
+        using var provider=services.BuildServiceProvider();using var scope=provider.CreateScope();
+        var fault=Assert.Throws<StudioFault>(()=>scope.ServiceProvider.GetRequiredService<IUniversalDocDraftStore>().List(Actor().Value));Assert.Equal(503,fault.Status);Assert.Equal("DRAFT_CONFIGURATION_UNAVAILABLE",fault.Code);
     }
 
 }

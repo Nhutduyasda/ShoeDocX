@@ -26,14 +26,14 @@ public sealed partial class UniversalDocWorkflowOrchestrator
             SourceIntake.RequireBudget(s); return s;
         });
         var view = View(s, actor);
-        var valueFields = view.Fields.Where(f => s.Proposal is not null && !s.Proposal.OmittedOptionalFields.Contains(new(Enum.Parse<FieldScope>(f.Scope), f.Key))).ToArray();
+        var valueFields = view.Fields.Where(f => f.Source != "Missing" && s.Proposal is not null && !s.Proposal.OmittedOptionalFields.Contains(new(Enum.Parse<FieldScope>(f.Scope), f.Key))).ToArray();
         var fields = s.Proposal is null ? ImmutableArray<SchemaFieldCorrection>.Empty : s.SchemaDraft!.Fields.Select(f => {
             var c = f.Omit ? null : f.Candidates[f.Candidate!.Value];
             return new SchemaFieldCorrection(f.Key, f.Label, f.Scope, f.Type, f.Required, f.Omit, null, c?.Worksheet, c?.Cell, c?.Column, c?.PrototypeRow);
         }).ToImmutableArray();
         ManualSample? sample = s.Document is null ? null : new(
-            valueFields.Where(f => f.Scope == "Header").ToImmutableDictionary(f => f.Key, f => f.Value),
-            Enumerable.Range(0, s.Document.LineItems.Length).Select(row => valueFields.Where(f => f.Scope == "LineItem" && f.Row == row).ToImmutableDictionary(f => f.Key, f => f.Value)).ToImmutableArray());
+            valueFields.Where(f => f.Scope == "Header").ToImmutableDictionary(f => f.Key, f => f.Value ?? ""),
+            Enumerable.Range(0, s.Document.LineItems.Length).Select(row => valueFields.Where(f => f.Scope == "LineItem" && f.Row == row).ToImmutableDictionary(f => f.Key, f => f.Value ?? "")).ToImmutableArray());
         var snapshot = new DraftSnapshot(1, s.Workflow, s.Template.ToArray(), s.TemplateSha256!, s.Example.ToArray(), s.Example.IsEmpty ? null : Hash(s.Example.ToArray()), fields,
             view.Mappings.Select(m => new StudioSheetMapping(m.Sheet, m.StartRow, m.Headers, m.Columns)).ToImmutableArray(), s.ValidationRules, sample,
             s.Sources.Select(x => new DraftSource(x.Bytes.ToArray(), x.Sha256, x.MediaType)).ToImmutableArray(), s.Version, DraftConfigurationIdentity(s));
@@ -61,7 +61,8 @@ public sealed partial class UniversalDocWorkflowOrchestrator
                 session = CorrectSchema(session.Id, session.Version, snapshot.Fields);
                 session = ChangeMultisheetMapping(session.Id, session.Version, snapshot.Mappings);
                 session = ChangeValidationRules(session.Id, session.Version, snapshot.Rules);
-                VerifyExampleMapping(store.Read(actor, session.Id));
+                // Correspondence is a confirmation boundary. A saved draft may still need mapping corrections.
+                // ConfirmMapping reruns it before any document can become export-eligible.
             } else if (!snapshot.Mappings.IsEmpty || !snapshot.Rules.IsEmpty || snapshot.Values is not null) throw new StudioFault(409, "DRAFT_PAYLOAD_INVALID");
             if (DraftConfigurationIdentity(store.Read(actor, session.Id)) != snapshot.ConfigurationSha256) throw new StudioFault(409, "DRAFT_FINGERPRINT_MISMATCH");
             if (snapshot.Values is not null) session = RestoreDraftValues(session, snapshot.Values, actor);

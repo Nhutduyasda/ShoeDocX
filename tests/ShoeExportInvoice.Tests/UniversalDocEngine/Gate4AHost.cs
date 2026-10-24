@@ -33,7 +33,7 @@ public sealed class StudioHttpHost : IAsyncDisposable
     public string Address { get; private set; } = "";
     public string SigningKey { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     public static async Task<StudioHttpHost> Start(TimeProvider? clock = null,
-        Func<IUniversalDocSessionStore, IUniversalDocSessionStore>? decorate = null, int port = 0, Action<WebApplication>? configure = null)
+        Func<IUniversalDocSessionStore, IUniversalDocSessionStore>? decorate = null, int port = 0, Action<WebApplication>? configure = null, Action<WebApplicationBuilder>? beforeBuild = null)
     {
         var host = new StudioHttpHost();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development",
@@ -72,6 +72,7 @@ public sealed class StudioHttpHost : IAsyncDisposable
         builder.Services.AddSingleton(clock ?? TimeProvider.System);
         builder.Services.AddUniversalDocEngineGate4A();
         if (decorate is not null) builder.Services.AddSingleton<IUniversalDocSessionStore>(services => decorate(new InMemoryUniversalDocSessionStore(services.GetRequiredService<TimeProvider>())));
+        beforeBuild?.Invoke(builder);
         host.App = builder.Build();
         using (var scope = host.App.Services.CreateScope())
         {

@@ -1,4 +1,4 @@
-export type ConfigurationSection = 'schema' | 'mapping' | 'rules';
+export type ConfigurationSection = 'schema' | 'mapping' | 'rules' | 'sample';
 export type ConfigurationDirtyChange = (section: ConfigurationSection, dirty: boolean) => void;
 export interface StudioRule { id: string; kind: string; fieldA: string; operator: string | null; fieldB: string | null; target: string; tolerance: number; required: boolean; severity: string }
 export interface LearnedField {
@@ -27,8 +27,9 @@ export interface StudioSession {
   sheetSummaries: { name: string; usedCells: number; tables: number; prototypeRows: number[]; footerRows: number[]; mergedRanges: string[] }[];
   sources: StudioSource[];
 }
-export interface StudioBootstrap { csrfToken: string; workflows: string[]; canReview: boolean; canApprove: boolean }
+export interface StudioBootstrap { draftsEnabled?: boolean; csrfToken: string; workflows: string[]; canReview: boolean; canApprove: boolean }
 
+export interface StudioDraft { id: string; workflow: string; revision: number; createdAt: string; updatedAt: string; expiresAt: string }
 export class StudioApi {
   private csrf = '';
   private readonly base = `${(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')}/universal-doc`;
@@ -44,6 +45,16 @@ export class StudioApi {
       const error = await response.json().catch(() => ({})) as { code?: string; title?: string; details?: string[] };
       const code = error.code || error.title || 'STUDIO_REQUEST_FAILED';
       const messages: Record<string, string> = {
+        DRAFT_REVISION_CONFLICT: 'This draft changed. Refresh My drafts before choosing to save or resume again.',
+        DRAFT_EXPIRED: 'This draft has expired and cannot be resumed.',
+        DRAFT_NOT_FOUND: 'This private draft is unavailable or has been deleted.',
+        DRAFT_CONFIGURATION_UNAVAILABLE: 'Durable drafts are unavailable. Ask the administrator to check protected storage configuration.',
+        DRAFT_STORAGE_UNAVAILABLE: 'The durable save did not complete. Reload server state and My drafts before retrying.',
+        DRAFT_CAPACITY_REACHED: 'Draft storage is full. Delete an old draft before creating another.',
+        DRAFT_PAYLOAD_LIMIT: 'This draft exceeds the bounded storage limit. It has not been saved.',
+        DRAFT_FINGERPRINT_MISMATCH: 'The saved configuration did not match its verified identity. Recovery was blocked.',
+        DRAFT_RESUME_EXPIRED: 'Recovery took too long. Refresh My drafts and resume again.',
+        DRAFT_PAYLOAD_INVALID: 'This stored draft could not be verified. Recovery was blocked.',
         MAPPING_CONFIRMATION_REQUIRED: 'Review and confirm the template mapping before continuing.',
         MAPPING_CORRECTION_REQUIRED: 'Correct unresolved mapping fields before confirming.',
         CURRENT_APPROVAL_REQUIRED: 'The current document needs human review and approval.',
@@ -76,6 +87,12 @@ export class StudioApi {
     const data = await (await this.request('/bootstrap', 'GET', undefined, signal)).json() as StudioBootstrap;
     this.csrf = data.csrfToken; return data;
   }
+  async drafts(): Promise<StudioDraft[]> { return (await this.request('/drafts')).json(); }
+  async saveDraft(session: StudioSession, draft?: StudioDraft): Promise<{ draft: StudioDraft; session: StudioSession }> {
+    return (await this.request(`/sessions/${session.id}/save-draft`, 'POST', { expectedVersion: session.version, draftId: draft?.id ?? null, expectedRevision: draft?.revision ?? 0 })).json();
+  }
+  async resumeDraft(draft: StudioDraft): Promise<StudioSession> { return (await this.request(`/drafts/${draft.id}/resume`, 'POST', { expectedRevision: draft.revision })).json(); }
+  async deleteDraft(draft: StudioDraft): Promise<void> { await this.request(`/drafts/${draft.id}`, 'DELETE', { expectedRevision: draft.revision }); }
   async create(workflow: string): Promise<StudioSession> { return (await this.request('/sessions', 'POST', { workflow })).json(); }
   async read(id: string): Promise<StudioSession> { return (await this.request(`/sessions/${encodeURIComponent(id)}`)).json(); }
   async act(session: StudioSession, action: string, data: Record<string, unknown> = {}, method = 'POST'): Promise<StudioSession> {

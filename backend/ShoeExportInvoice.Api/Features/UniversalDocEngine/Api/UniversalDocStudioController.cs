@@ -13,13 +13,13 @@ namespace ShoeExportInvoice.Api.Features.UniversalDocEngine.Api;
 [ServiceFilter(typeof(StudioAdmissionFilter))]
 [RequestSizeLimit(InMemoryUniversalDocSessionStore.MaximumTemplateBytes + 65536)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrator workflow, IAntiforgery antiforgery, TimeProvider time) : ControllerBase
+public sealed class UniversalDocStudioController(UniversalDocWorkflowOrchestrator workflow, IAntiforgery antiforgery, TimeProvider time, IConfiguration configuration) : ControllerBase
 {
     [HttpGet("bootstrap")]
     public IActionResult Bootstrap()
     {
         var actor = workflow.Actor(); var tokens = antiforgery.GetAndStoreTokens(HttpContext);
-        return Ok(new { csrfToken = tokens.RequestToken, workflows = StudioDemoCatalog.Workflows, actor.CanReview, actor.CanApprove });
+        return Ok(new { csrfToken = tokens.RequestToken, workflows = StudioDemoCatalog.Workflows, actor.CanReview, actor.CanApprove, draftsEnabled = configuration.GetValue<bool>("UniversalDocDrafts:Enabled") });
     }
     [HttpGet("templates/{workflowId}")]
     public IActionResult Template(string workflowId) => File(workflow.SampleTemplate(workflowId), StudioExport.ContentType, "synthetic-template.xlsx");

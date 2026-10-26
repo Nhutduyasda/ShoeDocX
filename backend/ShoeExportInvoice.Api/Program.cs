@@ -235,7 +235,9 @@ app.Lifetime.ApplicationStopping.Register(()=>OperationalTelemetry.Event("applic
 if (app.Environment.IsProduction()) {
     OperationalTelemetry.VerifyStorage(builder.Configuration["DataProtection:KeyPath"]!);
     OperationalTelemetry.VerifyStorage(Path.GetFullPath(builder.Configuration["Xnk:CustomsStoragePath"] ?? "data/customs"));
-    if (!Directory.Exists(Path.Combine(app.Environment.ContentRootPath,"Templates"))) throw new InvalidOperationException("REQUIRED_TEMPLATE_STORAGE_UNAVAILABLE");
+    if (!Directory.Exists(Path.Combine(app.Environment.ContentRootPath,"Templates")) ||
+        !File.Exists(Path.GetFullPath(builder.Configuration["Xnk:ShipmentTemplatePath"] ?? "Templates/Shipment_Template.xlsx")))
+        throw new InvalidOperationException("REQUIRED_TEMPLATE_STORAGE_UNAVAILABLE");
 }
 app.Use(async (context,next)=> { try {await next(context);} finally {OperationalTelemetry.Request(context.Request.Path,context.Response.StatusCode);} });
 app.UseForwardedHeaders();
@@ -330,7 +332,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/api/health", async (AppDbContext db) => {
-    try { return await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ready" }) : Results.StatusCode(503); }
+    try { using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)); return await db.Database.CanConnectAsync(timeout.Token) ? Results.Ok(new { status = "ready" }) : Results.StatusCode(503); }
     catch { return Results.StatusCode(503); }
 }).AllowAnonymous();
 app.MapControllers();

@@ -58,13 +58,17 @@ def verify():
             def configuration(login,secret):return {
                 'ConnectionStrings':{'DefaultConnection':f'Server=sql;Database={database};User ID={login};Password={secret};Encrypt=True;TrustServerCertificate=False;Connect Timeout=5'},
                 'Jwt':{'Key':password(),'Issuer':'gate6b','Audience':'gate6b'},'AllowedHosts':'localhost',
-                'Xnk':{'AllowedOrigins':['https://localhost:8443'],'CustomsStoragePath':'/app/data/customs'},
+                'Xnk':{'AllowedOrigins':['https://localhost:8443'],'CustomsStoragePath':'/app/data/customs','ShipmentTemplatePath':'/app/Templates/synthetic.xlsx'},
                 'Ingress':{'KnownProxies':['172.30.86.4']},
                 'DataProtection':{'KeyPath':'/app/data/protection-keys','CertificatePath':'/run/secrets/protection.pfx','CertificatePassword':pfx},
                 'UniversalDocDrafts':{'Enabled':True,'ActiveKeyId':'synthetic-v1','Keys':{'synthetic-v1':__import__('base64').b64encode(os.urandom(32)).decode()}},
                 'UniversalDocGate4A':{'Users':{'admin-a':'synthetic-a','other-a':'synthetic-a','clerk-a':'synthetic-a','admin-b':'synthetic-b'}},
                 'Database':{'ApplyMigrationsOnStartup':False},'BootstrapAdmin':{'Enabled':False},'DevelopmentUsers':{'Enabled':False},
                 'Logging':{'LogLevel':{'Default':'Warning','Microsoft.EntityFrameworkCore':'Warning'}}}
+            fixture=private/'fixtures';op('fixtures',fixture)
+            shutil.copy2(fixture/'A-1-false-none.xlsx',private/'templates/synthetic.xlsx')
+            write('data/customs/synthetic-attachment.txt','SYNTHETIC RECOVERY SENTINEL')
+            storage_fingerprints={name:hashlib.sha256((private/name).read_bytes()).hexdigest() for name in ('templates/synthetic.xlsx','data/customs/synthetic-attachment.txt')}
             config=configuration('gate6b_runtime',runtime);write('runtime.json',json.dumps(config))
             maintenance_config=json.loads(json.dumps(config));maintenance_config['ConnectionStrings']['DefaultConnection']=config['ConnectionStrings']['DefaultConnection'].replace('gate6b_runtime','gate6b_migration').replace(runtime,migration);maintenance_config['Database']['MaintenanceAuthorized']=True
             write('maintenance.json',json.dumps(maintenance_config))
@@ -88,7 +92,7 @@ def verify():
             op('provision');mark('sql_validated_tls_and_separate_accounts')
             for action in ('--migrate-all','--initialize-staging'):
                 cp('run','--rm','-v',str(private/'maintenance.json')+':/run/secrets/runtime.json:ro','backend',action)
-            op('users');op('permissions');mark('both_migrations_explicit_initialization_and_runtime_no_ddl')
+            op('users');op('permissions');op('tls-negative');mark('both_migrations_explicit_initialization_and_runtime_no_ddl')
             cp('up','-d','backend','web');ready();mark('actual_production_images_https_proxy_readiness')
             assert request('/')[0]==200 and request('/api/auth/me')[0]==401
             assert request('/swagger/v1/swagger.json')[0]==404
@@ -101,7 +105,6 @@ def verify():
             meta=json.loads(command(['docker','inspect',cp('ps','-q','backend').stdout.decode().strip()]).stdout)[0]
             assert meta['Config']['User']=='app' and meta['HostConfig']['ReadonlyRootfs']
             assert not meta['HostConfig']['PortBindings'];mark('nonroot_readonly_backend_no_published_port')
-            fixture=private/'fixtures';op('fixtures',fixture)
             env.update(STUDIO_BASE_URL='https://localhost:8443',STUDIO_EVIDENCE_DIR=str(private/'browser'),GATE6B_FIXTURES=str(fixture),STUDIO_PASSWORD=user,NODE_EXTRA_CA_CERTS=str(private/'ca.crt'))
             # Trust only the test CA for Chromium, never set ignoreHTTPSErrors.
             command(['mkdir','-p',str(Path.home()/'.pki/nssdb')])
@@ -140,6 +143,7 @@ def verify():
                     # Driver restore performs this before application start.
                     op('fingerprint',private/'after.json')
                     assert json.loads((private/'before.json').read_text())==json.loads((private/'after.json').read_text())
+                    assert all(hashlib.sha256((private/name).read_bytes()).hexdigest()==value for name,value in storage_fingerprints.items())
                     cp('up','-d','backend','web');ready();report['observed_rebuild_restore_seconds']=round(time.monotonic()-started,2)
                     (private/'browser/restart-completed').write_text('actual complete instance recovery')
                     mark('encrypted_backup_complete_instance_loss_restore_ciphertext_fingerprint');recovered=True
@@ -151,6 +155,32 @@ def verify():
             downloads=json.loads((private/'browser/office-downloads.json').read_text())
             qa=[gate5d_browser.verify_workbook(private/'browser'/d['name'],d['scenario'],d['rows']) for d in downloads]
             (EVIDENCE/'gate6b-office.json').write_text(json.dumps({'browser':summary,'independent_xlsx':qa},indent=2));mark('office_multisheet_mobile_reapproval_real_export_dual_reopen')
+            command(['node','frontend/tests/gate6bFaults.e2e.mjs']);mark('production_csrf_roles_revocation_retention_concurrency_upload_limits')
+            shutil.copy2(private/'browser/gate6b-faults-normal.json',EVIDENCE/'gate6b-production-faults.json')
+            cp('stop','sql')
+            assert request('/api/health')[0]==503,'SQL_OUTAGE_DID_NOT_FAIL_CLOSED'
+            cp('start','sql');ready();mark('sql_outage_controlled_health_and_recovery')
+            cp('stop','backend')
+            def reject_configuration(name,mutate):
+                value=json.loads(json.dumps(config));mutate(value)
+                path=write('fault-'+name+'.json',json.dumps(value));path.chmod(0o400);command(['sudo','chown','1654:1654',str(path)])
+                result=cp('run','--rm','-v',str(path)+':/run/secrets/runtime.json:ro','backend',expected=None,timeout=150)
+                assert result.returncode!=0,'FAULT_CONFIGURATION_ACCEPTED_'+name
+                mark('startup_rejects_'+name)
+            reject_configuration('sql-auth',lambda v:v['ConnectionStrings'].update(DefaultConnection=v['ConnectionStrings']['DefaultConnection'].replace(runtime,password())))
+            reject_configuration('sql-certificate',lambda v:v['ConnectionStrings'].update(DefaultConnection=v['ConnectionStrings']['DefaultConnection']+';HostNameInCertificate=wrong.invalid'))
+            reject_configuration('missing-aes',lambda v:v['UniversalDocDrafts'].update(Keys={}))
+            reject_configuration('wrong-key-id',lambda v:v['UniversalDocDrafts'].update(ActiveKeyId='missing-id'))
+            reject_configuration('wrong-dataprotection-password',lambda v:v['DataProtection'].update(CertificatePassword='incorrect'))
+            reject_configuration('missing-dataprotection-certificate',lambda v:v['DataProtection'].update(CertificatePath='/run/secrets/missing.pfx'))
+            reject_configuration('incomplete-config',lambda v:v['Jwt'].update(Key=''))
+            reject_configuration('missing-template',lambda v:v['Xnk'].update(ShipmentTemplatePath='/app/Templates/missing.xlsx'))
+            noaccess=private/'data/denied';command(['sudo','mkdir',str(noaccess)]);command(['sudo','chmod','000',str(noaccess)])
+            reject_configuration('storage-permission',lambda v:v['Xnk'].update(CustomsStoragePath='/app/data/denied'))
+            command(['sudo','rmdir',str(noaccess)])
+            cp('start','backend');ready()
+            op('expire');env['GATE6B_FAULT_MODE']='expired-draft';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
+            shutil.copy2(private/'browser/gate6b-faults-expired-draft.json',EVIDENCE/'gate6b-expiration.json');mark('expired_draft_after_recovery_denied')
             report['status']='PARTIAL';report['remaining']=['Full fault-injection inventory not yet verified','Windows SQL TLS production parity not yet verified','Previous-build rollback not yet verified','Actual internal pilot not executed']
         except Exception as e:
             report['failure_stage']=list(report['checks'])[-1] if report['checks'] else 'bootstrap'

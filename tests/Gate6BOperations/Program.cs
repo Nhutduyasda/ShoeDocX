@@ -61,6 +61,13 @@ if(action is "seal" or "unseal") {
     await using var r=await q.ExecuteReaderAsync();using var sha=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);var rows=0;
     while(await r.ReadAsync()){rows++;sha.AppendData(System.Text.Encoding.UTF8.GetBytes(r.GetString(0)+r.GetString(1)));sha.AppendData((byte[])r[2]);sha.AppendData((byte[])r[3]);}
     File.WriteAllText(args[1],JsonSerializer.Serialize(new{rows,sha256=Convert.ToHexString(sha.GetHashAndReset())}));
+} else if(action=="expire") {
+    await Execute($"UPDATE [{database}].ude.Drafts SET ExpiresAt=DATEADD(day,-1,SYSDATETIMEOFFSET())");
+} else if(action=="tls-negative") {
+    cs.HostNameInCertificate="wrong-sql.invalid";
+    try { await using var c=new SqlConnection(cs.ConnectionString); await c.OpenAsync(); }
+    catch(SqlException) {Console.WriteLine("OPERATION_PASS");return;}
+    throw new InvalidOperationException("WRONG_SQL_CERTIFICATE_ACCEPTED");
 } else if(action=="permissions") {
     cs.InitialCatalog=database;cs.UserID="gate6b_runtime";cs.Password=config.GetProperty("runtimePassword").GetString();
     await using var c=new SqlConnection(cs.ConnectionString);await c.OpenAsync();

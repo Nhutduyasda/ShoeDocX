@@ -1,0 +1,59 @@
+name: Gate 4B.2B-F bounded Linux feasibility
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  investigate:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-4b2b-f-linux-feasibility'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Trusted probe tools and test-only delegation
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bubblewrap strace gcc libc6-dev
+          cg="/sys/fs/cgroup/shoedocx-feasibility-$(id -u)"
+          if sudo sh -c 'echo "+cpu +memory +pids" > /sys/fs/cgroup/cgroup.subtree_control' && sudo mkdir "$cg"; then
+            sudo sh -c 'echo "+cpu +memory +pids" > "$1/cgroup.subtree_control"' sh "$cg"
+            sudo mkdir "$cg/supervisor"
+            sudo chown "$(id -u):$(id -g)" "$cg" "$cg/cgroup.procs" "$cg/cgroup.subtree_control" "$cg/cgroup.threads"
+          else
+            echo 'TEST_DELEGATION_UNAVAILABLE: no privileged worker fallback'
+          fi
+      - name: Fail-closed evaluator and diagnostic classifier tests
+        run: python -m unittest discover -s .github/scripts -p test_gate4b2bf_linux.py
+      - name: Finite trusted Linux capability investigation
+        shell: bash
+        run: |
+          cg="/sys/fs/cgroup/shoedocx-feasibility-$(id -u)"
+          if [ -d "$cg/supervisor" ]; then
+            sudo sh -c 'echo "$1" > "$2/supervisor/cgroup.procs"' sh "$$" "$cg"
+          fi
+          python .github/scripts/gate4b2bf_linux.py feasibility-evidence
+      - name: Read-only sanitized AppArmor audit correlation
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p feasibility-evidence
+          sudo journalctl -k --since '5 minutes ago' --no-pager --output cat 2>/dev/null | python .github/scripts/gate4b2bf_linux.py --audit > feasibility-evidence/apparmor-audit.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate4b2bf-linux-feasibility
+          path: feasibility-evidence/
+          if-no-files-found: error
+          retention-days: 14

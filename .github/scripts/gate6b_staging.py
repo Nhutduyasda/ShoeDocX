@@ -71,12 +71,13 @@ def verify():
             # Bind directories explicitly owned by actual image user; secrets 0400.
             command(['sudo','chown','-R','1654:1654',str(private/'data'),str(private/'templates')])
             for name in ('runtime.json','maintenance.json','protection.pfx'):
-                command(['sudo','chown','1654:1654',str(private/name)]);(private/name).chmod(0o400)
-            command(['sudo','chown','10001:0',str(private/'sql.key'),str(private/'backup')]);(private/'sql.key').chmod(0o400)
+                (private/name).chmod(0o400);command(['sudo','chown','1654:1654',str(private/name)])
+            (private/'sql.key').chmod(0o400);command(['sudo','chown','10001:0',str(private/'sql.key'),str(private/'backup')])
             command(['docker','build','-f','backend/ShoeExportInvoice.Api/Dockerfile','-t','gate6b-api','.'])
             command(['docker','build','-t','gate6b-web','frontend'])
-            write('Dockerfile','FROM gate6b-api\nUSER root\nCOPY ca.crt /usr/local/share/ca-certificates/gate6b.crt\nRUN update-ca-certificates\nUSER app\n')
-            command(['docker','build','-t','gate6b-api-trusted',str(private)])
+            trust=private/'public-trust-context';trust.mkdir();shutil.copy2(private/'ca.crt',trust/'ca.crt')
+            (trust/'Dockerfile').write_text('FROM gate6b-api\nUSER root\nCOPY ca.crt /usr/local/share/ca-certificates/gate6b.crt\nRUN update-ca-certificates\nUSER app\n')
+            command(['docker','build','-t','gate6b-api-trusted',str(trust)])
             cp('up','-d','sql')
             for _ in range(90):
                 result=cp('exec','-T','sql','/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-P',sa,'-C','-Q','SELECT 1',expected=None)

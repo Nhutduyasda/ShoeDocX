@@ -230,6 +230,14 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
     o.MultipartBodyLengthLimit = builder.Configuration.GetValue<long?>("Xnk:MaxUploadBytes") ?? 20971520);
 var app = builder.Build();
+OperationalTelemetry.Event("application_start");
+app.Lifetime.ApplicationStopping.Register(()=>OperationalTelemetry.Event("application_stopping"));
+if (app.Environment.IsProduction()) {
+    OperationalTelemetry.VerifyStorage(builder.Configuration["DataProtection:KeyPath"]!);
+    OperationalTelemetry.VerifyStorage(Path.GetFullPath(builder.Configuration["Xnk:CustomsStoragePath"] ?? "data/customs"));
+    if (!Directory.Exists(Path.Combine(app.Environment.ContentRootPath,"Templates"))) throw new InvalidOperationException("REQUIRED_TEMPLATE_STORAGE_UNAVAILABLE");
+}
+app.Use(async (context,next)=> { try {await next(context);} finally {OperationalTelemetry.Request(context.Request.Path,context.Response.StatusCode);} });
 app.UseForwardedHeaders();
 if (app.Environment.IsProduction()) app.Use(async (context, next) => {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";

@@ -15,7 +15,7 @@ public static class CustomsStorageMaintenance
         {
             var relative = row.CustomsAttachmentFilePath ?? Path.Combine(options.CustomsStoragePath, row.CustomsAttachmentFileName!);
             var path = Path.GetFullPath(Path.Combine(env.ContentRootPath, relative));
-            if (!File.Exists(path)) logger.LogError("Missing customs attachment for shipment {ShipmentId}: {Path}", row.Id, relative);
+            if (!File.Exists(path)) logger.LogError("ATTACHMENT_STORAGE_INTEGRITY_FAILURE");
         }
     }
 
@@ -35,10 +35,10 @@ public static class CustomsStorageMaintenance
             byte[] sourceHash, targetHash;
             await using (var sourceStream = File.OpenRead(source)) sourceHash = await SHA256.HashDataAsync(sourceStream);
             await using (var targetStream = File.OpenRead(temp)) targetHash = await SHA256.HashDataAsync(targetStream);
-            if (!sourceHash.SequenceEqual(targetHash)) { File.Delete(temp); throw new IOException($"Hash mismatch for {source}"); }
+            if (!sourceHash.SequenceEqual(targetHash)) { File.Delete(temp); throw new IOException("ATTACHMENT_MIGRATION_HASH_MISMATCH"); }
             File.Move(temp, target, true);
             row.CustomsAttachmentFilePath = Path.GetRelativePath(env.ContentRootPath, target).Replace("\\", "/");
-            logger.LogInformation("Migrated customs attachment for shipment {ShipmentId}", row.Id);
+            logger.LogInformation("ATTACHMENT_MIGRATED");
         }
         await db.SaveChangesAsync();
     }

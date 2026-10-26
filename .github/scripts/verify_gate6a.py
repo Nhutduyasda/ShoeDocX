@@ -34,6 +34,12 @@ def main():
                 key=name+':'+project.relative_to(root).as_posix();report['builds'][key]=result.returncode
                 if result.returncode: print('\n'.join(l for l in result.stdout.splitlines() if 'error ' in l),flush=True)
                 assert result.returncode==0,'Project build failed: '+key
+        gate4a_checks.frontend(ci)
+        result=ci.command(['node','--test','tests/officeModel.test.mjs'],ci.ROOT/'feature/frontend')
+        assert result.returncode==0,'Office model tests failed'
+        gate6a_backport.verify(ci)
+        audit(ci)
+        gate6a_visual.verify(ci)
         runs={}
         with tempfile.TemporaryDirectory(prefix='gate6a-trx-') as temporary:
             for name in ('baseline','feature'):
@@ -65,17 +71,11 @@ def main():
             engine=runs[name+'-engine'];full=runs[name+'-full']
             assert engine['failed']==0 and engine['tests']=={k:v for k,v in full['tests'].items() if v['method'].startswith(ci.ENGINE)},'Engine mismatch'
         report['resolved_baseline_failures']=sorted(set(fixed))
-        gate4a_checks.frontend(ci)
-        result=ci.command(['node','--test','tests/officeModel.test.mjs'],ci.ROOT/'feature/frontend')
-        assert result.returncode==0,'Office model tests failed'
-        gate6a_backport.verify(ci)
-        audit(ci)
         gate4b1_checks.browser(ci)
         gate5a_browser.browser(ci)
         gate5b_browser.browser(ci)
         gate5c_browser.browser(ci)
         gate5d_browser.browser(ci)
-        gate6a_visual.verify(ci)
         report['status']='PASS'
         report['delivery_verdict']='TECHNICAL ACCEPTANCE PASS — OWNER SECURITY DECISION REQUIRED'
         report['merge_recommendation']='NOT READY'

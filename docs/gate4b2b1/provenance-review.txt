@@ -1,0 +1,8 @@
+bblanchon.PDFium.Linux/157.0.8100 []
+bblanchon.PDFium.Win32/157.0.8100 []
+SkiaSharp/4.153.1 ['LICENSE.txt']
+SkiaSharp.NativeAssets.Linux.NoDependencies/4.153.1 ['LICENSE.txt', 'THIRD-PARTY-NOTICES.txt']
+SkiaSharp.NativeAssets.macOS/4.153.1 ['LICENSE.txt', 'THIRD-PARTY-NOTICES.txt']
+SkiaSharp.NativeAssets.Win32/4.153.1 ['LICENSE.txt', 'THIRD-PARTY-NOTICES.txt']
+BUILD_FILES ['steps/05-configure.sh', 'steps/06-build.sh']
+steps/05-configure.sh ['  echo "pdf_use_partition_alloc = false"', '  echo "pdf_enable_v8 = $ENABLE_V8"', '  echo "pdf_enable_xfa = $ENABLE_V8"', '  echo "is_component_build = false"', '    echo "v8_enable_i18n_support = false"']

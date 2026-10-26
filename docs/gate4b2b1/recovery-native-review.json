@@ -1,0 +1,28 @@
+{
+  "review_date": "2026-10-17",
+  "status": "INCOMPLETE",
+  "package_graph_changed": false,
+  "native_artifact_hashes_changed": false,
+  "verified_sources": [
+    {
+      "component": "PDFium packaging",
+      "revision": "5b4d6b2ede1c1b0e17f5dc7b996c42d68d534ca8",
+      "url": "https://github.com/bblanchon/pdfium-binaries/blob/5b4d6b2ede1c1b0e17f5dc7b996c42d68d534ca8/steps/05-configure.sh",
+      "result": "Default ENABLE_V8=false; V8 and XFA GN flags share ENABLE_V8. Not an attestation of the shipped binary."
+    },
+    {
+      "component": "SkiaSharp wrapper",
+      "revision": "4783f51448f9b070dda4f87b83e941c9599e466e",
+      "url": "https://github.com/mono/SkiaSharp/blob/4783f51448f9b070dda4f87b83e941c9599e466e/LICENSE.txt",
+      "result": "MIT wrapper license verified. Embedded third-party notices and nested native versions still require review."
+    }
+  ],
+  "unresolved": [
+    "native nested-component versions and advisories",
+    "complete redistribution notice bundle",
+    "reproducible native build/signature attestation",
+    "pinned self-contained runtime servicing proof"
+  ],
+  "native_high_critical_clearance": "NOT_ESTABLISHED",
+  "acceptance_blocked": true
+}

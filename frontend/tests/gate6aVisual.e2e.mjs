@@ -23,14 +23,15 @@ async function capture(page,revision,id){
     await page.evaluate(()=>{window.scrollTo(0,0);for(const e of document.querySelectorAll('main,.uds-shell,.ant-modal-body'))e.scrollTop=0;});
     if(id.startsWith('09-')||id.startsWith('10-')||id.startsWith('11-')||id.startsWith('12-')||id.startsWith('14-'))await page.locator('.office-wizard > section').first().evaluate(e=>e.scrollIntoView({block:'start'}));
     if(id.startsWith('13-'))await page.getByRole('heading',{name:'Bản nháp của tôi',exact:true}).evaluate(e=>e.scrollIntoView({block:'start'}));
+    if(id==='06-product-modal'){const combo=page.getByRole('dialog').getByRole('combobox').first();await combo.focus();if(await combo.getAttribute('aria-expanded')!=='true')await combo.press('ArrowDown');await page.locator('.ant-select-dropdown').first().waitFor();assert.ok(await combo.evaluate(e=>e===document.activeElement),'Modal select focus must match');await settle(page);}
     const dimensions=await page.evaluate(()=>({rootWidth:document.documentElement.scrollWidth,viewport:innerWidth,bodyWidth:document.body.clientWidth}));
     const dom=await page.evaluate(()=>{
-      const selectors='h1,h2,h3,main,nav,button,input,select,textarea,label,table,th,.ant-modal,.ant-modal-mask,.ant-pagination,.ant-table-content,.uds-panel,[role="alert"],[role="status"],[role="region"]';
+      const selectors='h1,h2,h3,main,nav,button,input,select,textarea,label,table,th,.ant-modal,.ant-modal-mask,.ant-select-selector,.ant-select-dropdown,.ant-pagination,.ant-table-content,.uds-panel,[role="alert"],[role="status"],[role="region"]';
       return [...document.querySelectorAll(selectors)].filter(e=>{const r=e.getBoundingClientRect();const s=getComputedStyle(e);return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none';}).map(e=>{
         const r=e.getBoundingClientRect(),s=getComputedStyle(e);
         return {tag:e.tagName,role:e.getAttribute('role'),text:(e.matches('input,textarea,main,nav,table,.ant-modal,.ant-pagination,.ant-table-content,.uds-panel,[role="region"]')?'':e.innerText??'').replace(/\s+/g,' ').trim(),
           bounds:[r.x,r.y,r.width,r.height].map(n=>Math.round(n*100)/100),
-          css:Object.fromEntries(['display','position','color','backgroundColor','borderTopWidth','borderTopColor','borderRadius','fontFamily','fontSize','fontWeight','lineHeight','padding','gap','overflowX','overflowY','zIndex','outlineWidth'].map(k=>[k,s[k]]))};
+          css:Object.fromEntries(['display','position','color','backgroundColor','borderTopWidth','borderTopColor','borderRadius','fontFamily','fontSize','fontWeight','lineHeight','padding','gap','overflowX','overflowY','zIndex','outlineWidth','borderColor','borderWidth','boxShadow','opacity','transform'].map(k=>[k,s[k]]))};
       });
     });
     const name=`${revision}-${id}-${viewport.width}.png`,bytes=await page.screenshot({path:join(folder,name),animations:'disabled',caret:'hide',mask:[page.locator('.office-drafts article.uds-state > p')],maskColor:'#808080'});
@@ -56,7 +57,7 @@ async function legacy(revision,base){
     await p.getByRole('button',{name:/Giám sát xuất kho/}).click();await p.getByRole('heading',{name:/Lưới xuất kho thành phẩm/}).waitFor();await capture(p,revision,'03-warehouse');
     await p.getByRole('button',{name:'Lập Invoice / Packing List'}).click();await p.locator('#tour-invoice-header').waitFor();await capture(p,revision,'04-shipment');await p.emulateMedia({media:'print'});printProbes[revision]=await p.locator('main').evaluate(e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return {display:s.display,overflow:s.overflow,fontSize:s.fontSize,width:r.width};});await p.emulateMedia({media:'screen'});
     await p.getByRole('button',{name:'Master Data & Cấu hình'}).click();await p.getByRole('heading',{name:'Danh mục Hàng hóa (Master Data)',exact:true}).waitFor();await p.getByText('SYNTH-VIS-016',{exact:true}).first().waitFor();await capture(p,revision,'05-products');
-    await p.getByRole('button',{name:/Thêm mã|Thêm mới/}).first().click();await p.getByRole('dialog').waitFor();await p.getByPlaceholder('42072-030').fill('SYNTH-MODAL');await p.getByPlaceholder('42072-030').focus();await p.getByRole('dialog').getByRole('combobox').first().click();await p.locator('.ant-select-dropdown').first().waitFor();await capture(p,revision,'06-product-modal');
+    await p.getByRole('button',{name:/Thêm mã|Thêm mới/}).first().click();await p.getByRole('dialog').waitFor();await settle(p);await p.getByPlaceholder('42072-030').fill('SYNTH-MODAL');await p.getByPlaceholder('42072-030').focus();await p.getByRole('dialog').getByRole('combobox').first().click();await p.locator('.ant-select-dropdown').first().waitFor();await capture(p,revision,'06-product-modal');
     await p.getByRole('dialog').getByRole('button',{name:'Hủy',exact:true}).click();await p.getByRole('dialog').waitFor({state:'hidden'});
     await p.locator('.ant-pagination-item-2').click();await p.getByText('SYNTH-VIS-001',{exact:true}).first().waitFor();assert.equal(await p.locator('.ant-pagination-item-active').getAttribute('title'),'2');await capture(p,revision,'07-table-pagination');
   }finally{await c.close();}

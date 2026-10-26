@@ -2,6 +2,7 @@
 import http.cookiejar
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -42,11 +43,14 @@ def verify(ci):
         private=Path(temporary);environment['GATE6A_VISUAL_PRIVATE']=str(private)
         def launch(args,cwd):
             log=open(private/(str(len(logs))+'.log'),'wb');logs.append(log)
-            p=subprocess.Popen(args,cwd=cwd,env=environment,stdout=log,stderr=subprocess.STDOUT);processes.append(p);return p
+            p=subprocess.Popen(args,cwd=cwd,env=environment,stdout=log,stderr=subprocess.STDOUT);p.visual_label=('office-host' if args[0]=='dotnet' and 'Gate5DDemoHost' in args[1] else 'legacy-api' if args[0]=='dotnet' else 'static-'+args[-2]);p.visual_log=Path(log.name);processes.append(p);return p
         def ready(url):
             until=time.monotonic()+120
             while True:
-                assert all(p.poll() is None for p in processes),'Visual host exited'
+                failed=[p for p in processes if p.poll() is not None]
+                if failed:
+                    report['process_failures']=[{'label':getattr(p,'visual_label','browser'),'exit_code':p.returncode,'error_types':sorted(set(re.findall(r'\b(?:EADDRINUSE|ECONNRESET|EPIPE|ERR_[A-Z_]+|[A-Za-z.]+Exception)\b',getattr(p,'visual_log',private/'browser.log').read_text(encoding='utf-8',errors='replace'))))} for p in failed]
+                    raise AssertionError('Visual host exited: '+','.join(row['label'] for row in report['process_failures']))
                 try:
                     with urllib.request.urlopen(url,timeout=2):return
                 except urllib.error.HTTPError as e:
@@ -60,6 +64,7 @@ def verify(ci):
             office_host=launch(['dotnet',host],feature)
             api=feature/'backend/ShoeExportInvoice.Api'
             launch(['dotnet',str(api/'bin/Debug/net10.0/ShoeExportInvoice.Api.dll')],api)
+            report['stage']='initial-api-readiness'
             ready('http://127.0.0.1:5308/api/auth/me');ready('http://127.0.0.1:5309/api/universal-doc/bootstrap')
             client=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
             def post(path,body):
@@ -72,13 +77,16 @@ def verify(ci):
             server=str(feature/'.github/scripts/gate6a_visual_server.mjs')
             for directory,port,target in [(before,5310,5308),(feature,5311,5308),(before,5312,5309),(feature,5313,5309)]:
                 launch(['node',server,str(directory/'frontend/dist'),str(port),f'http://127.0.0.1:{target}'],feature)
+                report['stage']='static-'+str(port)+'-readiness'
                 ready(f'http://127.0.0.1:{port}/')
             browser_log=open(private/'browser.log','wb');logs.append(browser_log)
             browser=subprocess.Popen(['node','frontend/tests/gate6aVisual.e2e.mjs'],cwd=feature,env=environment,stdout=browser_log,stderr=subprocess.STDOUT);processes.append(browser)
+            report['stage']='paired-browser-capture'
             until=time.monotonic()+600;reset=False
             while browser.poll() is None:
                 assert time.monotonic()<until,'Visual browser timed out'
                 if not reset and (private/'reset-office-requested').exists():
+                    report['stage']='office-reset'
                     office_host.terminate();office_host.wait(timeout=15);processes.remove(office_host)
                     assert maintenance(['--drop'])==0 and maintenance(['--migrate'])==0,'Clean visual SQL reset failed'
                     office_host=launch(['dotnet',host],feature);ready('http://127.0.0.1:5309/api/universal-doc/bootstrap')
@@ -102,6 +110,12 @@ def verify(ci):
             report['independent_authorized_xlsx_reopens']=2
             report['screenshots_published']=False
             print('Gate 6A: 28 paired real UI screenshot/DOM comparisons + two authorized XLSX reopens PASS',flush=True)
+        except Exception as error:
+            summary=private/'visual-summary.json'
+            if summary.exists():report.update(json.loads(summary.read_text(encoding='utf-8')))
+            report['status']='FAIL'
+            report['orchestration_blocker']=str(error) if isinstance(error,AssertionError) else type(error).__name__
+            raise
         finally:
             for p in processes:
                 if p.poll() is None:p.terminate()

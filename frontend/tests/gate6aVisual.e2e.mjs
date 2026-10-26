@@ -79,7 +79,7 @@ async function office(revision,base){
     await nav(3);await p.getByLabel('Dòng 1 Thành tiền',{exact:true}).fill('7.50');s=await mutate('Gửi dữ liệu để kiểm tra','/manual-sample');await nav(4);await mutate('Hoàn tất rà soát','/review');await mutate('Phê duyệt dữ liệu','/approve');await capture(p,revision,'12-office-approval');
     await mutate('Lưu bản nháp','/save-draft');await p.reload();await p.getByRole('button',{name:'Mở bản nháp 1',exact:true}).waitFor();await mutate('Mở bản nháp 1','/resume');await capture(p,revision,'13-office-draft-resume');
     await nav(2);await mutate('Xác nhận vị trí Excel','/mapping/confirm');await nav(4);await mutate('Hoàn tất rà soát','/review');await mutate('Phê duyệt dữ liệu','/approve');await nav(5);const download=p.waitForEvent('download');await click('Tải Excel đã phê duyệt');const d=await download;await d.saveAs(join(folder,`${revision}-authorized.xlsx`));await p.getByRole('status').filter({hasText:'Đã nhận tệp Excel'}).waitFor();await capture(p,revision,'14-office-export');
-    await mutate('Xóa bản nháp 1','/drafts/');await click('Đóng phiên hiện tại');
+    await mutate('Xóa bản nháp 1','/drafts/');await mutate('Đóng phiên hiện tại','/sessions/');
   }finally{await c.close();}
 }
 let report={status:'FAIL',policy,baseline:process.env.GATE6A_VISUAL_BASELINE,feature:process.env.VERIFIED_HEAD,browserVersion:browser.version(),os:process.platform,pairs:[]};

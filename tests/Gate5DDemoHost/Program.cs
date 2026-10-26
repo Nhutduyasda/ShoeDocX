@@ -5,6 +5,12 @@ using ShoeExportInvoice.Tests.UniversalDocEngine;
 var connection=Environment.GetEnvironmentVariable("GATE5C_DATABASE")??throw new InvalidOperationException("Synthetic SQL database required");
 if(!new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connection).InitialCatalog.StartsWith("gate5c_",StringComparison.Ordinal))throw new InvalidOperationException("Only isolated synthetic databases allowed");
 var factory=new Gate5CSqlFixture.Factory(connection);
+if(args.FirstOrDefault()=="--drop-visual-legacy"){
+    var legacy=Environment.GetEnvironmentVariable("GATE6A_VISUAL_LEGACY")??throw new InvalidOperationException("Synthetic legacy SQL required");
+    if(!new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(legacy).InitialCatalog.StartsWith("gate6a_visual_",StringComparison.Ordinal))throw new InvalidOperationException("Only isolated visual SQL allowed");
+    using var db=new ShoeExportInvoice.Api.Data.AppDbContext(new DbContextOptionsBuilder<ShoeExportInvoice.Api.Data.AppDbContext>().UseSqlServer(legacy).Options);
+    db.Database.EnsureDeleted();return;
+}
 if(args.FirstOrDefault()=="--migrate"){using var db=factory.CreateDbContext();db.Database.Migrate();return;}
 if(args.FirstOrDefault()=="--drop"){using var db=factory.CreateDbContext();db.Database.EnsureDeleted();return;}
 if(args.FirstOrDefault()=="--corpus"){

@@ -1,5 +1,56 @@
 # Gate 6A — runtime and dependency security
 
+## Visual Acceptance & Advisory Discrepancy Decision
+
+This follow-up starts at `5602aaad360199b09c40c9e58668ffc4899fb648`; main remains `3d07a4f1db7e95cccb1f36e7de23569e5f57c2c5`. The immutable visual baseline is pre-backport `1df7badbf3635fda03687cb8604dde8858cd9bb5`. The feature is the exact PR HEAD checked out by CI and recorded in every pair's featureCommit. No old green run accepts modified verification code. Actual results are in the exact-HEAD **gate6a-visual.json**, **gate6a-backport.json**, **gate6a-dependencies.json** and **gate6a-summary.json** artifacts linked from PR #19. Historical NOT_RUN statements below describe earlier submissions and are superseded only by an actual passing new visual report.
+
+The verifier serves the two immutable production builds on loopback origins against the **same** production Program.cs legacy API and the same real controller/SQL draft host. Legacy uses a fresh, prefix-guarded disposable SQL database, development-only synthetic users and 16 synthetic products created through actual authenticated API requests. Office uses actual UI upload/schema/mapping/manual-validation/review/approval/draft-resume/delete/export interactions and real SQL drafts. No HTTP response mocks or replacement screen components. Production application source/CSS remains unchanged. The only test-host addition is prefix-guarded disposal of the ephemeral legacy database. Both generated authorized XLSX files are independently reopened with openpyxl.
+
+Determinism: same OS per comparison, Node 22/npm supplied by the same setup action, Playwright 1.62.1/its exact installed Chromium, device scale 1, vi-VN locale, Asia/Ho_Chi_Minh timezone, browser Date fixed at 2026-10-24T10:00:00Z, same role and data. Backend authorization/SQL clocks remain real. Font readiness, real network idle, disabled screenshot animations, reduced motion and hidden caret stabilize rendering. Browser version and OS are recorded from execution, never assumed. Raw screenshots and XLSX remain in a private temporary runner directory, removed after evaluation; only sanitized JSON is uploaded. The repository itself is **public**, so CI must not be described as confidential/private hosting.
+
+Comparison policy is written before the first capture: RGBA PNG comparison with pngjs 7.0.0; channel deltas <=16 count as rendering noise; at most 0.001 of pixels may exceed that delta. Visible-element bounds must match within 0.5 CSS px; selected computed styles, visible control/heading text, element order/count and page dimensions match exactly. Structural differences fail independently of pixel score. No threshold widening after results. No document content or controls are masked. The **one dynamic region** is the SQL-generated draft timestamp paragraph (`.office-drafts article.uds-state > p`); SQL transaction clocks and encryption AAD are not modified to manufacture matching dates. Containers' repeated aggregate text is excluded from DOM text comparison; their children, styles and bounds are compared. Print-media main-container computed styles are compared separately on the real Shipment screen; this is not a claim to test every physical printer.
+
+The complete matrix below defines 28 required pairs; each actual status, viewport, commit, browser version, image hashes, difference score and structural differences is emitted per pair in gate6a-visual.json. Missing states fail coverage; no static PASS is inferred from this checklist.
+
+| Real view / identifier | Desktop 1360x1000 | Mobile 390x844 |
+|---|---|---|
+| 01 Login | Required pair | Required pair |
+| 02 Legacy Overview | Required pair | Required pair |
+| 03 Warehouse | Required pair | Required pair |
+| 04 Shipment | Required pair | Required pair |
+| 05 Product management | Required pair | Required pair |
+| 06 Product modal / real select popup | Required pair | Required pair |
+| 07 Product table / second pagination page | Required pair | Required pair |
+| 08 Office template selection | Required pair | Required pair |
+| 09 Office mapping configuration | Required pair | Required pair |
+| 10 Office manual entry / keyboard focus | Required pair | Required pair |
+| 11 Office validation error / approval blocked | Required pair | Required pair |
+| 12 Human review and approval | Required pair | Required pair |
+| 13 Durable draft list and actual resume | Required pair | Required pair |
+| 14 Completed authorized export | Required pair | Required pair |
+
+The earlier six-file byte-identity check remains mandatory on each host. Pixel/DOM results independently validate the real screens. Tablet evidence is required only if inspection reveals a material intermediate breakpoint problem; desktop/mobile parity alone does not establish arbitrary browser/OS equivalence.
+
+### Advisory reachability and evidence
+
+The reviewed 6.1.5 tarball and installed parser have all three linear-time corrections; real class/id/Sass adversarial tests execute the installed code. Tailwind 3.4.17 (`^6.1.2`) and postcss-nested 6.2.0 (`^6.1.1`) resolve the single 6.1.5 lock entry, with no other selector-parser copies. Registry signatures and integrity, upstream source/published hashes and the signed release's fix-parent relationship are checked again on both hosts. This proves the reviewed remediation for this specific advisory, not all possible parser weaknesses.
+
+Runtime reachability review: parser is dev/build-only, absent from production npm dependencies. No source import of Tailwind/PostCSS/parser exists in frontend/src or API runtime code; workbook/source inputs go to bounded application handlers, never to a CSS compiler. The frontend Docker final stage is Nginx copying only dist; Node/compiler/node_modules are build-stage-only. The API remains .NET/SQL Server, with no npm/compiler invocation. Source import review plus production graph and container stage review support absence from browser/backend execution, rather than relying solely on a package-name search of minified output.
+
+Containment actually enforced in this workflow: same-repository PR and exact Gate 6A branch condition (fork PRs do not execute this job), contents:read permissions, exact-SHA checkout, persist-credentials:false, fresh hosted Windows/Ubuntu runners, npm ci lockfile installs, a 60-minute job limit, finite subprocess limits and loopback-only UI/API verification servers. Customer uploads are not CI source inputs. This is **trusted repository source build isolation**, not confidential builds and not proof that every repository writer is benign. Changes to dependency code/CSS/compiler inputs still require human review. Untrusted uploaded CSS, public dev-server/compiler hosting, compromised registries/maintainers or malicious repository writers fall outside the bounded acceptance proposed below.
+
+Official GitHub advisory retrieved 2026-10-26 still reports `<7.1.6` affected / `7.1.6` patched, despite the 2026-10-19 upstream 6.1.5 backport. Fresh full and production npm results remain authoritative in gate6a-dependencies.json; the known prior result is 3 Moderate entries for one GHSA, 0 High/Critical, production 0. NuGet findings must also be freshly reported. A flagged audit is never called clean or suppressed. Remaining uncertainty is the discrepancy in official affected ranges, security-only maintenance of 6.x, and future advisories/supply-chain changes; no risk waiver is automatic.
+
+### OWNER DECISION PACKAGE — neither option preapproved
+
+**Option A (technical recommendation if the full matrix/regressions pass):** accept the independently demonstrated 6.1.5 fix for the bounded build-only dependency, retain Tailwind 3, preserve the official npm warning in every complete audit, and continue advisory monitoring at each dependency review/CI run. Reopen the decision for new advisories, changed resolution/hashes, untrusted compiler inputs, public compiler/dev-server exposure or lost regression evidence. This acceptance would not authorize merge, deployment or production readiness by itself.
+
+**Option B:** require Tailwind 4 and a separately complete configuration/CSS/Ant Design/print/responsive/security regression review before Gate 6A can become MERGE READY. No migration is performed merely to cosmetically remove the warning.
+
+If visual and full exact-HEAD technical checks pass while the advisory still disagrees, verdict is **TECHNICAL ACCEPTANCE PASS — OWNER SECURITY DECISION REQUIRED**, overall PARTIAL / NOT READY; keep Draft until the owner explicitly selects an option. If visual or technical checks fail or a new risk appears, keep PARTIAL / NOT READY with the actual blocker. Source-level proof and screenshot parity are not a production-readiness claim.
+
+Suggested upstream correction (draft only; **not posted**): "Please review GHSA-rj75-hqrm-r3gf's affected range to account for the official security-only 6.1.5 backport. Release d90b6e38a0c79d07b02bf0d602bc242fe94be6b9 follows fix 70b0779c843462197380d25daa02d1528bf7eae5, backported from 62b191792df0a0bc56062e5a875bc74aae2a51cd. The npm 6.1.5 artifact includes all three Set-based paths. Current <7.1.6 classification still flags it. Please validate the backport and amend the reviewed range if appropriate." Supporting release/source/registry URLs are retained in the sections below. No external project communication is authorized.
+
 ## 2026-10-26 dependency follow-up (supersedes historical parser findings below)
 
 Starting feature HEAD: `1df7badbf3635fda03687cb8604dde8858cd9bb5`; accepted main remains `3d07a4f1db7e95cccb1f36e7de23569e5f57c2c5`. PR #19 is open/Draft, with no submitted reviews at preflight. Historical .NET/security work and evidence below are preserved.

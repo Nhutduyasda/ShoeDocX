@@ -80,6 +80,6 @@ const ok=p.dist.signatures.some(s=>{const k=keys.keys.find(k=>k.keyid===s.keyid)
         'reviewed_three_linear_passes_present':True,'changed_lock_entries':changed,
         'before_lock':old,'after_lock':new,'installed_dependency_graph':json.loads(result.stdout),
         'compiled_files':new_files,'compiled_frontend_byte_identical':True,'backport_tests':5,
-        'visual_screenshot_comparison':'NOT_RUN; compiled parity is not a screenshot claim',
+        'visual_screenshot_comparison':'separate gate6a-visual.json; compiled parity is not a screenshot claim',
         'security_acceptance':'separate from technical verification; preserve current audit result'}
     (ci.EVIDENCE/'gate6a-backport.json').write_text(json.dumps(report,indent=2))

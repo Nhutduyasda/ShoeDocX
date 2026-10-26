@@ -10,7 +10,7 @@ const {PNG}=await import(pathToFileURL(join(tools,'../pngjs/lib/png.js')).href).
 const folder=resolve(process.env.GATE6A_VISUAL_PRIVATE);await mkdir(folder,{recursive:true});
 // Fixed before any captures: ignore <=16 channel noise; <=0.1% remaining pixels.
 // Structural tolerance <=0.5 CSS px, exact visible text and selected CSS styles.
-const policy={channelNoise:16,maxDifferentPixelRatio:.001,maxBoundsDelta:.5,masking:'SQL draft timestamp paragraph only (.office-drafts article.uds-state > p); controls and document content unmasked',animations:'disabled',caret:'hide',deviceScaleFactor:1,locale:'vi-VN',timezoneId:'Asia/Ho_Chi_Minh',fixedDate:'2026-10-24T10:00:00Z'};
+const policy={channelNoise:16,maxDifferentPixelRatio:.001,maxBoundsDelta:.5,pointer:'neutral (0,0) before each capture; keyboard focus preserved',masking:'SQL draft timestamp paragraph only (.office-drafts article.uds-state > p); controls and document content unmasked',animations:'disabled',caret:'hide',deviceScaleFactor:1,locale:'vi-VN',timezoneId:'Asia/Ho_Chi_Minh',fixedDate:'2026-10-24T10:00:00Z'};
 await writeFile(join(folder,'comparison-policy.json'),JSON.stringify(policy,null,2));
 const browser=await chromium.launch({headless:true});
 const captures={baseline:[],feature:[]},errors=[],printProbes={};
@@ -19,7 +19,7 @@ const hash=b=>createHash('sha256').update(b).digest('hex');
 async function settle(page){await page.waitForLoadState('networkidle');await page.locator('.ant-spin-spinning').first().waitFor({state:'hidden'});await page.evaluate(()=>document.fonts.ready);await page.waitForTimeout(350);}
 async function capture(page,revision,id){
   for(const viewport of viewports){
-    await page.setViewportSize(viewport);await settle(page);
+    await page.setViewportSize(viewport);await page.mouse.move(0,0);await settle(page);
     await page.evaluate(()=>{window.scrollTo(0,0);for(const e of document.querySelectorAll('main,.uds-shell,.ant-modal-body'))e.scrollTop=0;});
     if(id.startsWith('09-')||id.startsWith('10-')||id.startsWith('11-')||id.startsWith('12-')||id.startsWith('14-'))await page.locator('.office-wizard > section').first().evaluate(e=>e.scrollIntoView({block:'start'}));
     if(id.startsWith('13-'))await page.getByRole('heading',{name:'Bản nháp của tôi',exact:true}).evaluate(e=>e.scrollIntoView({block:'start'}));
@@ -96,11 +96,11 @@ try{
   for(let i=0;i<28;i++){
     const a=captures.baseline[i],b=captures.feature[i];assert.equal(a.id,b.id);assert.deepEqual(a.viewport,b.viewport);
     const x=PNG.sync.read(await readFile(join(folder,a.name))),y=PNG.sync.read(await readFile(join(folder,b.name)));assert.equal(x.width,y.width);assert.equal(x.height,y.height);
-    let different=0;for(let p=0;p<x.data.length;p+=4)if([0,1,2,3].some(c=>Math.abs(x.data[p+c]-y.data[p+c])>policy.channelNoise))different++;
+    let different=0,minX=x.width,minY=x.height,maxX=-1,maxY=-1;for(let p=0;p<x.data.length;p+=4)if([0,1,2,3].some(c=>Math.abs(x.data[p+c]-y.data[p+c])>policy.channelNoise)){different++;const px=(p/4)%x.width,py=Math.floor((p/4)/x.width);minX=Math.min(minX,px);minY=Math.min(minY,py);maxX=Math.max(maxX,px);maxY=Math.max(maxY,py);}
     const structural=[];if(a.dom.length!==b.dom.length)structural.push('visible-element-count');
     for(let j=0;j<Math.min(a.dom.length,b.dom.length);j++){const l=a.dom[j],r=b.dom[j];if(l.tag!==r.tag||l.role!==r.role||l.text!==r.text||JSON.stringify(l.css)!==JSON.stringify(r.css)||l.bounds.some((n,k)=>Math.abs(n-r.bounds[k])>policy.maxBoundsDelta))structural.push(`element-${j}-${l.tag}`);}
     if(JSON.stringify(a.dimensions)!==JSON.stringify(b.dimensions))structural.push('page-dimensions');
-    const score=different/(x.width*x.height);report.pairs.push({view:a.id,viewport:a.viewport,baselineCommit:report.baseline,featureCommit:report.feature,browserVersion:report.browserVersion,baselineSha256:a.sha256,featureSha256:b.sha256,differentPixels:different,differenceScore:score,unexpectedStructuralDifferences:structural.slice(0,15),visibleElementsCompared:a.dom.length,status:score<=policy.maxDifferentPixelRatio&&!structural.length?'PASS':'FAIL'});
+    const score=different/(x.width*x.height);report.pairs.push({view:a.id,viewport:a.viewport,baselineCommit:report.baseline,featureCommit:report.feature,browserVersion:report.browserVersion,baselineSha256:a.sha256,featureSha256:b.sha256,differentPixels:different,differenceBounds:different?[minX,minY,maxX,maxY]:null,differenceScore:score,unexpectedStructuralDifferences:structural.slice(0,15),visibleElementsCompared:a.dom.length,status:score<=policy.maxDifferentPixelRatio&&!structural.length?'PASS':'FAIL'});
   }
   assert.ok(report.pairs.every(p=>p.status==='PASS'),'Visual comparison differences');report.status='PASS';
 }catch(e){report.blocker=e.message;console.error(e);}finally{report.runtimeErrors=errors;report.captured={baseline:captures.baseline.length,feature:captures.feature.length};await writeFile(join(folder,'visual-summary.json'),JSON.stringify(report,null,2));await browser.close();}

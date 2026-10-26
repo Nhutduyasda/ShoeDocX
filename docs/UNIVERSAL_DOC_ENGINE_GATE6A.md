@@ -1,5 +1,31 @@
 # Gate 6A — runtime and dependency security
 
+## 2026-10-26 dependency follow-up (supersedes historical parser findings below)
+
+Starting feature HEAD: `1df7badbf3635fda03687cb8604dde8858cd9bb5`; accepted main remains `3d07a4f1db7e95cccb1f36e7de23569e5f57c2c5`. PR #19 is open/Draft, with no submitted reviews at preflight. Historical .NET/security work and evidence below are preserved.
+
+The earlier statement that Tailwind 4 was the only supported fix is superseded. Upstream released **postcss-selector-parser 6.1.5** on 2026-10-19, backporting all three linear-time Set membership passes from 7.1.6. Release `d90b6e38a0c79d07b02bf0d602bc242fe94be6b9` is the direct child of fix `70b0779c843462197380d25daa02d1528bf7eae5`, itself referencing original `62b191792df0a0bc56062e5a875bc74aae2a51cd`. Published dist/parser.js contains the deduplication, class/id membership and Sass-interpolation fixes. Registry gitHead matches the release; tarball SHA-512 matches the lockfile; npm registry signatures verify against the registry keys. No npm SLSA attestation was provided in retrieved metadata; none is claimed. The 6.x line now receives security fixes only.
+
+Sources:
+
+- https://github.com/postcss/postcss-selector-parser/releases/tag/6.1.5
+- https://github.com/postcss/postcss-selector-parser/commit/70b0779c843462197380d25daa02d1528bf7eae5
+- https://registry.npmjs.org/postcss-selector-parser/6.1.5
+- https://github.com/advisories/GHSA-rj75-hqrm-r3gf
+- https://nvd.nist.gov/vuln/detail/CVE-2026-104844 (retrieved page had no usable independent version-range data; no independent clearance inferred).
+
+Exactly one lock entry changes: parser 6.1.4 -> 6.1.5. Tailwind stays 3.4.17 (`^6.1.2`), postcss-nested stays 6.2.0 (`^6.1.1`), and both resolve one deduplicated 6.1.5. No direct dependency, override, application code, CSS, Preflight setting or Ant Design configuration changes. Published parser SHA-256: `b00cfcba4229ca9db927fa401d1d2b40ecaec14401316bfce8283aa8cc2b46fc`. Release source SHA-256: `bf2ebf51b3ca0085f5e7e242df84bc08ee8c17e24b45ec1974d98b44c18b0430`.
+
+Local clean npm ci, build, 32 existing frontend tests and five new installed-artifact regression tests PASS. New checks cover both consumer resolutions, three upstream-style hostile/control complexity ratios (60,000 atoms, fastest of three runs, ratio <2 fixed before execution), 20,000 class nodes and leading-node deduplication. Each cross-platform CI independently verifies the archive, upstream fix relationship/signature, installed bytes, dependency constraints and these execution checks.
+
+**Audit disagreement persists:** complete npm audit before/after: 0 Critical, 0 High, 3 Moderate entries for GHSA-rj75-hqrm-r3gf. Production-only before/after: zero findings. GitHub still lists `<7.1.6` affected and `7.1.6` patched, with its displayed update preceding the backport. Verified patched implementation and current database classification are recorded separately. Audit output is neither suppressed nor called clean; no owner risk acceptance is inferred.
+
+Tailwind 3 is retained for this minimal backport submission under the task's explicit final rule to keep Draft when advisory data disagrees with the verified backport. Tailwind 4 migration is NOT performed or called complete. It remains the alternative if the backport cannot be accepted, and must meet all visual requirements before readiness.
+
+Each CI host also checks out the starting Gate 6A HEAD in dependency-baseline, installs/builds it with the same Node/npm environment, checks that only the intended lock entry changed, and compares every compiled HTML/CSS/JS file by SHA-256 against the feature. Locally all six files are byte-identical. Before/after lock graphs, installed resolution, signature/patch evidence and compiled file hashes are saved in gate6a-backport.json. This demonstrates unchanged artifacts, **not** completion of the requested 14-view desktop/mobile screenshot matrix. That matrix is NOT RUN and remains a readiness blocker; no visual-equivalence claim or widened image threshold. Existing real authenticated desktop/mobile Office journeys, keyboard/focus, 20-row scrolling, SQL restart and XLSX checks remain mandatory in the new exact-HEAD run.
+
+Technical verification PASS is separate from delivery acceptance: **PARTIAL / SECURITY REVIEW REQUIRED — NOT READY** while advisory disagreement or requested visual evidence remains. Keep PR #19 Draft. Exact tested SHA comes from the new summaries' feature_sha and final PR body; an older green run is historical only. No merge, main change, deployment, paid API, shared migration, excluded PR modification or Gate 6B.
+
 Technical verification status is determined by the latest exact-HEAD Gate 6A CI summary attached to PR #19. The delivery recommendation remains Draft / NOT READY while the inherited Moderate build advisory remains unresolved, following the requested delivery condition; a green technical CI is not automatic security acceptance. A build or an older successful run is insufficient for acceptance. No production readiness claim.
 
 ## Scope and provenance

@@ -78,11 +78,15 @@ def audit(ci):
             report[name]['npm'][label]=data
         report[name]['npm_lock']=json.loads((root/'frontend/package-lock.json').read_text())['packages']
     report['remaining_decisions']=[{
-        'advisory':'GHSA-rj75-hqrm-r3gf','severity':'moderate','package':'postcss-selector-parser','resolved':'6.1.4',
+        'advisory':'GHSA-rj75-hqrm-r3gf','severity':'moderate','package':'postcss-selector-parser','resolved':'6.1.5',
         'verified_affected_range':'<7.1.6','classification':'build',
         'paths':['tailwindcss -> postcss-selector-parser','tailwindcss -> postcss-nested -> postcss-selector-parser'],
-        'available_fix':'Tailwind 4 migration; no unsupported transitive major override',
-        'unresolved_reason':'Preserve Tailwind 3 CSS/configuration behavior pending dedicated visual migration',
+        'available_fix':'Verified compatible 6.1.5 upstream security backport installed; Tailwind 4 remains the registry-recommended major migration',
+        'unresolved_reason':'Published backport contains all three linear-time passes, but npm/GitHub advisory still flags <7.1.6; retain Draft pending security review',
+        'upstream_release':'https://github.com/postcss/postcss-selector-parser/releases/tag/6.1.5',
+        'audit_suppressed':False,
+        'actual_implementation':'patched backport verified independently from advisory range',
+        'owner_risk_acceptance':False,
         'acceptance_criteria':['trusted version-controlled CSS/TSX only','no customer input in build sources','no public Vite service','production static dist only','isolated finite CI timeout','cross-platform browser regression','no new advisory']
     }]
     (ci.EVIDENCE/'gate6a-dependencies.json').write_text(json.dumps(report,indent=2))

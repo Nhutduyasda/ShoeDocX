@@ -31,6 +31,11 @@ jobs:
           ref: 3d07a4f1db7e95cccb1f36e7de23569e5f57c2c5
           path: baseline
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 1df7badbf3635fda03687cb8604dde8858cd9bb5
+          path: dependency-baseline
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |

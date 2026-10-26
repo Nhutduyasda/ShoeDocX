@@ -16,6 +16,7 @@ import gate5c_browser
 import gate5d_browser
 from gate6a_dependencies import audit
 from runtime_target import host_dll
+import gate6a_backport
 BASELINE = '3d07a4f1db7e95cccb1f36e7de23569e5f57c2c5'
 
 def main():
@@ -66,6 +67,7 @@ def main():
         gate4a_checks.frontend(ci)
         result=ci.command(['node','--test','tests/officeModel.test.mjs'],ci.ROOT/'feature/frontend')
         assert result.returncode==0,'Office model tests failed'
+        gate6a_backport.verify(ci)
         audit(ci)
         gate4b1_checks.browser(ci)
         gate5a_browser.browser(ci)
@@ -73,6 +75,9 @@ def main():
         gate5c_browser.browser(ci)
         gate5d_browser.browser(ci)
         report['status']='PASS'
+        report['delivery_verdict']='PARTIAL / SECURITY REVIEW REQUIRED'
+        report['merge_recommendation']='NOT READY'
+        report['delivery_blockers']=['Review current advisory disagreement for the verified 6.1.5 backport', 'Requested 14-view desktop/mobile screenshot comparison not yet established']
     except Exception as error:
         report['blocker']=str(error) if isinstance(error,AssertionError) else type(error).__name__
     finally:

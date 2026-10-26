@@ -4,7 +4,7 @@
 
 ## Prerequisites and database
 
-- Git; .NET 8 SDK for native development.
+- Git; the .NET 10.0.402 SDK (pinned by global.json) for native development.
 - Node 22.12+ and npm for native frontend development. Node 24 is also suitable for the draft tests.
 - A reachable SQL Server instance and a dedicated development database. The API uses `UseSqlServer`; historical SQLite migrations are excluded from compilation.
 - Docker with Compose for the container route. SQL Server is external: Compose does not create a database service.
@@ -25,7 +25,8 @@ Edit `.env` locally; it is ignored by Git:
 
 | Variable | Purpose |
 | --- | --- |
-| `SQLSERVER_CONNECTION_STRING` | Required SQL Server connection reachable from the API container |
+| `SQLSERVER_CONNECTION_STRING` | Required SQL Server connection with Encrypt=True and TrustServerCertificate=False, reachable from the API container |
+| `FRONTEND_ORIGIN` | Required exact HTTPS origin, e.g. https://office.example; no path or trailing slash |
 | `JWT_KEY` | Required random signing secret, at least 32 bytes |
 | `WEB_PORT` | Web port; set `5173` for this guide, otherwise Compose defaults to `80` |
 | `BACKEND_PORT` | Direct API port; default `5270` |
@@ -120,3 +121,11 @@ docker compose down
 ```
 
 `restart` does not apply modified environment variables; use `up -d --force-recreate` for those changes. `down` stops/removes the app containers; SQL Server and bind-mounted files are separate.
+
+## Gate 6A runtime configuration
+
+Production startup validates SQL Server TLS/certificate settings, exact HTTPS origins and an absolute persistent DataProtection:KeyPath. Compose maps the key path to /app/data/protection-keys. Provision host directories with ownership/ACLs suitable for the unprivileged `app` container user; do not make customer data or keys world-readable. Protect the key ring at rest and supply JWT/draft AES keys separately from image layers. See [Gate 6A operational handoff](UNIVERSAL_DOC_ENGINE_GATE6A.md) for complete key retention and rollback requirements.
+
+Production does not apply database migrations on normal startup. An operator must verify backups and the exact target, run the existing explicit migration maintenance command with separate DDL credentials, and return to least-privilege runtime credentials. Database:ApplyMigrationsOnStartup is false in Compose. Development retains local startup migration behavior. These are operator instructions, not authorization for an agent to migrate a shared database.
+
+Historical gate workflow entry points remain pinned to their historical baselines. Use gate6a-verification.yml for the current .NET 10 application; it also installs the historical .NET 8 SDK solely for baseline comparison.

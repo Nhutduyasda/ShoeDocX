@@ -1,0 +1,102 @@
+name: Gate 6A runtime security verification
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-6a-runtime-security'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: feature
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 3d07a4f1db7e95cccb1f36e7de23569e5f57c2c5
+          path: baseline
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 1df7badbf3635fda03687cb8604dde8858cd9bb5
+          path: dependency-baseline
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.426
+            10.0.402
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Ephemeral Linux SQL Server Developer
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker run -d --name gate5c-sql -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD='Gate5C_Synthetic_Only!2026' -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+          echo 'GATE5C_SQL=Server=127.0.0.1,1433;User ID=sa;Password=Gate5C_Synthetic_Only!2026;Encrypt=False;Connect Timeout=15' >> "$GITHUB_ENV"
+          for i in {1..60}; do if docker exec gate5c-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Gate5C_Synthetic_Only!2026' -C -Q 'SELECT 1' >/dev/null 2>&1; then exit 0; fi; sleep 1; done
+          exit 1
+      - name: Ephemeral Windows SQL Server LocalDB
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tool = Get-ChildItem 'C:\Program Files\Microsoft SQL Server' -Filter SqlLocalDB.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
+          if (!$tool) { throw 'Mandatory real SQL Server LocalDB unavailable' }
+          & $tool create Gate5C -s
+          if ($LASTEXITCODE -ne 0) { throw 'Ephemeral SQL Server LocalDB startup failed' }
+          'GATE5C_SQL=Server=(localdb)\Gate5C;Integrated Security=True;Encrypt=False;Connect Timeout=15' >> $env:GITHUB_ENV
+      - name: Compile office host and run Gate 5C–6A security and compatibility tests
+        shell: bash
+        run: |
+          python -c 'import json; from pathlib import Path; Path("global.json").write_text(json.dumps({"sdk":{"version":"8.0.426","rollForward":"disable"}}))'
+          cd feature
+          dotnet build tests/Gate5CDemoHost/Gate5CDemoHost.csproj
+          dotnet build tests/Gate5DDemoHost/Gate5DDemoHost.csproj
+          export GATE5C_PROBE="$GITHUB_WORKSPACE/feature/tests/Gate5CDemoHost/bin/Debug/net10.0/Gate5CDemoHost.dll"
+          echo "GATE5C_PROBE=$GATE5C_PROBE" >> "$GITHUB_ENV"
+          dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter 'FullyQualifiedName~UniversalDocEngine.Gate5C|FullyQualifiedName~UniversalDocEngine.Gate5D|FullyQualifiedName~UniversalDocEngine.Gate6A'
+      - name: Install isolated verification tools
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/studio-browser" --no-package-lock --no-save playwright@1.62.1 pngjs@7.0.0
+          node "$RUNNER_TEMP/studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
+          python -m pip install openpyxl==3.1.5
+      - name: Baseline comparison, SQL regression, actual browser restart and XLSX QA
+        shell: bash
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
+          python feature/.github/scripts/verify_gate6a.py
+      - name: Build container images without deploying
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker build -f feature/backend/ShoeExportInvoice.Api/Dockerfile -t gate6a-api feature
+          docker build -t gate6a-web feature/frontend
+          docker image inspect gate6a-api --format '{{json .Config.User}}' > "$RUNNER_TEMP/gate6a-user.json"
+          python -c 'import json,os; from pathlib import Path; user=json.loads((Path(os.environ["RUNNER_TEMP"])/"gate6a-user.json").read_text()); assert user=="app"; Path("verification-evidence/container.json").write_text(json.dumps({"backend_build":"PASS","frontend_build":"PASS","runtime_user":user,"deployed":False}))'
+      - name: Upload sanitized metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate6a-verification-${{ matrix.os }}
+          path: verification-evidence/**/*.json
+          if-no-files-found: error
+          retention-days: 14

@@ -6,7 +6,7 @@ namespace ShoeExportInvoice.Api.Data;
 
 public static class DbInitializer
 {
-    public static async Task InitializeAsync(AppDbContext context, ILogger logger)
+    public static async Task InitializeAsync(AppDbContext context, ILogger logger, bool applyMigrations = true)
     {
         if (!context.Database.IsSqlServer())
         {
@@ -20,7 +20,7 @@ public static class DbInitializer
 
         if (context.Database.IsSqlServer())
         {
-            await context.Database.MigrateAsync();
+            if (applyMigrations) await context.Database.MigrateAsync();
             await EnsureDefaultTenantWorkspaceAsync(context, logger);
             await EnsureDefaultCompanyTemplateAsync(context, logger);
             logger.LogInformation("Đồng bộ quy cách folder cho {Count} mã Master Data.", await context.RepairFolderPackingAsync());

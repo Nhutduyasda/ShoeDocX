@@ -42,7 +42,7 @@ def verify(ci):
         private=Path(temporary);environment['GATE6A_VISUAL_PRIVATE']=str(private)
         def launch(args,cwd):
             log=open(private/(str(len(logs))+'.log'),'wb');logs.append(log)
-            p=subprocess.Popen(args,cwd=cwd,env=environment,stdout=log,stderr=subprocess.STDOUT);processes.append(p)
+            p=subprocess.Popen(args,cwd=cwd,env=environment,stdout=log,stderr=subprocess.STDOUT);processes.append(p);return p
         def ready(url):
             until=time.monotonic()+120
             while True:
@@ -57,7 +57,7 @@ def verify(ci):
         try:
             assert maintenance(['--migrate'])==0,'Visual SQL draft migration failed'
             # Draft environment flags are overridden by the isolated host's real SQL configuration.
-            launch(['dotnet',host],feature)
+            office_host=launch(['dotnet',host],feature)
             api=feature/'backend/ShoeExportInvoice.Api'
             launch(['dotnet',str(api/'bin/Debug/net10.0/ShoeExportInvoice.Api.dll')],api)
             ready('http://127.0.0.1:5308/api/auth/me');ready('http://127.0.0.1:5309/api/universal-doc/bootstrap')
@@ -73,14 +73,26 @@ def verify(ci):
             for directory,port,target in [(before,5310,5308),(feature,5311,5308),(before,5312,5309),(feature,5313,5309)]:
                 launch(['node',server,str(directory/'frontend/dist'),str(port),f'http://127.0.0.1:{target}'],feature)
                 ready(f'http://127.0.0.1:{port}/')
-            result=subprocess.run(['node','frontend/tests/gate6aVisual.e2e.mjs'],cwd=feature,env=environment,
-                stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8',timeout=600)
+            browser_log=open(private/'browser.log','wb');logs.append(browser_log)
+            browser=subprocess.Popen(['node','frontend/tests/gate6aVisual.e2e.mjs'],cwd=feature,env=environment,stdout=browser_log,stderr=subprocess.STDOUT);processes.append(browser)
+            until=time.monotonic()+600;reset=False
+            while browser.poll() is None:
+                assert time.monotonic()<until,'Visual browser timed out'
+                if not reset and (private/'reset-office-requested').exists():
+                    office_host.terminate();office_host.wait(timeout=15);processes.remove(office_host)
+                    assert maintenance(['--drop'])==0 and maintenance(['--migrate'])==0,'Clean visual SQL reset failed'
+                    office_host=launch(['dotnet',host],feature);ready('http://127.0.0.1:5309/api/universal-doc/bootstrap')
+                    (private/'reset-office-completed').write_text('Real host and disposable SQL reset; quotas unchanged')
+                    reset=True
+                time.sleep(.2)
+            browser_log.flush()
+            result=type('Result',(),{'returncode':browser.returncode,'stdout':(private/'browser.log').read_text(encoding='utf-8')})()
             summary=private/'visual-summary.json'
             if summary.exists():report=json.loads(summary.read_text(encoding='utf-8'))
             if result.returncode:
                 # Synthetic selector diagnostics only; do not publish raw process logs.
                 print('\n'.join(l for l in result.stdout.splitlines() if any(t in l for t in ('Error:', 'locator.', 'waiting for','Expected:','Actual:')))[-3500:],flush=True)
-            assert result.returncode==0 and report['status']=='PASS','Paired authenticated visual acceptance failed'
+            assert result.returncode==0 and report['status']=='PASS' and reset,'Paired authenticated visual acceptance failed'
             assert len(report['pairs'])==28 and report['captured']=={'baseline':28,'feature':28}
             assert len({p['view'] for p in report['pairs']})==14 and all(p['status']=='PASS' for p in report['pairs'])
             # Independently open both actual authorized downloads; these bytes remain private.

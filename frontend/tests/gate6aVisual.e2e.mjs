@@ -1,6 +1,6 @@
 // Deterministic paired captures of real legacy and Office UI. No API route mocks.
 import assert from 'node:assert/strict';
-import {mkdir,writeFile,readFile} from 'node:fs/promises';
+import {mkdir,writeFile,readFile,access} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
@@ -83,7 +83,14 @@ async function office(revision,base){
 }
 let report={status:'FAIL',policy,baseline:process.env.GATE6A_VISUAL_BASELINE,feature:process.env.VERIFIED_HEAD,browserVersion:browser.version(),os:process.platform,pairs:[]};
 try{
-  for(const [revision,legacyBase,officeBase]of [['baseline','http://127.0.0.1:5310','http://127.0.0.1:5312'],['feature','http://127.0.0.1:5311','http://127.0.0.1:5313']]){await legacy(revision,legacyBase);await office(revision,officeBase);}
+  for(const [revision,legacyBase,officeBase]of [['baseline','http://127.0.0.1:5310','http://127.0.0.1:5312'],['feature','http://127.0.0.1:5311','http://127.0.0.1:5313']]){
+    await legacy(revision,legacyBase);await office(revision,officeBase);
+    if(revision==='baseline'){
+      await writeFile(join(folder,'reset-office-requested'),'reset');const until=Date.now()+120000;
+      while(true){try{await access(join(folder,'reset-office-completed'));break;}catch{assert.ok(Date.now()<until,'Clean Office host reset timed out');await new Promise(r=>setTimeout(r,200));}}
+    }
+  }
+  report.backendResetBetweenRevisions=true;
   assert.deepEqual(printProbes.baseline,printProbes.feature);report.printMediaComputedComparison={status:'PASS',baseline:printProbes.baseline,feature:printProbes.feature};
   assert.equal(captures.baseline.length,28);assert.equal(captures.feature.length,28);assert.deepEqual(errors,[]);
   for(let i=0;i<28;i++){

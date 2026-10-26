@@ -1,0 +1,168 @@
+"""Disposable Linux production-entrypoint acceptance. Never writes raw logs to artifacts."""
+import hashlib, json, os, shutil, ssl, subprocess, tarfile, tempfile, time, urllib.request, urllib.error, uuid
+from pathlib import Path
+import gate5d_browser
+
+ROOT=Path.cwd(); FEATURE=ROOT/'feature'; EVIDENCE=ROOT/'verification-evidence'; EVIDENCE.mkdir(exist_ok=True)
+
+def verify():
+    report={'head':os.environ['VERIFIED_HEAD'],'status':'FAIL','checks':{},'internal_pilot':'NOT EXECUTED'}
+    processes=[]
+    with tempfile.TemporaryDirectory(prefix='gate6b-private-') as temp:
+        private=Path(temp); private.chmod(0o700); env=os.environ.copy(); env['GATE6B_PRIVATE']=str(private)
+        database='gate6b_'+uuid.uuid4().hex
+        password=lambda: 'G6b!'+uuid.uuid4().hex+'aA1'
+        sa,migration,runtime,user,pfx=password(),password(),password(),password(),password()
+        env['GATE6B_SQL_PASSWORD']=sa
+        compose=['docker','compose','-p','gate6b-isolated','-f',str(FEATURE/'deploy/gate6b/compose.yml')]
+        probe=['dotnet',str(FEATURE/'tests/Gate6BOperations/bin/Debug/net10.0/Gate6BOperations.dll')]
+        def command(args,expected=0,timeout=600):
+            result=subprocess.run(args,cwd=FEATURE,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout)
+            if expected is not None: assert result.returncode==expected,'COMMAND_FAILED_'+Path(args[0]).name
+            return result
+        def cp(*args,**kwargs):return command(compose+list(args),**kwargs)
+        def op(action,*args,**kwargs):return command(probe+[action,*map(str,args)],**kwargs)
+        def mark(key):report['checks'][key]='PASS';print('Gate6B '+key+' PASS',flush=True)
+        def openssl(*args):command(['openssl',*args])
+        def write(name,content):
+            p=private/name;p.write_text(content);p.chmod(0o600);return p
+        def request(path,body=None,headers=None):
+            req=urllib.request.Request('https://localhost:8443'+path,data=None if body is None else json.dumps(body).encode(),headers=headers or {})
+            try:
+                with urllib.request.urlopen(req,context=ssl.create_default_context(cafile=str(private/'ca.crt')),timeout=15) as r:return r.status,r.read(),dict(r.headers)
+            except urllib.error.HTTPError as e:return e.code,e.read(),dict(e.headers)
+        def ready():
+            for _ in range(120):
+                try:
+                    if request('/api/health')[0]==200:return
+                except (urllib.error.URLError,TimeoutError):pass
+                time.sleep(.5)
+            raise AssertionError('PRODUCTION_READINESS_TIMEOUT')
+        try:
+            openssl('req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(private/'ca.key'),'-out',str(private/'ca.crt'),'-days','2','-subj','/CN=Gate6B Synthetic CA')
+            for name,host in [('sql','sql'),('web','localhost')]:
+                openssl('req','-newkey','rsa:2048','-nodes','-keyout',str(private/(name+'.key')),'-out',str(private/(name+'.csr')),'-subj','/CN='+host)
+                ext=write(name+'.ext',f'subjectAltName=DNS:{host}\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n')
+                openssl('x509','-req','-in',str(private/(name+'.csr')),'-CA',str(private/'ca.crt'),'-CAkey',str(private/'ca.key'),'-CAcreateserial','-out',str(private/(name+'.crt')),'-days','2','-extfile',str(ext))
+            env['GATE6B_PFX_PASSWORD']=pfx
+            openssl('pkcs12','-export','-in',str(private/'web.crt'),'-inkey',str(private/'web.key'),'-out',str(private/'protection.pfx'),'-passout','env:GATE6B_PFX_PASSWORD')
+            write('mssql.conf','[network]\ntlscert = /run/tls/sql.crt\ntlskey = /run/tls/sql.key\ntlsprotocols = 1.2\nforceencryption = 1\n')
+            for name in ('data','templates','backup'):(private/name).mkdir(mode=0o700)
+            (private/'data/protection-keys').mkdir(mode=0o700);(private/'data/customs').mkdir(mode=0o700)
+            # CI host and API image trust exactly this ephemeral CA; negative trust control below.
+            command(['sudo','cp',str(private/'ca.crt'),'/usr/local/share/ca-certificates/gate6b.crt'])
+            command(['sudo','update-ca-certificates'])
+            sqlbase='Server=172.30.86.2;Database=master;User ID=sa;Password='+sa+';Encrypt=True;TrustServerCertificate=False;HostNameInCertificate=sql;Connect Timeout=5'
+            operator={'adminConnection':sqlbase,'database':database,'migrationPassword':migration,'runtimePassword':runtime,'userPassword':user}
+            operatorpath=write('operator.json',json.dumps(operator));env['GATE6B_OPERATOR']=str(operatorpath)
+            def configuration(login,secret):return {
+                'ConnectionStrings':{'DefaultConnection':f'Server=sql;Database={database};User ID={login};Password={secret};Encrypt=True;TrustServerCertificate=False;Connect Timeout=5'},
+                'Jwt':{'Key':password(),'Issuer':'gate6b','Audience':'gate6b'},'AllowedHosts':'localhost',
+                'Xnk':{'AllowedOrigins':['https://localhost:8443'],'CustomsStoragePath':'/app/data/customs'},
+                'Ingress':{'KnownProxies':['172.30.86.4']},
+                'DataProtection':{'KeyPath':'/app/data/protection-keys','CertificatePath':'/run/secrets/protection.pfx','CertificatePassword':pfx},
+                'UniversalDocDrafts':{'Enabled':True,'ActiveKeyId':'synthetic-v1','Keys':{'synthetic-v1':__import__('base64').b64encode(os.urandom(32)).decode()}},
+                'UniversalDocGate4A':{'Users':{'admin-a':'synthetic-a','other-a':'synthetic-a','clerk-a':'synthetic-a','admin-b':'synthetic-b'}},
+                'Database':{'ApplyMigrationsOnStartup':False},'BootstrapAdmin':{'Enabled':False},'DevelopmentUsers':{'Enabled':False},
+                'Logging':{'LogLevel':{'Default':'Warning','Microsoft.EntityFrameworkCore':'Warning'}}}
+            config=configuration('gate6b_runtime',runtime);write('runtime.json',json.dumps(config))
+            maintenance_config=json.loads(json.dumps(config));maintenance_config['ConnectionStrings']['DefaultConnection']=config['ConnectionStrings']['DefaultConnection'].replace('gate6b_runtime','gate6b_migration').replace(runtime,migration);maintenance_config['Database']['MaintenanceAuthorized']=True
+            write('maintenance.json',json.dumps(maintenance_config))
+            # Bind directories explicitly owned by actual image user; secrets 0400.
+            command(['sudo','chown','-R','1654:1654',str(private/'data'),str(private/'templates')])
+            for name in ('runtime.json','maintenance.json','protection.pfx'):
+                command(['sudo','chown','1654:1654',str(private/name)]);(private/name).chmod(0o400)
+            command(['sudo','chown','10001:0',str(private/'sql.key'),str(private/'backup')]);(private/'sql.key').chmod(0o400)
+            command(['docker','build','-f','backend/ShoeExportInvoice.Api/Dockerfile','-t','gate6b-api','.'])
+            command(['docker','build','-t','gate6b-web','frontend'])
+            write('Dockerfile','FROM gate6b-api\nUSER root\nCOPY ca.crt /usr/local/share/ca-certificates/gate6b.crt\nRUN update-ca-certificates\nUSER app\n')
+            command(['docker','build','-t','gate6b-api-trusted',str(private)])
+            cp('up','-d','sql')
+            for _ in range(90):
+                result=cp('exec','-T','sql','/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-P',sa,'-C','-Q','SELECT 1',expected=None)
+                if result.returncode==0:break
+                time.sleep(1)
+            else:raise AssertionError('SQL_STARTUP_TIMEOUT')
+            # Readiness sqlcmd uses bootstrap trust only. All application/probe SQL is certificate validated.
+            op('provision');mark('sql_validated_tls_and_separate_accounts')
+            for action in ('--migrate-all','--initialize-staging'):
+                cp('run','--rm','-v',str(private/'maintenance.json')+':/run/secrets/runtime.json:ro','backend',action)
+            op('users');op('permissions');mark('both_migrations_explicit_initialization_and_runtime_no_ddl')
+            cp('up','-d','backend','web');ready();mark('actual_production_images_https_proxy_readiness')
+            assert request('/')[0]==200 and request('/api/auth/me')[0]==401
+            assert request('/swagger/v1/swagger.json')[0]==404
+            assert request('/api/auth/me',headers={'X-Forwarded-Proto':'http','X-Forwarded-Host':'evil.invalid'})[0]==401
+            mark('ingress_replaces_spoofed_headers_no_public_swagger')
+            # Verify wrong CA fails HTTPS (not a browser ignore-certificate workaround).
+            try:urllib.request.urlopen('https://localhost:8443/api/health',context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT),timeout=5)
+            except urllib.error.URLError:mark('ingress_untrusted_certificate_rejected')
+            else:raise AssertionError('UNTRUSTED_HTTPS_ACCEPTED')
+            meta=json.loads(command(['docker','inspect',cp('ps','-q','backend').stdout.decode().strip()]).stdout)[0]
+            assert meta['Config']['User']=='app' and meta['HostConfig']['ReadonlyRootfs']
+            assert not meta['HostConfig']['PortBindings'];mark('nonroot_readonly_backend_no_published_port')
+            fixture=private/'fixtures';op('fixtures',fixture)
+            env.update(STUDIO_BASE_URL='https://localhost:8443',STUDIO_EVIDENCE_DIR=str(private/'browser'),GATE6B_FIXTURES=str(fixture),STUDIO_PASSWORD=user,NODE_EXTRA_CA_CERTS=str(private/'ca.crt'))
+            # Trust only the test CA for Chromium, never set ignoreHTTPSErrors.
+            command(['mkdir','-p',str(Path.home()/'.pki/nssdb')])
+            command(['certutil','-N','-d','sql:'+str(Path.home()/'.pki/nssdb'),'--empty-password'],expected=None)
+            command(['certutil','-A','-d','sql:'+str(Path.home()/'.pki/nssdb'),'-n','Gate6B','-t','C,,','-i',str(private/'ca.crt')])
+            out=open(private/'browser.log','wb')
+            browser=subprocess.Popen(['node','frontend/tests/universalDocGate5D.e2e.mjs'],cwd=FEATURE,env=env,stdout=out,stderr=subprocess.STDOUT);processes.append(browser)
+            until=time.monotonic()+720;recovered=False
+            while browser.poll() is None:
+                assert time.monotonic()<until,'BROWSER_TIMEOUT'
+                if not recovered and (private/'browser/restart-requested').exists():
+                    cp('stop','backend');op('fingerprint',private/'before.json');op('backup')
+                    assert json.loads((private/'before.json').read_text())['rows']==1
+                    # Encrypted recovery bundle covers SQL, protected keys, config and file storage.
+                    command(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(private/'data'),str(private/'templates'),str(private/'backup')])
+                    for name in ('runtime.json','maintenance.json','protection.pfx'):command(['sudo','chown',str(os.getuid())+':'+str(os.getgid()),str(private/name)])
+                    bundle=private/'recovery.tar'
+                    with tarfile.open(bundle,'w') as archive:
+                        for name in ('runtime.json','maintenance.json','protection.pfx','data','templates','backup'):archive.add(private/name,arcname=name)
+                    (private/'backup.key').write_bytes(os.urandom(32));op('seal',bundle,private/'recovery.aesgcm',private/'backup.key');bundle.unlink()
+                    cp('down','-v')
+                    for name in ('runtime.json','maintenance.json','protection.pfx','data','templates','backup'):
+                        p=private/name;shutil.rmtree(p) if p.is_dir() else p.unlink()
+                    started=time.monotonic();op('unseal',private/'recovery.aesgcm',bundle,private/'backup.key')
+                    with tarfile.open(bundle) as archive:archive.extractall(private,filter='data')
+                    bundle.unlink()
+                    command(['sudo','chown','-R','1654:1654',str(private/'data'),str(private/'templates')])
+                    for name in ('runtime.json','maintenance.json','protection.pfx'):command(['sudo','chown','1654:1654',str(private/name)])
+                    command(['sudo','chown','10001:0',str(private/'backup')])
+                    cp('up','-d','sql')
+                    for _ in range(90):
+                        if cp('exec','-T','sql','/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-P',sa,'-C','-Q','SELECT 1',expected=None).returncode==0:break
+                        time.sleep(1)
+                    op('provision');op('restore')
+                    # New SQL logins have new SIDs; explicitly remap recovered database users.
+                    # Driver restore performs this before application start.
+                    op('fingerprint',private/'after.json')
+                    assert json.loads((private/'before.json').read_text())==json.loads((private/'after.json').read_text())
+                    cp('up','-d','backend','web');ready();report['observed_rebuild_restore_seconds']=round(time.monotonic()-started,2)
+                    (private/'browser/restart-completed').write_text('actual complete instance recovery')
+                    mark('encrypted_backup_complete_instance_loss_restore_ciphertext_fingerprint');recovered=True
+                time.sleep(.2)
+            out.close()
+            assert browser.returncode==0 and recovered,'PRODUCTION_OFFICE_BROWSER_FAILED'
+            summary=json.loads((private/'browser/office-summary.json').read_text());assert summary['status']=='PASS'
+            op('reopen',private/'browser')
+            downloads=json.loads((private/'browser/office-downloads.json').read_text())
+            qa=[gate5d_browser.verify_workbook(private/'browser'/d['name'],d['scenario'],d['rows']) for d in downloads]
+            (EVIDENCE/'gate6b-office.json').write_text(json.dumps({'browser':summary,'independent_xlsx':qa},indent=2));mark('office_multisheet_mobile_reapproval_real_export_dual_reopen')
+            report['status']='PARTIAL';report['remaining']=['Full fault-injection inventory not yet verified','Windows SQL TLS production parity not yet verified','Previous-build rollback not yet verified','Actual internal pilot not executed']
+        except Exception as e:
+            report['failure_stage']=list(report['checks'])[-1] if report['checks'] else 'bootstrap'
+            report['error']=str(e) if isinstance(e,AssertionError) else type(e).__name__
+            # Only exception type identifiers from private runtime diagnostics.
+            import re
+            logs=cp('logs','--no-color',expected=None).stdout.decode(errors='replace')
+            report['exception_types']=sorted(set(re.findall(r'\b[A-Za-z.]+Exception\b',logs)))
+        finally:
+            for p in processes:
+                if p.poll() is None:p.terminate();p.wait(timeout=15)
+            cp('down','-v','--remove-orphans',expected=None)
+            command(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(private)],expected=None)
+            (EVIDENCE/'gate6b-staging.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2),flush=True)
+    return report
+if __name__=='__main__':raise SystemExit(0 if verify()['status']=='PASS' else 1)

@@ -20,6 +20,11 @@ public static class ProductionConfiguration
         var path = configuration["DataProtection:KeyPath"];
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
             throw new InvalidOperationException("PRODUCTION_DATA_PROTECTION_PATH_REQUIRED");
+        if (string.IsNullOrWhiteSpace(configuration["DataProtection:CertificatePath"]) ||
+            !Path.IsPathFullyQualified(configuration["DataProtection:CertificatePath"]!))
+            throw new InvalidOperationException("PRODUCTION_DATA_PROTECTION_CERTIFICATE_REQUIRED");
+        if (configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
+            throw new InvalidOperationException("PRODUCTION_AUTOMIGRATION_FORBIDDEN");
         if (configuration.GetValue<bool>("UniversalDocDrafts:Enabled"))
         {
             ValidateSql(configuration["UniversalDocDrafts:ConnectionString"] ?? configuration.GetConnectionString("DefaultConnection"));

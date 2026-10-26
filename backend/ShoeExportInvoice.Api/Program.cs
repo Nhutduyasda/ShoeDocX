@@ -1,4 +1,8 @@
 using System.Text;
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+using Microsoft.AspNetCore.HttpOverrides;
+using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 using Microsoft.AspNetCore.DataProtection;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -14,11 +18,32 @@ using ShoeExportInvoice.Api.Services;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 
 var builder = WebApplication.CreateBuilder(args);
+var operatorConfiguration = Environment.GetEnvironmentVariable("SHOEDOCX_CONFIGURATION_FILE");
+if (!string.IsNullOrWhiteSpace(operatorConfiguration)) builder.Configuration.AddJsonFile(operatorConfiguration, optional: false, reloadOnChange: false);
 ProductionConfiguration.Validate(builder.Configuration, builder.Environment.IsProduction());
+var maintenance = args.Contains("--migrate-all") || args.Contains("--initialize-staging");
+if (maintenance && !builder.Configuration.GetValue<bool>("Database:MaintenanceAuthorized"))
+    throw new InvalidOperationException("MAINTENANCE_AUTHORIZATION_REQUIRED");
+if (builder.Environment.IsProduction() && builder.Configuration.GetValue<bool>("BootstrapAdmin:Enabled") && !args.Contains("--initialize-staging"))
+    throw new InvalidOperationException("BOOTSTRAP_REQUIRES_EXPLICIT_INITIALIZATION");
+builder.Services.Configure<ForwardedHeadersOptions>(options => {
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear(); options.KnownProxies.Clear();
+    foreach (var value in builder.Configuration.GetSection("Ingress:KnownProxies").Get<string[]>() ?? [])
+        options.KnownProxies.Add(IPAddress.Parse(value));
+    // With no configured proxy, leave forwarding disabled. Never trust all peers.
+    if (options.KnownProxies.Count == 0) options.ForwardedHeaders = ForwardedHeaders.None;
+});
 var protectionPath = builder.Configuration["DataProtection:KeyPath"];
-if (!string.IsNullOrWhiteSpace(protectionPath))
-    builder.Services.AddDataProtection().SetApplicationName("ShoeDocX")
+if (!string.IsNullOrWhiteSpace(protectionPath)) {
+    var protection = builder.Services.AddDataProtection().SetApplicationName("ShoeDocX")
         .PersistKeysToFileSystem(new DirectoryInfo(protectionPath));
+    var certificate = builder.Configuration["DataProtection:CertificatePath"];
+    if (!string.IsNullOrWhiteSpace(certificate))
+        protection.ProtectKeysWithCertificate(X509CertificateLoader.LoadPkcs12FromFile(certificate,
+            builder.Configuration["DataProtection:CertificatePassword"]));
+}
 
 // Keep local/CLI startup independent from the Windows Event Log, which may
 // require elevated permissions and must never make a successful migration fail.
@@ -205,6 +230,13 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
     o.MultipartBodyLengthLimit = builder.Configuration.GetValue<long?>("Xnk:MaxUploadBytes") ?? 20971520);
 var app = builder.Build();
+app.UseForwardedHeaders();
+if (app.Environment.IsProduction()) app.Use(async (context, next) => {
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["Cache-Control"] = "no-store";
+    if (!context.Request.IsHttps) { context.Response.StatusCode = 400; return; }
+    await next(context);
+});
 app.Use(async (context, next) =>
 {
     try { await next(context); }
@@ -233,11 +265,21 @@ using (var scope = app.Services.CreateScope())
     var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
     try
     {
-        var applyMigrations = args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage") ||
+        var applyMigrations = args.Contains("--migrate-all") || args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage") ||
             builder.Configuration.GetValue<bool?>("Database:ApplyMigrationsOnStartup") == true || app.Environment.IsDevelopment();
         if (!applyMigrations && (await context.Database.GetPendingMigrationsAsync()).Any())
             throw new InvalidOperationException("DATABASE_MIGRATION_REQUIRED");
-        await DbInitializer.InitializeAsync(context, logger, applyMigrations);
+        if (app.Environment.IsProduction() && !maintenance) {
+            if (applyMigrations) throw new InvalidOperationException("EXPLICIT_MAINTENANCE_REQUIRED");
+        } else await DbInitializer.InitializeAsync(context, logger, applyMigrations);
+        if (builder.Configuration.GetValue<bool>("UniversalDocDrafts:Enabled")) {
+            var factory = services.GetRequiredService<IDbContextFactory<UniversalDocDraftDb>>();
+            await using var drafts = await factory.CreateDbContextAsync();
+            if (args.Contains("--migrate-all")) await drafts.Database.MigrateAsync();
+            if ((await drafts.Database.GetPendingMigrationsAsync()).Any())
+                throw new InvalidOperationException("DRAFT_MIGRATION_REQUIRED");
+            if (drafts.Database.HasPendingModelChanges()) throw new InvalidOperationException("DRAFT_MODEL_MISMATCH");
+        }
         var storageOptions = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<XnkOptions>>().Value;
         var environment = services.GetRequiredService<IWebHostEnvironment>();
         if (args.Contains("--migrate-customs-storage"))
@@ -261,7 +303,7 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-if (args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage")) return;
+if (maintenance || args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage")) return;
 
 // Swagger UI
 if (app.Environment.IsDevelopment())
@@ -279,6 +321,10 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapGet("/api/health", async (AppDbContext db) => {
+    try { return await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ready" }) : Results.StatusCode(503); }
+    catch { return Results.StatusCode(503); }
+}).AllowAnonymous();
 app.MapControllers();
 
 app.Run();

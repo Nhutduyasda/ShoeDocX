@@ -82,8 +82,7 @@ public class AuthController : ControllerBase
             }
         };
 
-        _logger.LogInformation("Người dùng {Username} ({FullName} - {Department}) đăng nhập thành công.",
-            user.UserName, user.FullName, user.Department);
+        _logger.LogInformation("AUTH_LOGIN_SUCCEEDED");
 
         return Ok(response);
     }

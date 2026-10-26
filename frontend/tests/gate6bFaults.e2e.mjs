@@ -11,9 +11,16 @@ async function boot(c){const r=await c.get('/api/universal-doc/bootstrap');asser
 try {
  const token=await login(client),csrf=await boot(client),headers={'X-Studio-CSRF':csrf};
  const mode=process.env.GATE6B_FAULT_MODE??'normal';
- if(mode==='expired-draft') {
+ if(mode==='wrong-aes') {
+   const draft=JSON.parse(await readFile(join(folder,'gate6b-draft.json'),'utf8'));
+   const r=await client.post(`/api/universal-doc/drafts/${draft.id}/resume`,{headers,data:{expectedRevision:draft.revision}});
+   assert.equal(r.status(),409);assert.equal((await r.json()).code,'DRAFT_PAYLOAD_INVALID');checks.push('INCORRECT_AES_KEY_RESUME_REJECTED_NO_BYTES');
+ } else if(mode==='expired-draft') {
    const r=await client.get('/api/universal-doc/drafts');assert.equal(r.status(),200);assert.deepEqual(await r.json(),[]);checks.push('EXPIRED_RESTORED_DRAFT_NOT_DISCLOSED');
  } else {
+   const expired=await readFile(process.env.GATE6B_EXPIRED_TOKEN,'utf8');
+   const expiredClient=await request.newContext({baseURL:base,extraHTTPHeaders:{Authorization:'Bearer '+expired}});
+   assert.equal((await expiredClient.get('/api/auth/me')).status(),401);await expiredClient.dispose();checks.push('EXPIRED_SIGNED_JWT_REJECTED');
    const session=JSON.parse(await readFile(join(folder,'gate6b-session.json'),'utf8'));
    const path=`/api/universal-doc/sessions/${session.id}`;
    for(const value of [undefined,'invalid']) {

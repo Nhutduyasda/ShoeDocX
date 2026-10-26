@@ -61,6 +61,12 @@ if(action is "seal" or "unseal") {
     await using var r=await q.ExecuteReaderAsync();using var sha=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);var rows=0;
     while(await r.ReadAsync()){rows++;sha.AppendData(System.Text.Encoding.UTF8.GetBytes(r.GetString(0)+r.GetString(1)));sha.AppendData((byte[])r[2]);sha.AppendData((byte[])r[3]);}
     File.WriteAllText(args[1],JsonSerializer.Serialize(new{rows,sha256=Convert.ToHexString(sha.GetHashAndReset())}));
+} else if(action=="expired-jwt") {
+    var token=new System.IdentityModel.Tokens.Jwt.JwtSecurityToken("gate6b","gate6b",
+        new[]{new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier,"admin-a"),new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role,"Admin")},
+        DateTime.UtcNow.AddHours(-2),DateTime.UtcNow.AddHours(-1),
+        new Microsoft.IdentityModel.Tokens.SigningCredentials(new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(config.GetProperty("jwtKey").GetString()!)),Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256));
+    File.WriteAllText(args[1],new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token));
 } else if(action=="expire") {
     await Execute($"UPDATE [{database}].ude.Drafts SET ExpiresAt=DATEADD(day,-1,SYSDATETIMEOFFSET())");
 } else if(action=="tls-negative") {
@@ -69,11 +75,13 @@ if(action is "seal" or "unseal") {
     catch(SqlException) {Console.WriteLine("OPERATION_PASS");return;}
     throw new InvalidOperationException("WRONG_SQL_CERTIFICATE_ACCEPTED");
 } else if(action=="permissions") {
+    await Execute($"USE [{database}]; DENY INSERT, UPDATE, DELETE ON dbo.__EFMigrationsHistory TO [gate6b_runtime]; DENY INSERT, UPDATE, DELETE ON ude.__DraftMigrations TO [gate6b_runtime];");
+    await Execute("ALTER LOGIN [gate6b_migration] DISABLE");
     cs.InitialCatalog=database;cs.UserID="gate6b_runtime";cs.Password=config.GetProperty("runtimePassword").GetString();
     await using var c=new SqlConnection(cs.ConnectionString);await c.OpenAsync();
-    await using var q=new SqlCommand("SELECT HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','CREATE TABLE'), IS_MEMBER('db_owner'), HAS_PERMS_BY_NAME('ude.Drafts','OBJECT','SELECT'), HAS_PERMS_BY_NAME('ude.Drafts','OBJECT','UPDATE')",c);
+    await using var q=new SqlCommand("SELECT HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','CREATE TABLE'), IS_MEMBER('db_owner'), HAS_PERMS_BY_NAME('ude.Drafts','OBJECT','SELECT'), HAS_PERMS_BY_NAME('ude.Drafts','OBJECT','UPDATE'), HAS_PERMS_BY_NAME('ude.__DraftMigrations','OBJECT','UPDATE'), HAS_PERMS_BY_NAME('dbo.__EFMigrationsHistory','OBJECT','UPDATE')",c);
     await using var r=await q.ExecuteReaderAsync();await r.ReadAsync();
-    if(r.GetInt32(0)!=0||r.GetInt32(1)!=0||r.GetInt32(2)!=1||r.GetInt32(3)!=1)throw new InvalidOperationException("RUNTIME_PERMISSIONS_INVALID");
+    if(r.GetInt32(0)!=0||r.GetInt32(1)!=0||r.GetInt32(2)!=1||r.GetInt32(3)!=1||r.GetInt32(4)!=0||r.GetInt32(5)!=0)throw new InvalidOperationException("RUNTIME_PERMISSIONS_INVALID");
 } else if(action=="reopen") {
     foreach(var file in Directory.GetFiles(args[1],"office-*.xlsx")){using var workbook=new XLWorkbook(file);if(workbook.Worksheets.Count<2)throw new InvalidOperationException("WORKBOOK_INVALID");}
 } else throw new InvalidOperationException("UNKNOWN_OPERATION");

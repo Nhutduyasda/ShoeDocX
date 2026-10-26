@@ -46,7 +46,7 @@ def verify():
                 openssl('x509','-req','-in',str(private/(name+'.csr')),'-CA',str(private/'ca.crt'),'-CAkey',str(private/'ca.key'),'-CAcreateserial','-out',str(private/(name+'.crt')),'-days','2','-extfile',str(ext))
             env['GATE6B_PFX_PASSWORD']=pfx
             openssl('pkcs12','-export','-in',str(private/'web.crt'),'-inkey',str(private/'web.key'),'-out',str(private/'protection.pfx'),'-passout','env:GATE6B_PFX_PASSWORD')
-            write('mssql.conf','[network]\ntlscert = /run/tls/sql.crt\ntlskey = /run/tls/sql.key\ntlsprotocols = 1.2\nforceencryption = 1\n')
+            write('mssql.conf','[network]\ntlscert = /run/tls/sql.crt\ntlskey = /run/tls/sql.key\ntlsprotocols = 1.2\nforceencryption = 1\n').chmod(0o644)
             for name in ('data','templates','backup'):(private/name).mkdir(mode=0o700)
             (private/'data/protection-keys').mkdir(mode=0o700);(private/'data/customs').mkdir(mode=0o700)
             # CI host and API image trust exactly this ephemeral CA; negative trust control below.
@@ -69,7 +69,7 @@ def verify():
             shutil.copy2(fixture/'A-1-false-none.xlsx',private/'templates/synthetic.xlsx')
             write('data/customs/synthetic-attachment.txt','SYNTHETIC RECOVERY SENTINEL')
             storage_fingerprints={name:hashlib.sha256((private/name).read_bytes()).hexdigest() for name in ('templates/synthetic.xlsx','data/customs/synthetic-attachment.txt')}
-            config=configuration('gate6b_runtime',runtime);write('runtime.json',json.dumps(config))
+            config=configuration('gate6b_runtime',runtime);write('runtime.json',json.dumps(config));operator['jwtKey']=config['Jwt']['Key'];operatorpath.write_text(json.dumps(operator));op('expired-jwt',private/'expired.jwt');env['GATE6B_EXPIRED_TOKEN']=str(private/'expired.jwt')
             maintenance_config=json.loads(json.dumps(config));maintenance_config['ConnectionStrings']['DefaultConnection']=config['ConnectionStrings']['DefaultConnection'].replace('gate6b_runtime','gate6b_migration').replace(runtime,migration);maintenance_config['Database']['MaintenanceAuthorized']=True
             write('maintenance.json',json.dumps(maintenance_config))
             # Bind directories explicitly owned by actual image user; secrets 0400.
@@ -125,6 +125,18 @@ def verify():
                     with tarfile.open(bundle,'w') as archive:
                         for name in ('runtime.json','maintenance.json','protection.pfx','data','templates','backup'):archive.add(private/name,arcname=name)
                     (private/'backup.key').write_bytes(os.urandom(32));op('seal',bundle,private/'recovery.aesgcm',private/'backup.key');bundle.unlink()
+                    (private/'incorrect.key').write_bytes(os.urandom(32))
+                    assert op('unseal',private/'recovery.aesgcm',private/'must-not-exist.tar',private/'incorrect.key',expected=None).returncode!=0
+                    assert not (private/'must-not-exist.tar').exists()
+                    corrupt=bytearray((private/'recovery.aesgcm').read_bytes());corrupt[-1]^=1;(private/'corrupt.aesgcm').write_bytes(corrupt)
+                    assert op('unseal',private/'corrupt.aesgcm',private/'must-not-exist.tar',private/'backup.key',expected=None).returncode!=0
+                    assert not (private/'must-not-exist.tar').exists()
+                    mark('backup_wrong_key_and_authenticated_corruption_rejected')
+                    sql_backup=private/'backup/staging.bak';saved_backup=sql_backup.read_bytes();corrupt_backup=bytearray(saved_backup);corrupt_backup[:4096]=b'X'*4096;sql_backup.write_bytes(corrupt_backup)
+                    command(['sudo','chown','10001:0',str(sql_backup)])
+                    assert op('restore',expected=None).returncode!=0,'CORRUPT_SQL_BACKUP_ACCEPTED'
+                    command(['sudo','chown',str(os.getuid())+':'+str(os.getgid()),str(sql_backup)]);sql_backup.write_bytes(saved_backup);command(['sudo','chown','10001:0',str(sql_backup)])
+                    mark('corrupt_sql_backup_rejected_before_restore')
                     cp('down','-v')
                     for name in ('runtime.json','maintenance.json','protection.pfx','data','templates','backup'):
                         p=private/name;shutil.rmtree(p) if p.is_dir() else p.unlink()
@@ -133,12 +145,12 @@ def verify():
                     bundle.unlink()
                     command(['sudo','chown','-R','1654:1654',str(private/'data'),str(private/'templates')])
                     for name in ('runtime.json','maintenance.json','protection.pfx'):command(['sudo','chown','1654:1654',str(private/name)])
-                    command(['sudo','chown','10001:0',str(private/'backup')])
+                    command(['sudo','chown','-R','10001:0',str(private/'backup')])
                     cp('up','-d','sql')
                     for _ in range(90):
                         if cp('exec','-T','sql','/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-P',sa,'-C','-Q','SELECT 1',expected=None).returncode==0:break
                         time.sleep(1)
-                    op('provision');op('restore')
+                    op('provision');op('restore');op('permissions')
                     # New SQL logins have new SIDs; explicitly remap recovered database users.
                     # Driver restore performs this before application start.
                     op('fingerprint',private/'after.json')
@@ -178,7 +190,15 @@ def verify():
             noaccess=private/'data/denied';command(['sudo','mkdir',str(noaccess)]);command(['sudo','chmod','000',str(noaccess)])
             reject_configuration('storage-permission',lambda v:v['Xnk'].update(CustomsStoragePath='/app/data/denied'))
             command(['sudo','rmdir',str(noaccess)])
-            cp('start','backend');ready()
+            def replace_runtime(value):
+                path=private/'runtime.json';command(['sudo','chown',str(os.getuid())+':'+str(os.getgid()),str(path)]);path.chmod(0o600);path.write_text(json.dumps(value));path.chmod(0o400);command(['sudo','chown','1654:1654',str(path)])
+            wrong_aes=json.loads(json.dumps(config));wrong_aes['UniversalDocDrafts']['Keys']['synthetic-v1']=__import__('base64').b64encode(os.urandom(32)).decode();replace_runtime(wrong_aes)
+            cp('start','backend');ready();env['GATE6B_FAULT_MODE']='wrong-aes';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
+            shutil.copy2(private/'browser/gate6b-faults-wrong-aes.json',EVIDENCE/'gate6b-wrong-aes.json');mark('incorrect_aes_key_runtime_resume_denied')
+            cp('stop','backend');replace_runtime(config);cp('start','backend');ready()
+            command(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(private/'data/protection-keys')])
+            keyfiles=list((private/'data/protection-keys').glob('key-*.xml'));assert keyfiles and all('encryptedSecret' in p.read_text() for p in keyfiles)
+            command(['sudo','chown','-R','1654:1654',str(private/'data/protection-keys')]);mark('dataprotection_persisted_keys_encrypted_at_rest')
             op('expire');env['GATE6B_FAULT_MODE']='expired-draft';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
             shutil.copy2(private/'browser/gate6b-faults-expired-draft.json',EVIDENCE/'gate6b-expiration.json');mark('expired_draft_after_recovery_denied')
             report['status']='PARTIAL';report['remaining']=['Full fault-injection inventory not yet verified','Windows SQL TLS production parity not yet verified','Previous-build rollback not yet verified','Actual internal pilot not executed']
@@ -189,6 +209,18 @@ def verify():
             import re
             logs=cp('logs','--no-color',expected=None).stdout.decode(errors='replace')
             report['exception_types']=sorted(set(re.findall(r'\b[A-Za-z.]+Exception\b',logs)))
+            report['sql_error_numbers']=sorted(set(re.findall(r'(?i)error[: ]+(\d{3,6})',logs)))
+            report['startup_classifiers']={key:bool(re.search(pattern,logs,re.I)) for key,pattern in {
+                'certificate_load_failure':r'(?:certificate|private key).{0,100}(?:fail|error|unable|not found)|(?:fail|error|unable).{0,100}(?:certificate|private key)',
+                'permission_denied':r'permission denied|access is denied',
+                'master_database_failure':r'(?:master.mdf|master database).{0,100}(?:fail|error|unable)',
+                'out_of_memory':r'insufficient memory|out of memory',
+                'password_policy':r'password.{0,50}(?:policy|complexity)',
+                'directory_creation_failure':r'(?:directory|file).{0,100}(?:cannot|unable|could not|failed)'}.items()}
+            ids=cp('ps','-aq',expected=None).stdout.decode().split()
+            if ids:
+                states=json.loads(command(['docker','inspect',*ids],expected=None).stdout)
+                report['container_states']=[{'service':v.get('Config',{}).get('Labels',{}).get('com.docker.compose.service'),'status':v['State']['Status'],'exit':v['State']['ExitCode'],'oom':v['State']['OOMKilled']} for v in states]
         finally:
             for p in processes:
                 if p.poll() is None:p.terminate();p.wait(timeout=15)

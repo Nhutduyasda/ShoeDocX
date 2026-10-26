@@ -1,6 +1,7 @@
 # Synthetic, loopback-only staging. Generated private configuration is mandatory.
 services:
   sql:
+    hostname: sql
     image: mcr.microsoft.com/mssql/server:2022-latest
     environment:
       ACCEPT_EULA: 'Y'

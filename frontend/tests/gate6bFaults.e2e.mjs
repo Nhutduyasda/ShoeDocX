@@ -7,7 +7,7 @@ import {pathToFileURL} from 'node:url';
 const {request,chromium}=await import(pathToFileURL(join(resolve(process.env.STUDIO_PLAYWRIGHT_MODULE),'index.mjs')).href);
 const base=process.env.STUDIO_BASE_URL,folder=process.env.STUDIO_EVIDENCE_DIR,checks=[],measurements={};
 const mode=process.env.GATE6B_FAULT_MODE??'normal';
-const client=await request.newContext({baseURL:base,...(['wrong-dp','sql-outage'].includes(mode)?{storageState:join(folder,'old-protection-state.json')}:{})});
+const client=await request.newContext({baseURL:base,...(['wrong-dp','sql-outage','certificate-rollover'].includes(mode)?{storageState:join(folder,'old-protection-state.json')}:{})});
 async function login(c,user='admin-a'){const r=await c.post('/api/auth/login',{data:{username:user,password:process.env.STUDIO_PASSWORD}});assert.equal(r.status(),200);return (await r.json()).token;}
 async function boot(c){const r=await c.get('/api/universal-doc/bootstrap');assert.equal(r.status(),200);return (await r.json()).csrfToken;}
 try {
@@ -16,6 +16,13 @@ try {
    const r=await client.post(`/api/universal-doc/drafts/${draft.id}/resume`,{headers:{'X-Studio-CSRF':saved.csrf},data:{expectedRevision:draft.revision},timeout:65000});
    assert.ok([503,504].includes(r.status()));assert.notEqual((await r.body()).subarray(0,2).toString(),'PK');assert.ok(!(await r.text()).includes('00121'));
    await writeFile(join(folder,'gate6b-faults-sql-outage.json'),JSON.stringify({status:'PASS',checks:['SQL_OUTAGE_ACTUAL_AUTHORIZED_RESUME_FAILS_CLOSED'],httpStatus:r.status()}));
+ } else if(mode==='certificate-rollover') {
+   const saved=JSON.parse(await readFile(join(folder,'old-protection-csrf.json'),'utf8'));
+   const headers={'X-Studio-CSRF':saved.csrf};
+   const r=await client.post('/api/universal-doc/sessions',{headers,data:{workflow:'example-template'}});
+   assert.equal(r.status(),200);const session=await r.json();
+   assert.equal((await client.delete(`/api/universal-doc/sessions/${session.id}`,{headers,data:{expectedVersion:session.version}})).status(),204);
+   await writeFile(join(folder,'gate6b-faults-certificate-rollover.json'),JSON.stringify({status:'PASS',checks:['OLD_AUTH_AND_CSRF_ACCEPTED_AFTER_RESTART_WITH_NEW_ACTIVE_CERTIFICATE_AND_RETAINED_DECRYPTION_CERTIFICATE']}));
  } else if(mode==='wrong-dp') {
    const saved=JSON.parse(await readFile(join(folder,'old-protection-csrf.json'),'utf8'));
    const r=await client.post('/api/universal-doc/sessions',{headers:{'X-Studio-CSRF':saved.csrf},data:{workflow:'example-template'}});

@@ -96,9 +96,35 @@ no recurring backup cadence or production RPO guarantee is established.
 No real key rotation is authorized. Rehearse with synthetic data only. Add a new draft
 key ID and value, switch active ID for new writes, retain old keys until rows and backups
 expire; never relabel old ciphertext. DataProtection needs old certificate decryption
-support during certificate rollover; current implementation loads a single PFX, so a
-multi-certificate rollover is NOT IMPLEMENTED. Block certificate retirement until a
-reviewed transition implementation exists. Revoke compromised users/tokens, restrict
+support during certificate rollover. Keep `DataProtection:CertificatePath` and
+`CertificatePassword` for the active certificate. Supply up to four historical
+PFX entries under `DataProtection:DecryptionCertificates`, each with an absolute
+`Path` and its protected `Password`. Historical certificates decrypt existing XML;
+new key XML is always encrypted using the active certificate. Every configured PFX
+must exist, load successfully and include its private key, or startup fails closed.
+Passwords belong only in the complete protected operator JSON, never this repository.
+
+Before an authorized rollover, make a verified recovery checkpoint and include all
+retained private decryption certificates/passwords in its protected recovery set.
+Copy and mount each PFX read-only as 0400 for the application account. First deploy
+the old and new decryption certificates together to every instance, then switch the
+active certificate and restart. Existing keys are not rewritten; a changed active
+certificate alone does not immediately generate a new DataProtection key. Preserve
+old certificates while any retained key XML, live payload or backup depends on them.
+Do not delete key XML to force rotation, and do not retire certificates by elapsed
+certificate validity alone. Verify old payloads, newly generated keys and a complete
+restart in isolated rehearsal before any real transition. Early retirement fails
+decryption; it is not a supported logout or migration procedure. Real custodian
+approval, secure delivery and backup retention remain unprovisioned.
+
+Synthetic verification covers byte-for-byte preservation of old key XML, old/new
+payload recovery across fresh providers, encryption of new key XML by the active
+certificate, failure after premature old-certificate retirement, and Production
+restart with an existing authenticated CSRF cookie. Consult exact-HEAD evidence
+before claiming these tests passed. Reference: [Microsoft Data Protection certificate
+configuration](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0#unprotect-keys-with-any-certificate-unprotectkeyswithanycertificate).
+
+Revoke compromised users/tokens, restrict
 ingress, preserve sanitized incident evidence, identify backup exposure and request
 explicit operator approval before real credential/key changes.
 
@@ -129,6 +155,6 @@ alerting guarantee is claimed. Raw logs remain private. An end-to-end telemetry 
 need operational verification before production.
 
 Open risks: Windows validated SQL TLS and native proxy parity; full-disk recovery; table-scoped
-runtime privileges; multi-certificate rotation; hardened previous-build rollback compatibility; safe metrics
+runtime privileges; production certificate custody/retirement; hardened previous-build rollback compatibility; safe metrics
 coverage; generic historical development Compose; no persistent hosted endpoint;
 no real participant feedback; dynamic provider pricing; no measured host capacity or SLA.

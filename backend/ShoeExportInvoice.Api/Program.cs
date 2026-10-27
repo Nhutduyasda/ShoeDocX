@@ -1,6 +1,5 @@
 using System.Text;
 using System.Net;
-using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.HttpOverrides;
 using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 using Microsoft.AspNetCore.DataProtection;
@@ -45,10 +44,7 @@ var protectionPath = builder.Configuration["DataProtection:KeyPath"];
 if (!string.IsNullOrWhiteSpace(protectionPath)) {
     var protection = builder.Services.AddDataProtection().SetApplicationName("ShoeDocX")
         .PersistKeysToFileSystem(new DirectoryInfo(protectionPath));
-    var certificate = builder.Configuration["DataProtection:CertificatePath"];
-    if (!string.IsNullOrWhiteSpace(certificate))
-        protection.ProtectKeysWithCertificate(X509CertificateLoader.LoadPkcs12FromFile(certificate,
-            builder.Configuration["DataProtection:CertificatePassword"], X509KeyStorageFlags.EphemeralKeySet));
+    protection.ConfigureCertificates(builder.Configuration);
 }
 
 // Keep local/CLI startup independent from the Windows Event Log, which may

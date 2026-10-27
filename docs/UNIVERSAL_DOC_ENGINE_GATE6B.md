@@ -14,6 +14,7 @@ incomplete. No hosted staging or real participant pilot exists.
 | Main merge and open PR preflight | Tested | Main matches requested baseline; only excluded #4/#13/#14 open at start |
 | Production configuration and explicit initialization | Implemented | No ordinary Production DbInitializer writes; both migration chains checked |
 | Certificate protected DataProtection key ring | Implemented | Independent protection PFX injected, separate from ingress TLS key; private key outside image; exact-HEAD report required |
+| DataProtection certificate rollover | Implemented | Active encryption certificate plus up to four historical decryption certificates; synthetic rollover and early-retirement tests require exact-HEAD evidence |
 | HTTPS reverse proxy and SQL certificate validation | Implemented | Ephemeral test CA, forced SQL TLS; execution pending |
 | Runtime least privilege | Implemented | DML roles, no db_owner or CREATE TABLE, history writes denied; execution pending |
 | Encrypted backup and complete instance reconstruction | Implemented | SQL CHECKSUM + AES-GCM bundle + ciphertext fingerprint; execution pending |

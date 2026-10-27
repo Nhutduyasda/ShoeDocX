@@ -257,7 +257,7 @@ def verify():
                 assert result.returncode!=0,'FAULT_CONFIGURATION_ACCEPTED_'+name
                 diagnostic=result.stdout.decode(errors='replace')
                 expected={'unauthorized-maintenance':['MAINTENANCE_AUTHORIZATION_REQUIRED'],'automatic-migration':['PRODUCTION_AUTOMIGRATION_FORBIDDEN'],'bootstrap':['BOOTSTRAP_REQUIRES_EXPLICIT_INITIALIZATION'],'sql-auth':['PRODUCTION_SQL_STARTUP_UNAVAILABLE','PRODUCTION_SQL_STARTUP_TIMEOUT'],'sql-certificate':['PRODUCTION_SQL_STARTUP_UNAVAILABLE','PRODUCTION_SQL_STARTUP_TIMEOUT'],'sql-certificate-name':['PRODUCTION_SQL_CONFIGURATION_INVALID'],'missing-aes':['DRAFT_CONFIGURATION_UNAVAILABLE'],'wrong-key-id':['DRAFT_CONFIGURATION_UNAVAILABLE'],
-                    'wrong-dataprotection-password':['CryptographicException'],'missing-dataprotection-certificate':['CryptographicException','FileNotFoundException'],
+                    'wrong-dataprotection-password':['DATA_PROTECTION_CERTIFICATE_UNAVAILABLE'],'missing-dataprotection-certificate':['DATA_PROTECTION_CERTIFICATE_UNAVAILABLE'],
                     'incomplete-config':['Jwt:Key must be supplied'],'missing-template':['REQUIRED_TEMPLATE_STORAGE_UNAVAILABLE'],
                     'missing-attachment-directory':['REQUIRED_STORAGE_UNAVAILABLE'],'storage-permission':['REQUIRED_STORAGE_UNAVAILABLE']}[name]
                 assert any(term in diagnostic for term in expected),'UNPROVEN_STARTUP_REJECTION_'+name
@@ -286,7 +286,11 @@ def verify():
             ring=private/'data/protection-keys';command(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(ring)])
             original_ring={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in ring.glob('key-*.xml')};assert original_ring
             command(['sudo','chown','-R','1654:1654',str(ring)])
-            wrong_dp=json.loads(json.dumps(config));wrong_dp['DataProtection']['CertificatePath']='/app/data/wrong-protection.pfx';replace_runtime(wrong_dp)
+            wrong_dp=json.loads(json.dumps(config));wrong_dp['DataProtection']['CertificatePath']='/app/data/wrong-protection.pfx'
+            rollover=json.loads(json.dumps(wrong_dp));rollover['DataProtection']['DecryptionCertificates']=[{'Path':config['DataProtection']['CertificatePath'],'Password':pfx}];replace_runtime(rollover)
+            cp('start','backend');ready();env['GATE6B_FAULT_MODE']='certificate-rollover';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
+            shutil.copy2(private/'browser/gate6b-faults-certificate-rollover.json',EVIDENCE/'gate6b-certificate-rollover.json');mark('certificate_rollover_retains_old_authenticated_csrf_after_restart')
+            cp('stop','backend');replace_runtime(wrong_dp)
             cp('start','backend');ready();env['GATE6B_FAULT_MODE']='wrong-dp';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
             shutil.copy2(private/'browser/gate6b-faults-wrong-dp.json',EVIDENCE/'gate6b-wrong-dataprotection.json');mark('incorrect_dataprotection_key_rejects_old_csrf')
             cp('stop','backend');command(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(ring)])

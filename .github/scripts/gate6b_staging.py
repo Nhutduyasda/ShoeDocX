@@ -30,6 +30,9 @@ def verify():
                 report['command_failure']={'tool':Path(args[0]).name,'exit':result.returncode,'exception_types':sorted(set(re.findall(r'\b[A-Za-z.]+Exception\b',text))),
                     'sql_numbers':sorted(set(re.findall(r'Error Number:(\d+)',text))),
                     'classifiers':{k:bool(re.search(v,text,re.I)) for k,v in {'sql_login':r'login failed','sql_certificate':r'certificate chain|certificate name|certificate validation','permissions':r'permission denied|access is denied','database_missing':r'cannot open database','read_only':r'read.only file system','object_missing':r'invalid object name','missing_file':r'no such file|could not find'}.items()}}
+                if args[0]=='node':
+                    mode=env.get('GATE6B_FAULT_MODE','normal');failure=private/'browser'/('gate6b-failure-'+mode+'.json')
+                    if failure.exists():report['fault_failure']=json.loads(failure.read_text())
                 raise AssertionError('COMMAND_FAILED_'+Path(args[0]).name)
             return result
         def cp(*args,**kwargs):return command(compose+list(args),**kwargs)

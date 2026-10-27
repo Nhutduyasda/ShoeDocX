@@ -85,7 +85,9 @@ jobs:
       - name: Native Windows Production attempt without weakening SQL TLS
         if: runner.os == 'Windows'
         shell: bash
-        run: dotnet run --no-build --project feature/tests/Gate6BOperations/Gate6BOperations.csproj -- native "$GITHUB_WORKSPACE/verification-evidence/gate6b-windows-native.json"
+        run: |
+          dotnet run --no-build --project feature/tests/Gate6BOperations/Gate6BOperations.csproj -- native "$GITHUB_WORKSPACE/verification-evidence/gate6b-windows-native.json"
+          python -c 'import json,os; from pathlib import Path; data=json.loads((Path(os.environ["GITHUB_WORKSPACE"])/"verification-evidence/gate6b-windows-native.json").read_text()); allowed={"status","production_tls_parity","docker_executed","actual_native_production_started","production_process_exit","blocker","trusted_https_health","unauthenticated_authorization","sql_transport","sql_encrypt_option","exception_type"}; print(json.dumps({k:v for k,v in data.items() if k in allowed},indent=2))'
       - name: Upload sanitized metadata only
         if: always()
         uses: actions/upload-artifact@v4

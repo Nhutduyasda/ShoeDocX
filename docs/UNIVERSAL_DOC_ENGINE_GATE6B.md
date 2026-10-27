@@ -109,7 +109,7 @@ missing AES key/wrong key ID, incorrect DataProtection certificate/old CSRF reje
 corrupt authenticated archive and SQL backup, missing attachment/template storage,
 incomplete configuration, expired restored drafts, concurrent updates and a real held
 SQL transaction lock, storage permission denial, client interruption during download
-and byte-identical authorized retry, expired/revoked JWT, missing/invalid CSRF,
+and revision-refreshed authorized retry with identical cell/style fingerprints, expired/revoked JWT, missing/invalid CSRF,
 unauthorized reviewer/approver/export, cross-owner/cross-tenant drafts, a real twenty-
 minute session expiry with no clock override, invalid/oversized/unsupported formula/
 structure/reference changes, and rollback to the immutable accepted Gate 6A build.

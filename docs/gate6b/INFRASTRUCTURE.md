@@ -18,7 +18,15 @@ page is dynamic by region/currency/offer; do not use a scraped price from anothe
 as an owner quote. The viable paid alternative must be priced in the owner's billing
 currency, including taxes and potential overage. No paid option is approved here.
 
+The gateway joins a separate ingress bridge; API/SQL remain on the internal bridge.
+Only the gateway publishes a loopback port. Docker documents internal networks as
+externally isolated, so the published ingress must not rely on an internal-only network.
+
 Source evidence (official pages checked read-only):
+
+- https://docs.docker.com/compose/how-tos/networking/
+- https://docs.docker.com/reference/cli/docker/network/create/
+- https://docs.docker.com/engine/network/port-publishing/
 
 - https://docs.github.com/en/billing/concepts/product-billing/github-actions
 - https://docs.github.com/en/actions/concepts/billing-and-usage

@@ -36,8 +36,9 @@ flowchart TD
     K --> R
 ```
 
-Only one host loopback port is published. SQL/API have no host port. The Docker
-network is internal. The proxy replaces client X-Forwarded-* values; the backend
+Only one host loopback port is published. SQL/API have no host port. The API/SQL Docker
+network is internal; only Nginx also joins a separate ingress bridge for the loopback
+port publication. Internal-only containers do not provide a reliable published ingress. The proxy replaces client X-Forwarded-* values; the backend
 accepts one hop from the exact configured proxy IP, never all peers. Host is fixed
 by ingress; AllowedHosts is explicit. Health emits only ready/503. Swagger remains
 Development-only. Frontend runtime is Nginx with compiled dist, no Node/Vite.

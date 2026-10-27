@@ -52,10 +52,16 @@ services:
     networks:
       isolated:
         ipv4_address: 172.30.86.4
+      ingress:
+        gw_priority: 1
     mem_limit: 128m
     cpus: 0.5
     pids_limit: 128
 networks:
+  ingress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: 127.0.0.1
   isolated:
     internal: true
     ipam:

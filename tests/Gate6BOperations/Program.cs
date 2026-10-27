@@ -55,6 +55,8 @@ if(action=="provision") {
       foreach(var rows in new[]{1,3}) foreach(var filled in new[]{false,true})
         File.WriteAllBytes(Path.Combine(args[1],$"{scenario}-{rows}-{filled.ToString().ToLowerInvariant()}-none.xlsx"),Gate5DFixtures.Workbook(scenario,rows,filled));
     File.WriteAllBytes(Path.Combine(args[1],"H-1-false-cross-sheet.xlsx"),Gate5DFixtures.Workbook("H",unsupported:"cross-sheet"));
+    File.WriteAllBytes(Path.Combine(args[1],"H-1-false-far.xlsx"),Gate5DFixtures.Workbook("H",unsupported:"far"));
+    File.WriteAllBytes(Path.Combine(args[1],"F-3-true-reference.xlsx"),Gate5DFixtures.Workbook("F",3,true,"reference"));
 } else if(action=="backup") {
     await Execute($"BACKUP DATABASE [{database}] TO DISK='/var/opt/mssql/backup/staging.bak' WITH INIT, CHECKSUM;");
 } else if(action=="restore") {
@@ -99,6 +101,8 @@ if(action=="provision") {
     await using var r=await q.ExecuteReaderAsync();await r.ReadAsync();
     if(r.GetInt32(0)!=0||r.GetInt32(1)!=0||r.GetInt32(2)!=1||r.GetInt32(3)!=1||r.GetInt32(4)!=0||r.GetInt32(5)!=0)throw new InvalidOperationException("RUNTIME_PERMISSIONS_INVALID");
 } else if(action=="reopen") {
-    foreach(var file in Directory.GetFiles(args[1],"office-*.xlsx")){using var workbook=new XLWorkbook(file);if(workbook.Worksheets.Count<2)throw new InvalidOperationException("WORKBOOK_INVALID");}
+    var files=File.Exists(args[1])?new[]{args[1]}:Directory.GetFiles(args[1],"office-*.xlsx");
+    if(files.Length==0)throw new InvalidOperationException("NO_WORKBOOKS_REOPENED");
+    foreach(var file in files){using var workbook=new XLWorkbook(file);if(workbook.Worksheets.Count<2)throw new InvalidOperationException("WORKBOOK_INVALID");}
 } else throw new InvalidOperationException("UNKNOWN_OPERATION");
 Console.WriteLine("OPERATION_PASS");

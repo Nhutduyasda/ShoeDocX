@@ -2,6 +2,7 @@
 import hashlib, json, os, shutil, signal, ssl, subprocess, tarfile, tempfile, time, urllib.request, urllib.error, uuid
 from pathlib import Path
 import gate5d_browser
+import gate6b_rollback
 
 ROOT=Path.cwd(); FEATURE=ROOT/'feature'; EVIDENCE=ROOT/'verification-evidence'; EVIDENCE.mkdir(exist_ok=True)
 
@@ -58,7 +59,9 @@ def verify():
                 ext=write(name+'.ext',f'subjectAltName=DNS:{host}\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n')
                 openssl('x509','-req','-in',str(private/(name+'.csr')),'-CA',str(private/'ca.crt'),'-CAkey',str(private/'ca.key'),'-CAcreateserial','-out',str(private/(name+'.crt')),'-days','2','-extfile',str(ext))
             env['GATE6B_PFX_PASSWORD']=pfx
-            openssl('pkcs12','-export','-in',str(private/'web.crt'),'-inkey',str(private/'web.key'),'-out',str(private/'protection.pfx'),'-passout','env:GATE6B_PFX_PASSWORD')
+            openssl('req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(private/'protection.key'),'-out',str(private/'protection.crt'),'-days','2','-subj','/CN=ShoeDocX Synthetic DataProtection')
+            openssl('pkcs12','-export','-in',str(private/'protection.crt'),'-inkey',str(private/'protection.key'),'-out',str(private/'protection.pfx'),'-passout','env:GATE6B_PFX_PASSWORD')
+            (private/'protection.key').unlink();(private/'protection.crt').unlink()
             write('mssql.conf','[network]\ntlscert = /run/tls/sql.crt\ntlskey = /run/tls/sql.key\ntlsprotocols = 1.2\nforceencryption = 1\n').chmod(0o644)
             for name in ('data','templates','backup'):(private/name).mkdir(mode=0o700)
             (private/'data/protection-keys').mkdir(mode=0o700);(private/'data/customs').mkdir(mode=0o700)
@@ -70,7 +73,7 @@ def verify():
             operatorpath=write('operator.json',json.dumps(operator));env['GATE6B_OPERATOR']=str(operatorpath)
             def configuration(login,secret):return {
                 'ConnectionStrings':{'DefaultConnection':f'Server=sql;Database={database};User ID={login};Password={secret};Encrypt=True;TrustServerCertificate=False;Connect Timeout=5'},
-                'Jwt':{'Key':password(),'Issuer':'gate6b','Audience':'gate6b'},'AllowedHosts':'localhost',
+                'Jwt':{'Key':__import__('base64').b64encode(os.urandom(48)).decode(),'Issuer':'gate6b','Audience':'gate6b'},'AllowedHosts':'localhost',
                 'Xnk':{'AllowedOrigins':['https://localhost:8443'],'CustomsStoragePath':'/app/data/customs','ShipmentTemplatePath':'/app/Templates/synthetic.xlsx'},
                 'Ingress':{'KnownProxies':['172.30.86.4']},
                 'DataProtection':{'KeyPath':'/app/data/protection-keys','CertificatePath':'/run/secrets/protection.pfx','CertificatePassword':pfx},
@@ -165,6 +168,7 @@ def verify():
                     started=time.monotonic();op('unseal',private/'recovery.aesgcm',bundle,private/'backup.key')
                     with tarfile.open(bundle) as archive:archive.extractall(private,filter='data')
                     bundle.unlink()
+                    assert all(hashlib.sha256((private/name).read_bytes()).hexdigest()==value for name,value in storage_fingerprints.items())
                     command(['sudo','chown','-R','1654:1654',str(private/'data'),str(private/'templates')])
                     for name in ('runtime.json','maintenance.json','protection.pfx'):command(['sudo','chown','1654:1654',str(private/name)])
                     command(['sudo','chown','-R','10001:0',str(private/'backup')]);(private/'sql.key').chmod(0o400);command(['sudo','chown','10001:0',str(private/'sql.key')])
@@ -178,7 +182,6 @@ def verify():
                     # Driver restore performs this before application start.
                     op('fingerprint',private/'after.json')
                     assert json.loads((private/'before.json').read_text())==json.loads((private/'after.json').read_text())
-                    assert all(hashlib.sha256((private/name).read_bytes()).hexdigest()==value for name,value in storage_fingerprints.items())
                     cp('up','-d','backend','web');ready();report['observed_rebuild_restore_seconds']=round(time.monotonic()-started,2)
                     (private/'browser/restart-completed').write_text('actual complete instance recovery')
                     mark('encrypted_backup_complete_instance_loss_restore_ciphertext_fingerprint');recovered=True
@@ -260,12 +263,15 @@ def verify():
             command(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(private/'data/protection-keys')])
             keyfiles=list((private/'data/protection-keys').glob('key-*.xml'));assert keyfiles and all('encryptedSecret' in p.read_text() for p in keyfiles)
             command(['sudo','chown','-R','1654:1654',str(private/'data/protection-keys')]);mark('dataprotection_persisted_keys_encrypted_at_rest')
+            report['previous_build_rollback']=gate6b_rollback.verify(FEATURE,private,config,env,command,op,EVIDENCE)
             op('expire');env['GATE6B_FAULT_MODE']='expired-draft';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
             shutil.copy2(private/'browser/gate6b-faults-expired-draft.json',EVIDENCE/'gate6b-expiration.json');mark('expired_draft_after_recovery_denied')
             env['GATE6B_FAULT_MODE']='workflow-expiry';command(['node','frontend/tests/gate6bFaults.e2e.mjs'],timeout=1300)
             shutil.copy2(private/'browser/gate6b-faults-workflow-expiry.json',EVIDENCE/'gate6b-workflow-expiry.json');mark('real_twenty_minute_session_expiry_denied')
             report['status']='PARTIAL';report['remaining']=['Full fault-injection inventory not yet verified','Windows SQL TLS production parity not yet verified','Previous-build rollback not yet verified','Actual internal pilot not executed']
         except Exception as e:
+            import traceback
+            frame=traceback.extract_tb(e.__traceback__)[-1];report['source_location']={'module':Path(frame.filename).name,'line':frame.lineno}
             report['failure_stage']=list(report['checks'])[-1] if report['checks'] else 'bootstrap'
             report['error']=str(e) if isinstance(e,AssertionError) else type(e).__name__
             # Only exception type identifiers from private runtime diagnostics.

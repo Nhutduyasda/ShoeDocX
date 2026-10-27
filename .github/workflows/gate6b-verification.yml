@@ -108,6 +108,11 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: feature
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 2552252d0d916d4184d88482f3649c602468eff8
+          path: baseline
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.402'

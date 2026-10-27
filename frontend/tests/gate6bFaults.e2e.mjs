@@ -1,5 +1,6 @@
 // Actual HTTPS Production API; no mocks or insecure certificate bypass.
 import assert from 'node:assert/strict';
+import https from 'node:https';
 import {readFile,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -57,7 +58,19 @@ try {
    const concurrent=await Promise.all([client.post(path+'/save-draft',{headers,data}),client.post(path+'/save-draft',{headers,data})]);assert.deepEqual(concurrent.map(r=>r.status()).sort(),[200,409]);checks.push('CONCURRENT_DRAFT_UPDATE_ONE_WINNER');
    const newest=await concurrent.find(r=>r.status()===200).json();current=newest;
    const invalid=await client.post(path+'/template',{headers,multipart:{expectedVersion:String(current.session.version),file:{name:'bad.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from('invalid workbook')}}});assert.equal(invalid.status(),400);checks.push('INVALID_WORKBOOK_REJECTED');
+   for(const [endpoint,file] of [['template','H-1-false-far.xlsx'],['example','F-3-true-reference.xlsx']]) {
+     const rejected=await client.post(path+'/'+endpoint,{headers,multipart:{expectedVersion:String(current.session.version),file:{name:file,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:await readFile(join(process.env.GATE6B_FIXTURES,file))}}});assert.equal(rejected.status(),400);assert.notEqual((await rejected.body()).subarray(0,2).toString(),'PK');
+   }checks.push('UNSUPPORTED_STRUCTURE_AND_CHANGED_REFERENCE_EXAMPLE_REJECTED');
    const oversized=await client.post(path+'/template',{headers,multipart:{expectedVersion:String(current.session.version),file:{name:'large.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.alloc(22*1024*1024)}}});assert.equal(oversized.status(),413);checks.push('OVERSIZED_UPLOAD_PROXY_LIMIT');
+   const exportData={expectedVersion:current.session.version};const beforeDownload=await client.post(path+'/export',{headers,data:exportData});assert.equal(beforeDownload.status(),200);const original=await beforeDownload.body();
+   const body=JSON.stringify(exportData),cookie=(await client.storageState()).cookies.map(c=>c.name+'='+c.value).join('; ');let interrupted=false;
+   await new Promise((resolve,reject)=>{
+     const outgoing=https.request(base+path+'/export',{method:'POST',headers:{...headers,Cookie:cookie,'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}},response=>{
+       if(response.statusCode!==200){reject(new Error('INTERRUPTED_EXPORT_STATUS'));response.destroy();return;}
+       response.on('error',()=>{});response.once('data',()=>{interrupted=true;response.destroy();outgoing.destroy();resolve();});response.once('end',()=>{if(!interrupted)reject(new Error('NO_DOWNLOAD_CHUNK'));});
+     });outgoing.on('error',error=>{if(!interrupted)reject(error);});outgoing.setTimeout(10000,()=>{outgoing.destroy();if(!interrupted)reject(new Error('INTERRUPTED_EXPORT_TIMEOUT'));});outgoing.end(body);
+   });assert.ok(interrupted);
+   const retry=await client.post(path+'/export',{headers,data:exportData});assert.equal(retry.status(),200);assert.deepEqual(await retry.body(),original);assert.equal((await client.get('/api/health')).status(),200);checks.push('CLIENT_DOWNLOAD_INTERRUPTED_AUTHORIZED_RETRY_IDENTICAL_NO_STATE_LOSS');
    const logout=await client.post('/api/auth/logout',{data:{}});assert.equal(logout.status(),204);
    const revoked=await request.newContext({baseURL:base,extraHTTPHeaders:{Authorization:'Bearer '+token}});assert.equal((await revoked.get('/api/auth/me')).status(),401);await revoked.dispose();checks.push('LOGOUT_REVOKES_BEARER_JWT');
    await writeFile(join(folder,'gate6b-draft.json'),JSON.stringify(newest.draft));

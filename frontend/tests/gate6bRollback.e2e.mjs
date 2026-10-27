@@ -18,7 +18,7 @@ try {
  }
  const exported=await client.post(`/api/universal-doc/sessions/${session.id}/export`,{headers,data:{expectedVersion:session.version}});report.stages.export=exported.status();assert.equal(exported.status(),200);
  const workbook=await exported.body();assert.equal(workbook.subarray(0,2).toString(),'PK');await writeFile(join(folder,'rollback.xlsx'),workbook);report.exportAuthorized=true;
- await client.delete(`/api/universal-doc/sessions/${session.id}`,{headers,data:{expectedVersion:session.version}});
+ const exportedVersion=Number(exported.headers()['x-studio-version']);assert.ok(exportedVersion>session.version);const removed=await client.delete(`/api/universal-doc/sessions/${session.id}`,{headers,data:{expectedVersion:exportedVersion}});assert.equal(removed.status(),204);
  report.status='FUNCTIONAL_PASS';
 } catch(error) {report.errorType=error.name;}
 finally {await client.dispose();await writeFile(join(folder,'rollback-functional.json'),JSON.stringify(report,null,2));}

@@ -71,7 +71,7 @@ try {
      const outgoing=https.request(base+path+'/template',{method:'POST',family:4,agent:false,headers:{...headers,Cookie:oversizedCookie,'Content-Type':'multipart/form-data; boundary=gate6b','Content-Length':22*1024*1024,Expect:'100-continue'}},response=>{response.resume();response.once('end',()=>{outgoing.destroy();resolve(response.statusCode);});});
      outgoing.once('continue',()=>{outgoing.destroy();reject(new Error('OVERSIZED_TRANSFER_ACCEPTED'));});outgoing.on('error',reject);outgoing.setTimeout(10000,()=>{outgoing.destroy();reject(new Error('OVERSIZED_HEADER_TIMEOUT'));});outgoing.flushHeaders();
    });assert.equal(oversizedStatus,413);checks.push('OVERSIZED_DECLARED_UPLOAD_REJECTED_BEFORE_BODY_TRANSFER');
-   const exportData={expectedVersion:current.session.version};const beforeDownload=await client.post(path+'/export',{headers,data:exportData});assert.equal(beforeDownload.status(),200);const original=await beforeDownload.body();
+   const exportData={expectedVersion:current.session.version};const beforeDownload=await client.post(path+'/export',{headers,data:exportData});assert.equal(beforeDownload.status(),200);const original=await beforeDownload.body();const committedVersion=Number(beforeDownload.headers()['x-studio-version']);assert.ok(committedVersion>exportData.expectedVersion);exportData.expectedVersion=committedVersion;
    const browser=await chromium.launch({headless:true});let interrupted=false;
    try {
      const context=await browser.newContext({storageState:await client.storageState()});const page=await context.newPage();await page.goto(base+'/api/health');const channel=await context.newCDPSession(page);await channel.send('Network.enable');await channel.send('Network.emulateNetworkConditions',{offline:false,latency:0,downloadThroughput:1024,uploadThroughput:65536});
@@ -83,7 +83,8 @@ try {
      measurements.interruptedDownload={receivedBytes:observed.chunkBytes,totalBytes:original.length,downloadBytesPerSecond:1024};assert.equal(observed.status,200);assert.ok(observed.chunkReceived);assert.ok(observed.chunkBytes<original.length);interrupted=true;await context.close();
    } finally {await browser.close();}
    assert.ok(interrupted);
-   const retry=await client.post(path+'/export',{headers,data:exportData});assert.equal(retry.status(),200);assert.deepEqual(await retry.body(),original);assert.equal((await client.get('/api/health')).status(),200);checks.push('CLIENT_DOWNLOAD_INTERRUPTED_AUTHORIZED_RETRY_IDENTICAL_NO_STATE_LOSS');
+   const refreshed=await client.get(path);assert.equal(refreshed.status(),200);const refreshedSession=await refreshed.json();assert.equal(refreshedSession.reviewState,'Approved');assert.equal(refreshedSession.version,committedVersion+1);exportData.expectedVersion=refreshedSession.version;
+   const retry=await client.post(path+'/export',{headers,data:exportData});assert.equal(retry.status(),200);await writeFile(join(folder,'interrupted-original.xlsx'),original);await writeFile(join(folder,'interrupted-retry.xlsx'),await retry.body());assert.equal((await client.get('/api/health')).status(),200);checks.push('CLIENT_PARTIAL_DOWNLOAD_ABORTED_VERSION_REFRESHED_AUTHORIZED_RETRY');
    const logout=await client.post('/api/auth/logout',{data:{}});assert.equal(logout.status(),204);
    const revoked=await request.newContext({baseURL:base,extraHTTPHeaders:{Authorization:'Bearer '+token}});assert.equal((await revoked.get('/api/auth/me')).status(),401);await revoked.dispose();checks.push('LOGOUT_REVOKES_BEARER_JWT');
    await writeFile(join(folder,'gate6b-draft.json'),JSON.stringify(newest.draft));

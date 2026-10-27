@@ -202,7 +202,25 @@ def verify():
             downloads=json.loads((private/'browser/office-downloads.json').read_text())
             qa=[gate5d_browser.verify_workbook(private/'browser'/d['name'],d['scenario'],d['rows']) for d in downloads]
             (EVIDENCE/'gate6b-office.json').write_text(json.dumps({'browser':summary,'independent_xlsx':qa},indent=2));mark('office_multisheet_mobile_reapproval_real_export_dual_reopen')
-            command(['node','frontend/tests/gate6bFaults.e2e.mjs']);mark('production_csrf_roles_revocation_retention_concurrency_upload_limits')
+            command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
+            retry_checks=[]
+            for name in ('interrupted-original.xlsx','interrupted-retry.xlsx'):
+                op('reopen',private/'browser'/name)
+                retry_checks.append(gate5d_browser.verify_workbook(private/'browser'/name,'F',20))
+            def content_fingerprint(path):
+                wb=gate5d_browser.openpyxl.load_workbook(path)
+                snapshot=[]
+                for ws in wb.worksheets:
+                    cells=[(cell.coordinate,cell.value,cell.data_type,cell.number_format,*[str(getattr(cell,part)) for part in ('font','fill','border','alignment','protection')]) for row in ws for cell in row]
+                    snapshot.append({'sheet':ws.title,'state':ws.sheet_state,'cells':cells,'merges':sorted(str(x) for x in ws.merged_cells.ranges),
+                        'rows':[(k,v.height,v.hidden) for k,v in sorted(ws.row_dimensions.items())],'columns':[(k,v.width,v.hidden) for k,v in sorted(ws.column_dimensions.items())],
+                        'freeze':str(ws.freeze_panes),'print':str(ws.print_options),'setup':str(ws.page_setup),'margins':str(ws.page_margins)})
+                return hashlib.sha256(json.dumps(snapshot,default=str,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+            retry_fingerprints=[content_fingerprint(private/'browser'/name) for name in ('interrupted-original.xlsx','interrupted-retry.xlsx')]
+            assert retry_fingerprints[0]==retry_fingerprints[1],'INTERRUPTED_RETRY_WORKBOOK_CONTENT_CHANGED'
+            (EVIDENCE/'gate6b-download-retry.json').write_text(json.dumps({'status':'PASS','reopen_checks':retry_checks,'content_fingerprints':retry_fingerprints},indent=2))
+            mark('interrupted_partial_download_version_refresh_and_content_identical_retry')
+            mark('production_csrf_roles_revocation_retention_concurrency_upload_limits')
             shutil.copy2(private/'browser/gate6b-faults-normal.json',EVIDENCE/'gate6b-production-faults.json')
             op('fingerprint',private/'conflict-before.json')
             control_log=open(private/'lock.log','wb')

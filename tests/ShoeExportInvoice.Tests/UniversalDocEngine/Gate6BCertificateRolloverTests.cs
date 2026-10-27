@@ -22,9 +22,9 @@ public sealed class Gate6BCertificateRolloverTests
             using var rsaA = RSA.Create(2048);
             using var rsaB = RSA.Create(2048);
             using var a = new CertificateRequest("CN=Synthetic A", rsaA, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
-                .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(3));
+                .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60));
             using var b = new CertificateRequest("CN=Synthetic B", rsaB, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
-                .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(3));
+                .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60));
             var password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
             var pathA = Path.Combine(root, "a.pfx");
             var pathB = Path.Combine(root, "b.pfx");
@@ -52,13 +52,13 @@ public sealed class Gate6BCertificateRolloverTests
             }
             string oldPayload;
             using (var original = Provider(pathA, false)) {
-                original.GetRequiredService<IKeyManager>().CreateNewKey(DateTimeOffset.UtcNow.AddHours(-2), DateTimeOffset.UtcNow.AddDays(2));
+                original.GetRequiredService<IKeyManager>().CreateNewKey(DateTimeOffset.UtcNow.AddHours(-2), DateTimeOffset.UtcNow.AddDays(30));
                 oldPayload = original.GetRequiredService<IDataProtectionProvider>().CreateProtector("synthetic-purpose").Protect("synthetic-value");
             }
             var oldFiles = ring.GetFiles("key-*.xml").ToDictionary(f => f.Name, f => File.ReadAllBytes(f.FullName));
             string newPayload;
             using (var rotated = Provider(pathB, true)) {
-                rotated.GetRequiredService<IKeyManager>().CreateNewKey(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow.AddDays(2));
+                rotated.GetRequiredService<IKeyManager>().CreateNewKey(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow.AddDays(30));
                 var protector = rotated.GetRequiredService<IDataProtectionProvider>().CreateProtector("synthetic-purpose");
                 Assert.Equal("synthetic-value", protector.Unprotect(oldPayload));
                 newPayload = protector.Protect("new-synthetic-value");

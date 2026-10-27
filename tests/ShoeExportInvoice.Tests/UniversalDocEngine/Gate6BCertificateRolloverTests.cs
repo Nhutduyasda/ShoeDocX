@@ -16,6 +16,7 @@ public sealed class Gate6BCertificateRolloverTests
     {
         var root = Path.Combine(Path.GetTempPath(), "gate6b-rollover-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         try
         {
             using var rsaA = RSA.Create(2048);
@@ -29,6 +30,10 @@ public sealed class Gate6BCertificateRolloverTests
             var pathB = Path.Combine(root, "b.pfx");
             File.WriteAllBytes(pathA, a.Export(X509ContentType.Pfx, password));
             File.WriteAllBytes(pathB, b.Export(X509ContentType.Pfx, password));
+            if (!OperatingSystem.IsWindows()) {
+                File.SetUnixFileMode(pathA, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                File.SetUnixFileMode(pathB, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
             var ring = Directory.CreateDirectory(Path.Combine(root, "ring"));
             ServiceProvider Provider(string active, bool retainA)
             {

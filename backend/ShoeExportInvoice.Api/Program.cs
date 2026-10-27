@@ -19,7 +19,13 @@ using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 
 var builder = WebApplication.CreateBuilder(args);
 var operatorConfiguration = Environment.GetEnvironmentVariable("SHOEDOCX_CONFIGURATION_FILE");
-if (!string.IsNullOrWhiteSpace(operatorConfiguration)) builder.Configuration.AddJsonFile(operatorConfiguration, optional: false, reloadOnChange: false);
+if (!string.IsNullOrWhiteSpace(operatorConfiguration)) {
+    // Complete protected operator configuration is authoritative. In particular,
+    // configuration arrays must not retain HTTP origins from appsettings defaults.
+    builder.Configuration.Sources.Clear();
+    builder.Configuration.AddJsonFile(operatorConfiguration, optional: false, reloadOnChange: false)
+        .AddEnvironmentVariables(prefix: "ASPNETCORE_");
+}
 ProductionConfiguration.Validate(builder.Configuration, builder.Environment.IsProduction());
 var maintenance = args.Contains("--migrate-all") || args.Contains("--initialize-staging");
 if (maintenance && !builder.Configuration.GetValue<bool>("Database:MaintenanceAuthorized"))

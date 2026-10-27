@@ -18,7 +18,13 @@ def verify():
         probe=['dotnet',str(FEATURE/'tests/Gate6BOperations/bin/Debug/net10.0/Gate6BOperations.dll')]
         def command(args,expected=0,timeout=600):
             result=subprocess.run(args,cwd=FEATURE,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout)
-            if expected is not None: assert result.returncode==expected,'COMMAND_FAILED_'+Path(args[0]).name
+            if expected is not None and result.returncode!=expected:
+                import re
+                text=result.stdout.decode(errors='replace')
+                report['command_failure']={'tool':Path(args[0]).name,'exit':result.returncode,'exception_types':sorted(set(re.findall(r'\b[A-Za-z.]+Exception\b',text))),
+                    'sql_numbers':sorted(set(re.findall(r'Error Number:(\d+)',text))),
+                    'classifiers':{k:bool(re.search(v,text,re.I)) for k,v in {'sql_login':r'login failed','sql_certificate':r'certificate chain|certificate name|certificate validation','permissions':r'permission denied|access is denied','database_missing':r'cannot open database','read_only':r'read.only file system','object_missing':r'invalid object name','missing_file':r'no such file|could not find'}.items()}}
+                raise AssertionError('COMMAND_FAILED_'+Path(args[0]).name)
             return result
         def cp(*args,**kwargs):return command(compose+list(args),**kwargs)
         def op(action,*args,**kwargs):return command(probe+[action,*map(str,args)],**kwargs)

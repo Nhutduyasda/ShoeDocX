@@ -1,5 +1,5 @@
 """Disposable Linux production-entrypoint acceptance. Never writes raw logs to artifacts."""
-import hashlib, json, os, shutil, ssl, subprocess, tarfile, tempfile, time, urllib.request, urllib.error, uuid
+import hashlib, json, os, shutil, signal, ssl, subprocess, tarfile, tempfile, time, urllib.request, urllib.error, uuid
 from pathlib import Path
 import gate5d_browser
 
@@ -39,8 +39,9 @@ def verify():
                 with urllib.request.urlopen(req,context=ssl.create_default_context(cafile=str(private/'ca.crt')),timeout=15) as r:return r.status,r.read(),dict(r.headers)
             except urllib.error.HTTPError as e:return e.code,e.read(),dict(e.headers)
         def ready():
-            observations={}
+            observations={};deadline=time.monotonic()+90
             for _ in range(120):
+                if time.monotonic()>=deadline:break
                 try:
                     status=request('/api/health')[0]
                     if status==200:return
@@ -132,7 +133,7 @@ def verify():
             command(['certutil','-N','-d','sql:'+str(Path.home()/'.pki/nssdb'),'--empty-password'],expected=None)
             command(['certutil','-A','-d','sql:'+str(Path.home()/'.pki/nssdb'),'-n','Gate6B','-t','C,,','-i',str(private/'ca.crt')])
             out=open(private/'browser.log','wb')
-            browser=subprocess.Popen(['node','frontend/tests/universalDocGate5D.e2e.mjs'],cwd=FEATURE,env=env,stdout=out,stderr=subprocess.STDOUT);processes.append(browser)
+            browser=subprocess.Popen(['node','frontend/tests/universalDocGate5D.e2e.mjs'],cwd=FEATURE,env=env,stdout=out,stderr=subprocess.STDOUT,start_new_session=True);processes.append(browser)
             until=time.monotonic()+720;recovered=False
             while browser.poll() is None:
                 assert time.monotonic()<until,'BROWSER_TIMEOUT'
@@ -183,6 +184,7 @@ def verify():
                     mark('encrypted_backup_complete_instance_loss_restore_ciphertext_fingerprint');recovered=True
                 time.sleep(.2)
             out.close()
+            if (private/'browser/office-failure.json').exists():report['browser_failure']=json.loads((private/'browser/office-failure.json').read_text())
             assert browser.returncode==0 and recovered,'PRODUCTION_OFFICE_BROWSER_FAILED'
             summary=json.loads((private/'browser/office-summary.json').read_text());assert summary['status']=='PASS'
             op('reopen',private/'browser')
@@ -191,16 +193,38 @@ def verify():
             (EVIDENCE/'gate6b-office.json').write_text(json.dumps({'browser':summary,'independent_xlsx':qa},indent=2));mark('office_multisheet_mobile_reapproval_real_export_dual_reopen')
             command(['node','frontend/tests/gate6bFaults.e2e.mjs']);mark('production_csrf_roles_revocation_retention_concurrency_upload_limits')
             shutil.copy2(private/'browser/gate6b-faults-normal.json',EVIDENCE/'gate6b-production-faults.json')
+            op('fingerprint',private/'conflict-before.json')
+            control_log=open(private/'lock.log','wb')
+            control=subprocess.Popen(probe+['hold-lock',str(private/'lock-ready'),str(private/'lock-release')],cwd=FEATURE,env=env,stdout=control_log,stderr=subprocess.STDOUT,start_new_session=True);processes.append(control)
+            try:
+                deadline=time.monotonic()+20
+                while not (private/'lock-ready').exists():
+                    assert control.poll() is None and time.monotonic()<deadline,'TRANSACTION_CONTROL_NOT_READY';time.sleep(.1)
+                env['GATE6B_FAULT_MODE']='db-conflict';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
+            finally:
+                (private/'lock-release').write_text('release');control.wait(timeout=20);control_log.close()
+            assert control.returncode==0,'TRANSACTION_CONTROL_FAILED'
+            op('fingerprint',private/'conflict-after.json');assert json.loads((private/'conflict-before.json').read_text())==json.loads((private/'conflict-after.json').read_text())
+            shutil.copy2(private/'browser/gate6b-faults-db-conflict.json',EVIDENCE/'gate6b-transaction-conflict.json');mark('real_transaction_conflict_no_partial_write')
             cp('stop','sql')
             assert request('/api/health')[0]==503,'SQL_OUTAGE_DID_NOT_FAIL_CLOSED'
             cp('start','sql');ready();mark('sql_outage_controlled_health_and_recovery')
             cp('stop','backend')
-            def reject_configuration(name,mutate):
+            def reject_configuration(name,mutate,arguments=()):
                 value=json.loads(json.dumps(config));mutate(value)
                 path=write('fault-'+name+'.json',json.dumps(value));path.chmod(0o400);command(['sudo','chown','1654:1654',str(path)])
-                result=cp('run','--rm','-v',str(path)+':/run/secrets/runtime.json:ro','backend',expected=None,timeout=150)
+                result=cp('run','--rm','-v',str(path)+':/run/secrets/runtime.json:ro','backend',*arguments,expected=None,timeout=150)
                 assert result.returncode!=0,'FAULT_CONFIGURATION_ACCEPTED_'+name
+                diagnostic=result.stdout.decode(errors='replace')
+                expected={'unauthorized-maintenance':['MAINTENANCE_AUTHORIZATION_REQUIRED'],'automatic-migration':['PRODUCTION_AUTOMIGRATION_FORBIDDEN'],'bootstrap':['BOOTSTRAP_REQUIRES_EXPLICIT_INITIALIZATION'],'sql-auth':['SqlException'],'sql-certificate':['SqlException'],'missing-aes':['DRAFT_CONFIGURATION_UNAVAILABLE'],'wrong-key-id':['DRAFT_CONFIGURATION_UNAVAILABLE'],
+                    'wrong-dataprotection-password':['CryptographicException'],'missing-dataprotection-certificate':['CryptographicException','FileNotFoundException'],
+                    'incomplete-config':['Jwt:Key must be supplied'],'missing-template':['REQUIRED_TEMPLATE_STORAGE_UNAVAILABLE'],
+                    'missing-attachment-directory':['REQUIRED_STORAGE_UNAVAILABLE'],'storage-permission':['REQUIRED_STORAGE_UNAVAILABLE']}[name]
+                assert any(term in diagnostic for term in expected),'UNPROVEN_STARTUP_REJECTION_'+name
                 mark('startup_rejects_'+name)
+            reject_configuration('unauthorized-maintenance',lambda v:v['Database'].update(MaintenanceAuthorized=False),('--migrate-all',))
+            reject_configuration('automatic-migration',lambda v:v['Database'].update(ApplyMigrationsOnStartup=True))
+            reject_configuration('bootstrap',lambda v:v['BootstrapAdmin'].update(Enabled=True))
             reject_configuration('sql-auth',lambda v:v['ConnectionStrings'].update(DefaultConnection=v['ConnectionStrings']['DefaultConnection'].replace(runtime,password())))
             reject_configuration('sql-certificate',lambda v:v['ConnectionStrings'].update(DefaultConnection=v['ConnectionStrings']['DefaultConnection']+';HostNameInCertificate=wrong.invalid'))
             reject_configuration('missing-aes',lambda v:v['UniversalDocDrafts'].update(Keys={}))
@@ -209,11 +233,26 @@ def verify():
             reject_configuration('missing-dataprotection-certificate',lambda v:v['DataProtection'].update(CertificatePath='/run/secrets/missing.pfx'))
             reject_configuration('incomplete-config',lambda v:v['Jwt'].update(Key=''))
             reject_configuration('missing-template',lambda v:v['Xnk'].update(ShipmentTemplatePath='/app/Templates/missing.xlsx'))
+            reject_configuration('missing-attachment-directory',lambda v:v['Xnk'].update(CustomsStoragePath='/app/data/missing-directory'))
             noaccess=private/'data/denied';command(['sudo','mkdir',str(noaccess)]);command(['sudo','chmod','000',str(noaccess)])
             reject_configuration('storage-permission',lambda v:v['Xnk'].update(CustomsStoragePath='/app/data/denied'))
             command(['sudo','rmdir',str(noaccess)])
             def replace_runtime(value):
                 path=private/'runtime.json';command(['sudo','chown',str(os.getuid())+':'+str(os.getgid()),str(path)]);path.chmod(0o600);path.write_text(json.dumps(value));path.chmod(0o400);command(['sudo','chown','1654:1654',str(path)])
+            openssl('req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(private/'wrong-dp.key'),'-out',str(private/'wrong-dp.crt'),'-days','2','-subj','/CN=Wrong Synthetic Protection')
+            openssl('pkcs12','-export','-in',str(private/'wrong-dp.crt'),'-inkey',str(private/'wrong-dp.key'),'-out',str(private/'wrong-dp.pfx'),'-passout','env:GATE6B_PFX_PASSWORD')
+            wrong_dp_file=private/'data/wrong-protection.pfx';command(['sudo','cp',str(private/'wrong-dp.pfx'),str(wrong_dp_file)]);command(['sudo','chmod','400',str(wrong_dp_file)]);command(['sudo','chown','1654:1654',str(wrong_dp_file)])
+            ring=private/'data/protection-keys';command(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(ring)])
+            original_ring={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in ring.glob('key-*.xml')};assert original_ring
+            command(['sudo','chown','-R','1654:1654',str(ring)])
+            wrong_dp=json.loads(json.dumps(config));wrong_dp['DataProtection']['CertificatePath']='/app/data/wrong-protection.pfx';replace_runtime(wrong_dp)
+            cp('start','backend');ready();env['GATE6B_FAULT_MODE']='wrong-dp';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
+            shutil.copy2(private/'browser/gate6b-faults-wrong-dp.json',EVIDENCE/'gate6b-wrong-dataprotection.json');mark('incorrect_dataprotection_key_rejects_old_csrf')
+            cp('stop','backend');command(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(ring)])
+            for keyfile in ring.glob('key-*.xml'):
+                if keyfile.name not in original_ring:keyfile.unlink()
+            assert {p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in ring.glob('key-*.xml')}==original_ring
+            command(['sudo','chown','-R','1654:1654',str(ring)]);command(['sudo','rm',str(wrong_dp_file)])
             wrong_aes=json.loads(json.dumps(config));wrong_aes['UniversalDocDrafts']['Keys']['synthetic-v1']=__import__('base64').b64encode(os.urandom(32)).decode();replace_runtime(wrong_aes)
             cp('start','backend');ready();env['GATE6B_FAULT_MODE']='wrong-aes';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
             shutil.copy2(private/'browser/gate6b-faults-wrong-aes.json',EVIDENCE/'gate6b-wrong-aes.json');mark('incorrect_aes_key_runtime_resume_denied')
@@ -223,6 +262,8 @@ def verify():
             command(['sudo','chown','-R','1654:1654',str(private/'data/protection-keys')]);mark('dataprotection_persisted_keys_encrypted_at_rest')
             op('expire');env['GATE6B_FAULT_MODE']='expired-draft';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
             shutil.copy2(private/'browser/gate6b-faults-expired-draft.json',EVIDENCE/'gate6b-expiration.json');mark('expired_draft_after_recovery_denied')
+            env['GATE6B_FAULT_MODE']='workflow-expiry';command(['node','frontend/tests/gate6bFaults.e2e.mjs'],timeout=1300)
+            shutil.copy2(private/'browser/gate6b-faults-workflow-expiry.json',EVIDENCE/'gate6b-workflow-expiry.json');mark('real_twenty_minute_session_expiry_denied')
             report['status']='PARTIAL';report['remaining']=['Full fault-injection inventory not yet verified','Windows SQL TLS production parity not yet verified','Previous-build rollback not yet verified','Actual internal pilot not executed']
         except Exception as e:
             report['failure_stage']=list(report['checks'])[-1] if report['checks'] else 'bootstrap'
@@ -247,7 +288,12 @@ def verify():
                 report['container_states']=[{'service':v.get('Config',{}).get('Labels',{}).get('com.docker.compose.service'),'status':v['State']['Status'],'exit':v['State']['ExitCode'],'oom':v['State']['OOMKilled']} for v in states]
         finally:
             for p in processes:
-                if p.poll() is None:p.terminate();p.wait(timeout=15)
+                if p.poll() is None:
+                    try:
+                        os.killpg(p.pid,signal.SIGTERM);p.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(p.pid,signal.SIGKILL);p.wait(timeout=10)
+                    except ProcessLookupError:pass
             cp('down','-v','--remove-orphans',expected=None)
             command(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(private)],expected=None)
             (EVIDENCE/'gate6b-staging.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2),flush=True)

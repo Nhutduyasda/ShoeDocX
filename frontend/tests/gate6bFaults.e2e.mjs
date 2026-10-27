@@ -5,16 +5,30 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const {request}=await import(pathToFileURL(join(resolve(process.env.STUDIO_PLAYWRIGHT_MODULE),'index.mjs')).href);
 const base=process.env.STUDIO_BASE_URL,folder=process.env.STUDIO_EVIDENCE_DIR,checks=[];
-const client=await request.newContext({baseURL:base});
+const mode=process.env.GATE6B_FAULT_MODE??'normal';
+const client=await request.newContext({baseURL:base,...(mode==='wrong-dp'?{storageState:join(folder,'old-protection-state.json')}:{})});
 async function login(c,user='admin-a'){const r=await c.post('/api/auth/login',{data:{username:user,password:process.env.STUDIO_PASSWORD}});assert.equal(r.status(),200);return (await r.json()).token;}
 async function boot(c){const r=await c.get('/api/universal-doc/bootstrap');assert.equal(r.status(),200);return (await r.json()).csrfToken;}
 try {
+ if(mode==='wrong-dp') {
+   const saved=JSON.parse(await readFile(join(folder,'old-protection-csrf.json'),'utf8'));
+   const r=await client.post('/api/universal-doc/sessions',{headers:{'X-Studio-CSRF':saved.csrf},data:{workflow:'example-template'}});
+   assert.equal(r.status(),400);assert.equal((await r.json()).code,'CSRF_TOKEN_INVALID');
+   await writeFile(join(folder,'gate6b-faults-wrong-dp.json'),JSON.stringify({status:'PASS',checks:['WRONG_DATAPROTECTION_CERTIFICATE_REJECTS_OLD_CSRF_NO_OUTPUT']}));
+ } else {
  const token=await login(client),csrf=await boot(client),headers={'X-Studio-CSRF':csrf};
  const cookies=(await client.storageState()).cookies;
  assert.ok(cookies.filter(c=>['shoedocx_access','shoedocx_studio_csrf'].includes(c.name)).length===2);
  assert.ok(cookies.every(c=>c.secure&&c.httpOnly&&c.sameSite==='Strict'));checks.push('SECURE_HTTPONLY_STRICT_AUTH_AND_CSRF_COOKIES');
- const mode=process.env.GATE6B_FAULT_MODE??'normal';
- if(mode==='wrong-aes') {
+ if(mode==='workflow-expiry') {
+   const create=await client.post('/api/universal-doc/sessions',{headers,data:{workflow:'example-template'}});assert.equal(create.status(),200);const session=await create.json();
+   const wait=Date.parse(session.expiresAt)-Date.now();assert.ok(wait>1190000&&wait<=1201000);
+   while(Date.now()<Date.parse(session.expiresAt)+1500)await new Promise(r=>setTimeout(r,Math.min(30000,Date.parse(session.expiresAt)+1500-Date.now())));
+   const expired=await client.get(`/api/universal-doc/sessions/${session.id}`);assert.ok([404,410].includes(expired.status()));assert.ok(!(await expired.text()).includes('00121'));checks.push('REAL_TWENTY_MINUTE_WORKFLOW_EXPIRY_NO_CLOCK_OVERRIDE');
+ } else if(mode==='db-conflict') {
+   const draft=JSON.parse(await readFile(join(folder,'gate6b-draft.json'),'utf8'));
+   const r=await client.post(`/api/universal-doc/drafts/${draft.id}/resume`,{headers,data:{expectedRevision:draft.revision}});assert.equal(r.status(),503);assert.equal((await r.json()).code,'DRAFT_STORAGE_UNAVAILABLE');checks.push('REAL_SQL_TRANSACTION_LOCK_CONFLICT_FAILS_CLOSED');
+ } else if(mode==='wrong-aes') {
    const draft=JSON.parse(await readFile(join(folder,'gate6b-draft.json'),'utf8'));
    const r=await client.post(`/api/universal-doc/drafts/${draft.id}/resume`,{headers,data:{expectedRevision:draft.revision}});
    assert.equal(r.status(),409);assert.equal((await r.json()).code,'DRAFT_PAYLOAD_INVALID');checks.push('INCORRECT_AES_KEY_RESUME_REJECTED_NO_BYTES');
@@ -37,7 +51,7 @@ try {
      const r=await c.post(`/api/universal-doc/drafts/${draft.id}/resume`,{headers:{'X-Studio-CSRF':csrf2},data:{expectedRevision:draft.revision}});assert.equal(r.status(),404);assert.ok(!(await r.text()).includes('00121'));await c.dispose();
    }checks.push('CROSS_OWNER_AND_TENANT_DRAFT_RESUME_DENIED');
    const clerk=await request.newContext({baseURL:base});await login(clerk,'clerk-a');const clerkCsrf=await boot(clerk);
-   for(const action of ['review','approve','export']) {const r=await clerk.post(path+'/'+action,{headers:{'X-Studio-CSRF':clerkCsrf},data:{expectedVersion:current.session.version}});assert.equal(r.status(),403);}
+   for(const action of ['review','approve','export']) {const r=await clerk.post(path+'/'+action,{headers:{'X-Studio-CSRF':clerkCsrf},data:{expectedVersion:current.session.version}});assert.equal(r.status(),403);assert.notEqual((await r.body()).subarray(0,2).toString(),'PK');}
    await clerk.dispose();checks.push('UNAUTHORIZED_REVIEW_APPROVAL_EXPORT_NO_BYTES');
    const data={expectedVersion:current.session.version,draftId:draft.id,expectedRevision:draft.revision};
    const concurrent=await Promise.all([client.post(path+'/save-draft',{headers,data}),client.post(path+'/save-draft',{headers,data})]);assert.deepEqual(concurrent.map(r=>r.status()).sort(),[200,409]);checks.push('CONCURRENT_DRAFT_UPDATE_ONE_WINNER');
@@ -47,6 +61,8 @@ try {
    const logout=await client.post('/api/auth/logout',{data:{}});assert.equal(logout.status(),204);
    const revoked=await request.newContext({baseURL:base,extraHTTPHeaders:{Authorization:'Bearer '+token}});assert.equal((await revoked.get('/api/auth/me')).status(),401);await revoked.dispose();checks.push('LOGOUT_REVOKES_BEARER_JWT');
    await writeFile(join(folder,'gate6b-draft.json'),JSON.stringify(newest.draft));
+   await login(client);const freshCsrf=await boot(client);await client.storageState({path:join(folder,'old-protection-state.json')});await writeFile(join(folder,'old-protection-csrf.json'),JSON.stringify({csrf:freshCsrf}));
  }
  await writeFile(join(folder,`gate6b-faults-${mode}.json`),JSON.stringify({status:'PASS',checks},null,2));
+}
 }finally{await client.dispose();}

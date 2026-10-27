@@ -10,6 +10,14 @@ using ClosedXML.Excel;
 
 if(args[0]=="native"){await Gate6BNative.Run(args[1]);return;}
 
+// Offline recovery cannot depend on configuration sealed inside the lost bundle.
+if(args[0] is "seal" or "unseal") {
+    var key=File.ReadAllBytes(args[3]);using var aes=new AesGcm(key,16);var input=File.ReadAllBytes(args[1]);
+    if(args[0]=="seal") {var nonce=RandomNumberGenerator.GetBytes(12);var output=new byte[input.Length+28];nonce.CopyTo(output,0);aes.Encrypt(nonce,input,output.AsSpan(12,input.Length),output.AsSpan(12+input.Length,16));File.WriteAllBytes(args[2],output);}
+    else {var output=new byte[input.Length-28];aes.Decrypt(input.AsSpan(0,12),input.AsSpan(12,input.Length-28),input.AsSpan(input.Length-16),output);File.WriteAllBytes(args[2],output);}
+    Console.WriteLine("OPERATION_PASS");return;
+}
+
 // Disposable CI maintenance only. Never shipped in the backend image.
 var config = JsonDocument.Parse(File.ReadAllText(Environment.GetEnvironmentVariable("GATE6B_OPERATOR")!)).RootElement;
 var raw = config.GetProperty("adminConnection").GetString()!;
@@ -21,11 +29,7 @@ async Task Execute(string sql, params SqlParameter[] parameters) {
     await using var q = new SqlCommand(sql,c) {CommandTimeout=90}; q.Parameters.AddRange(parameters); await q.ExecuteNonQueryAsync();
 }
 var action=args[0];
-if(action is "seal" or "unseal") {
-    var key=File.ReadAllBytes(args[3]);using var aes=new AesGcm(key,16);var input=File.ReadAllBytes(args[1]);
-    if(action=="seal") {var nonce=RandomNumberGenerator.GetBytes(12);var output=new byte[input.Length+28];nonce.CopyTo(output,0);aes.Encrypt(nonce,input,output.AsSpan(12,input.Length),output.AsSpan(12+input.Length,16));File.WriteAllBytes(args[2],output);}
-    else {var output=new byte[input.Length-28];aes.Decrypt(input.AsSpan(0,12),input.AsSpan(12,input.Length-28),input.AsSpan(input.Length-16),output);File.WriteAllBytes(args[2],output);}
-} else if(action=="provision") {
+if(action=="provision") {
     await Execute($"CREATE DATABASE [{database}]");
     foreach(var name in new[]{"migration","runtime"}) {
         var login="gate6b_"+name;
@@ -63,6 +67,16 @@ if(action is "seal" or "unseal") {
     await using var r=await q.ExecuteReaderAsync();using var sha=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);var rows=0;
     while(await r.ReadAsync()){rows++;sha.AppendData(System.Text.Encoding.UTF8.GetBytes(r.GetString(0)+r.GetString(1)));sha.AppendData((byte[])r[2]);sha.AppendData((byte[])r[3]);}
     File.WriteAllText(args[1],JsonSerializer.Serialize(new{rows,sha256=Convert.ToHexString(sha.GetHashAndReset())}));
+} else if(action=="hold-lock") {
+    cs.InitialCatalog=database;
+    await using var connection=new SqlConnection(cs.ConnectionString);await connection.OpenAsync();
+    await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync();
+    await using var command=new SqlCommand("DECLARE @result int; EXEC @result=sys.sp_getapplock @Resource=N'ude.draft-admission.v1',@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=1000; IF @result<0 THROW 51000,'Lock control failed',1;",connection,transaction);
+    await command.ExecuteNonQueryAsync();File.WriteAllText(args[1],"ready");
+    var deadline=DateTime.UtcNow.AddSeconds(40);
+    while(!File.Exists(args[2])&&DateTime.UtcNow<deadline)await Task.Delay(100);
+    await transaction.RollbackAsync();
+    if(!File.Exists(args[2]))throw new InvalidOperationException("LOCK_CONTROL_TIMEOUT");
 } else if(action=="expired-jwt") {
     var token=new System.IdentityModel.Tokens.Jwt.JwtSecurityToken("gate6b","gate6b",
         new[]{new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier,"admin-a"),new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role,"Admin")},

@@ -48,7 +48,7 @@ if (!string.IsNullOrWhiteSpace(protectionPath)) {
     var certificate = builder.Configuration["DataProtection:CertificatePath"];
     if (!string.IsNullOrWhiteSpace(certificate))
         protection.ProtectKeysWithCertificate(X509CertificateLoader.LoadPkcs12FromFile(certificate,
-            builder.Configuration["DataProtection:CertificatePassword"]));
+            builder.Configuration["DataProtection:CertificatePassword"], X509KeyStorageFlags.EphemeralKeySet));
 }
 
 // Keep local/CLI startup independent from the Windows Event Log, which may

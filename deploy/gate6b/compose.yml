@@ -29,7 +29,7 @@ services:
       - ${GATE6B_PRIVATE}/runtime.json:/run/secrets/runtime.json:ro
       - ${GATE6B_PRIVATE}/protection.pfx:/run/secrets/protection.pfx:ro
       - ${GATE6B_PRIVATE}/data:/app/data
-      - ${GATE6B_PRIVATE}/templates:/app/Templates
+      - ${GATE6B_PRIVATE}/templates:/app/Templates:ro
     read_only: true
     tmpfs:
       - /tmp:uid=1654,gid=1654,mode=0700,size=64m

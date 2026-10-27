@@ -247,7 +247,7 @@ def verify():
                 result=cp('run','--rm','-v',str(path)+':/run/secrets/runtime.json:ro','backend',*arguments,expected=None,timeout=150)
                 assert result.returncode!=0,'FAULT_CONFIGURATION_ACCEPTED_'+name
                 diagnostic=result.stdout.decode(errors='replace')
-                expected={'unauthorized-maintenance':['MAINTENANCE_AUTHORIZATION_REQUIRED'],'automatic-migration':['PRODUCTION_AUTOMIGRATION_FORBIDDEN'],'bootstrap':['BOOTSTRAP_REQUIRES_EXPLICIT_INITIALIZATION'],'sql-auth':['SqlException'],'sql-certificate':['SqlException'],'missing-aes':['DRAFT_CONFIGURATION_UNAVAILABLE'],'wrong-key-id':['DRAFT_CONFIGURATION_UNAVAILABLE'],
+                expected={'unauthorized-maintenance':['MAINTENANCE_AUTHORIZATION_REQUIRED'],'automatic-migration':['PRODUCTION_AUTOMIGRATION_FORBIDDEN'],'bootstrap':['BOOTSTRAP_REQUIRES_EXPLICIT_INITIALIZATION'],'sql-auth':['PRODUCTION_SQL_STARTUP_UNAVAILABLE','PRODUCTION_SQL_STARTUP_TIMEOUT'],'sql-certificate':['PRODUCTION_SQL_STARTUP_UNAVAILABLE','PRODUCTION_SQL_STARTUP_TIMEOUT'],'missing-aes':['DRAFT_CONFIGURATION_UNAVAILABLE'],'wrong-key-id':['DRAFT_CONFIGURATION_UNAVAILABLE'],
                     'wrong-dataprotection-password':['CryptographicException'],'missing-dataprotection-certificate':['CryptographicException','FileNotFoundException'],
                     'incomplete-config':['Jwt:Key must be supplied'],'missing-template':['REQUIRED_TEMPLATE_STORAGE_UNAVAILABLE'],
                     'missing-attachment-directory':['REQUIRED_STORAGE_UNAVAILABLE'],'storage-permission':['REQUIRED_STORAGE_UNAVAILABLE']}[name]

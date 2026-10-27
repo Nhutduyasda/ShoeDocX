@@ -283,6 +283,7 @@ using (var scope = app.Services.CreateScope())
     var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
     try
     {
+        if (app.Environment.IsProduction()) await ProductionConfiguration.VerifySqlConnectionsAsync(builder.Configuration);
         var applyMigrations = args.Contains("--migrate-all") || args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage") ||
             builder.Configuration.GetValue<bool?>("Database:ApplyMigrationsOnStartup") == true || app.Environment.IsDevelopment();
         if (!applyMigrations && (await context.Database.GetPendingMigrationsAsync()).Any())

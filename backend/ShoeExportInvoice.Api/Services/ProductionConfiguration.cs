@@ -32,6 +32,23 @@ public static class ProductionConfiguration
         }
     }
 
+    // Probe without EF execution-strategy retries. Fatal TLS/authentication settings
+    // must never leave the production process indefinitely waiting before readiness.
+    public static async Task VerifySqlConnectionsAsync(IConfiguration configuration)
+    {
+        var connections = new List<string> { configuration.GetConnectionString("DefaultConnection")! };
+        if (configuration.GetValue<bool>("UniversalDocDrafts:Enabled"))
+            connections.Add(configuration["UniversalDocDrafts:ConnectionString"] ?? connections[0]);
+        foreach (var value in connections.Distinct(StringComparer.Ordinal))
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await using var connection = new SqlConnection(value);
+            try { await connection.OpenAsync(timeout.Token); }
+            catch (OperationCanceledException) { throw new InvalidOperationException("PRODUCTION_SQL_STARTUP_TIMEOUT"); }
+            catch (SqlException) { throw new InvalidOperationException("PRODUCTION_SQL_STARTUP_UNAVAILABLE"); }
+        }
+    }
+
     private static void ValidateSql(string? connection)
     {
         try

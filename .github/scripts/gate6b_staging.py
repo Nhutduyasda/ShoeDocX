@@ -105,6 +105,11 @@ def verify():
             assert request('/swagger/v1/swagger.json')[0]==404
             assert request('/api/auth/me',headers={'X-Forwarded-Proto':'http','X-Forwarded-Host':'evil.invalid'})[0]==401
             mark('ingress_replaces_spoofed_headers_no_public_swagger')
+            for headers in ({},{'X-Forwarded-Proto':'https','X-Forwarded-For':'127.0.0.1'}):
+                try:urllib.request.urlopen(urllib.request.Request('http://172.30.86.3:5270/api/auth/me',headers=headers),timeout=5)
+                except urllib.error.HTTPError as e:assert e.code==400,'UNTRUSTED_PROXY_ACCEPTED'
+                else:raise AssertionError('DIRECT_HTTP_ACCEPTED')
+            mark('direct_http_and_untrusted_forwarding_rejected')
             # Verify wrong CA fails HTTPS (not a browser ignore-certificate workaround).
             try:urllib.request.urlopen('https://localhost:8443/api/health',context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT),timeout=5)
             except urllib.error.URLError:mark('ingress_untrusted_certificate_rejected')

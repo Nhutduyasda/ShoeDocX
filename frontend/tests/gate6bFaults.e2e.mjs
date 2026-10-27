@@ -10,6 +10,9 @@ async function login(c,user='admin-a'){const r=await c.post('/api/auth/login',{d
 async function boot(c){const r=await c.get('/api/universal-doc/bootstrap');assert.equal(r.status(),200);return (await r.json()).csrfToken;}
 try {
  const token=await login(client),csrf=await boot(client),headers={'X-Studio-CSRF':csrf};
+ const cookies=(await client.storageState()).cookies;
+ assert.ok(cookies.filter(c=>['shoedocx_access','shoedocx_studio_csrf'].includes(c.name)).length===2);
+ assert.ok(cookies.every(c=>c.secure&&c.httpOnly&&c.sameSite==='Strict'));checks.push('SECURE_HTTPONLY_STRICT_AUTH_AND_CSRF_COOKIES');
  const mode=process.env.GATE6B_FAULT_MODE??'normal';
  if(mode==='wrong-aes') {
    const draft=JSON.parse(await readFile(join(folder,'gate6b-draft.json'),'utf8'));

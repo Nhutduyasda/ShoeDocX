@@ -161,6 +161,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddConcurrencyLimiter("health", limit => { limit.PermitLimit = 4; limit.QueueLimit = 0; });
     options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: $"{context.Connection.RemoteIpAddress}:{context.Request.Path}",
         factory: _ => new FixedWindowRateLimiterOptions
@@ -340,7 +341,7 @@ app.UseAuthorization();
 app.MapGet("/api/health", async (AppDbContext db) => {
     try { using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)); return await db.Database.CanConnectAsync(timeout.Token) ? Results.Ok(new { status = "ready" }) : Results.StatusCode(503); }
     catch { return Results.StatusCode(503); }
-}).AllowAnonymous();
+}).AllowAnonymous().RequireRateLimiting("health");
 app.MapControllers();
 
 app.Run();

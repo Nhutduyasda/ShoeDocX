@@ -5,7 +5,10 @@ Unsupported as production release until Gate 6B blockers close.
 
 ## Secure configuration checklist
 
-Use a private owner-readable configuration JSON through SHOEDOCX_CONFIGURATION_FILE;
+Use a complete private owner-readable configuration JSON through SHOEDOCX_CONFIGURATION_FILE;
+this replaces application defaults, so arrays cannot retain development HTTP origins.
+Only ASPNETCORE_ host configuration is layered on top; do not assume ordinary app env
+variables override this protected file.
 never frontend VITE_* or a committed env file. Never print docker inspect environment,
 connection strings, token bodies, private logs or runtime JSON into public Actions logs.
 Synthetic credentials still stay out of artifacts. Root `.env.example` is explanatory,
@@ -31,7 +34,9 @@ requires changes. CI mounts only ephemeral synthetic files. Temp is bounded 0700
 1. Check accepted commit, official audits, image identities and archived config hashes.
 2. Identify the dedicated isolated database by exact name and verify it is not shared.
 3. Operator explicitly authorizes maintenance and uses migration credentials in a
-   separate temporary configuration. Normal startup has MaintenanceAuthorized false.
+   separate temporary configuration. Normal startup has MaintenanceAuthorized false. The background retention service may
+perform bounded expired-row deletion after startup; read-only initialization does not
+mean the running application never writes.
 4. Execute actual backend `--migrate-all`: AppDbContext default migration history then
    UniversalDocDraftDb `ude.__DraftMigrations`. Failure stops; preserve DB and diagnostics.
 5. Execute `--initialize-staging` once to create required workspace/template/folder defaults.
@@ -45,7 +50,9 @@ requires changes. CI mounts only ephemeral synthetic files. Temp is bounded 0700
 
 Runtime permissions: db_datareader + db_datawriter is currently database-wide DML,
 not table-specific least privilege. It denies DDL/db_owner but can access legacy and
-ude data. Table-scoped permission refinement is an open risk before production. Backup
+ude data. Writes to both migration history tables are explicitly denied to runtime, and the
+migration login is disabled after authorized maintenance. Table-scoped permission
+refinement for business tables remains an open risk before production. Backup
 and restore require the isolated administrative principal, not runtime. Logins are
 explicitly remapped after complete SQL instance loss. No automatic schema recreation
 or database deletion after failure.
@@ -107,11 +114,15 @@ explicit operator approval before real credential/key changes.
 ## Observability and risk register
 
 Only ready/503 health, constant event codes and aggregate counters are appropriate.
-Current code removes login identity logging; existing EF/logging levels are reduced to
-Warning in staging. Full safe authentication/authorization/draft/export/resource metric
-coverage is NOT IMPLEMENTED. Do not expose public metrics. No operational dashboard or
-alerting guarantee is claimed. Existing integrity logs may contain attachment paths;
-raw logs therefore remain private and production logging review remains blocking.
+Current code removes login identity and attachment-path logging; existing EF/logging
+levels are reduced to Warning in staging. A System.Diagnostics.Metrics meter records
+HTTP operation/outcome categories (authentication, draft, export, health, other),
+authorization rejection, storage failure, bounded expired-row cleanup and application
+start/stop. No sensitive route/tenant/actor labels are recorded. Health uses a two-second
+SQL deadline and a four-request concurrency cap. These are implemented instruments;
+an exporter/dashboard/alert pipeline is NOT IMPLEMENTED. Do not expose public metrics. No operational dashboard or
+alerting guarantee is claimed. Raw logs remain private. An end-to-end telemetry consumer and alert thresholds still
+need operational verification before production.
 
 Open risks: Windows validated SQL TLS parity; complete fault inventory; table-scoped
 runtime privileges; multi-certificate rotation; previous-build rollback; safe metrics

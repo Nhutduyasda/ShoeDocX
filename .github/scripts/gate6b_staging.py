@@ -11,6 +11,7 @@ def verify():
     with tempfile.TemporaryDirectory(prefix='gate6b-private-') as temp:
         private=Path(temp); private.chmod(0o700); env=os.environ.copy(); env['GATE6B_PRIVATE']=str(private)
         database='gate6b_'+uuid.uuid4().hex
+        recovery_names=('runtime.json','maintenance.json','protection.pfx','data','templates','backup','sql.crt','sql.key','web.crt','web.key','mssql.conf','ca.crt','operator.json')
         password=lambda: 'G6b!'+uuid.uuid4().hex+'aA1'
         sa,migration,runtime,user,pfx=password(),password(),password(),password(),password()
         env['GATE6B_SQL_PASSWORD']=sa
@@ -38,11 +39,16 @@ def verify():
                 with urllib.request.urlopen(req,context=ssl.create_default_context(cafile=str(private/'ca.crt')),timeout=15) as r:return r.status,r.read(),dict(r.headers)
             except urllib.error.HTTPError as e:return e.code,e.read(),dict(e.headers)
         def ready():
+            observations={}
             for _ in range(120):
                 try:
-                    if request('/api/health')[0]==200:return
-                except (urllib.error.URLError,TimeoutError):pass
+                    status=request('/api/health')[0]
+                    if status==200:return
+                    key='http_'+str(status);observations[key]=observations.get(key,0)+1
+                except (urllib.error.URLError,TimeoutError) as error:
+                    key=type(getattr(error,'reason',error)).__name__;observations[key]=observations.get(key,0)+1
                 time.sleep(.5)
+            report['readiness_observations']=observations
             raise AssertionError('PRODUCTION_READINESS_TIMEOUT')
         try:
             openssl('req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(private/'ca.key'),'-out',str(private/'ca.crt'),'-days','2','-subj','/CN=Gate6B Synthetic CA')
@@ -135,12 +141,12 @@ def verify():
                     assert json.loads((private/'before.json').read_text())['rows']==1
                     # Encrypted recovery bundle covers SQL, protected keys, config and file storage.
                     command(['sudo','chown','-R',str(os.getuid())+':'+str(os.getgid()),str(private/'data'),str(private/'templates'),str(private/'backup')])
-                    for name in ('runtime.json','maintenance.json','protection.pfx'):command(['sudo','chown',str(os.getuid())+':'+str(os.getgid()),str(private/name)])
+                    for name in ('runtime.json','maintenance.json','protection.pfx','sql.key'):command(['sudo','chown',str(os.getuid())+':'+str(os.getgid()),str(private/name)])
                     bundle=private/'recovery.tar'
                     with tarfile.open(bundle,'w') as archive:
-                        for name in ('runtime.json','maintenance.json','protection.pfx','data','templates','backup'):archive.add(private/name,arcname=name)
-                    (private/'backup.key').write_bytes(os.urandom(32));op('seal',bundle,private/'recovery.aesgcm',private/'backup.key');bundle.unlink()
-                    (private/'incorrect.key').write_bytes(os.urandom(32))
+                        for name in recovery_names:archive.add(private/name,arcname=name)
+                    (private/'backup.key').write_bytes(os.urandom(32));(private/'backup.key').chmod(0o600);op('seal',bundle,private/'recovery.aesgcm',private/'backup.key');bundle.unlink()
+                    (private/'incorrect.key').write_bytes(os.urandom(32));(private/'incorrect.key').chmod(0o600)
                     assert op('unseal',private/'recovery.aesgcm',private/'must-not-exist.tar',private/'incorrect.key',expected=None).returncode!=0
                     assert not (private/'must-not-exist.tar').exists()
                     corrupt=bytearray((private/'recovery.aesgcm').read_bytes());corrupt[-1]^=1;(private/'corrupt.aesgcm').write_bytes(corrupt)
@@ -153,14 +159,14 @@ def verify():
                     command(['sudo','chown',str(os.getuid())+':'+str(os.getgid()),str(sql_backup)]);sql_backup.write_bytes(saved_backup);command(['sudo','chown','10001:0',str(sql_backup)])
                     mark('corrupt_sql_backup_rejected_before_restore')
                     cp('down','-v')
-                    for name in ('runtime.json','maintenance.json','protection.pfx','data','templates','backup'):
+                    for name in recovery_names:
                         p=private/name;shutil.rmtree(p) if p.is_dir() else p.unlink()
                     started=time.monotonic();op('unseal',private/'recovery.aesgcm',bundle,private/'backup.key')
                     with tarfile.open(bundle) as archive:archive.extractall(private,filter='data')
                     bundle.unlink()
                     command(['sudo','chown','-R','1654:1654',str(private/'data'),str(private/'templates')])
                     for name in ('runtime.json','maintenance.json','protection.pfx'):command(['sudo','chown','1654:1654',str(private/name)])
-                    command(['sudo','chown','-R','10001:0',str(private/'backup')])
+                    command(['sudo','chown','-R','10001:0',str(private/'backup')]);(private/'sql.key').chmod(0o400);command(['sudo','chown','10001:0',str(private/'sql.key')])
                     cp('run','--rm','--no-deps','--user','0','--entrypoint','/bin/bash','sql','-c','chown 10001:0 /var/opt/mssql/data && chmod 700 /var/opt/mssql/data')
                     cp('up','-d','sql')
                     for _ in range(90):
@@ -224,6 +230,8 @@ def verify():
             # Only exception type identifiers from private runtime diagnostics.
             import re
             logs=cp('logs','--no-color',expected=None).stdout.decode(errors='replace')
+            tcp=cp('exec','-T','backend','cat','/proc/net/tcp','/proc/net/tcp6',expected=None).stdout.decode(errors='replace')
+            report['backend_listening_ports']=sorted({int(line.split()[1].split(':')[-1],16) for line in tcp.splitlines() if len(line.split())>3 and line.split()[3]=='0A'})
             report['exception_types']=sorted(set(re.findall(r'\b[A-Za-z.]+Exception\b',logs)))
             report['sql_error_numbers']=sorted(set(re.findall(r'(?i)error[: ]+(\d{3,6})',logs)))
             report['startup_classifiers']={key:bool(re.search(pattern,logs,re.I)) for key,pattern in {

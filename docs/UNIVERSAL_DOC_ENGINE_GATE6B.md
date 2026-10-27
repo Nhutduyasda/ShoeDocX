@@ -15,7 +15,7 @@ incomplete. No hosted staging or real participant pilot exists.
 | Production configuration and explicit initialization | Implemented | No ordinary Production DbInitializer writes; both migration chains checked |
 | Certificate protected DataProtection key ring | Implemented | PFX injected, private key outside image; execution pending |
 | HTTPS reverse proxy and SQL certificate validation | Implemented | Ephemeral test CA, forced SQL TLS; execution pending |
-| Runtime least privilege | Implemented | DML roles, no db_owner or CREATE TABLE; execution pending |
+| Runtime least privilege | Implemented | DML roles, no db_owner or CREATE TABLE, history writes denied; execution pending |
 | Encrypted backup and complete instance reconstruction | Implemented | SQL CHECKSUM + AES-GCM bundle + ciphertext fingerprint; execution pending |
 | Full fault injection / rollback | Not tested | Outstanding inventory below; blocks technical acceptance |
 | Windows production SQL TLS parity | Blocked | LocalDB regression is not a validated production SQL TLS endpoint |
@@ -87,14 +87,14 @@ dependencies, verifies backport bytes and runs inherited authenticated browser s
 This does not substitute for production staging acceptance.
 
 Linux staging builds real images, validates nonroot/read-only/no-backend-port metadata,
-executes explicit migrations, authenticates actual SQL Identity users, runs the Office
-Wizard with local synthetic fixture files through HTTPS, and uses no test routes or
+executes explicit migrations, authenticates actual SQL Identity users, runs invoice, warehouse and multi-sheet Office
+Wizard flows with local synthetic fixture files through HTTPS, and uses no test routes or
 mocked API responses in the Production process. Browser certificate errors are not
 ignored. Restored workbook downloads are reopened by ClosedXML and openpyxl. Raw
 workbooks, screenshots, tokens, private configuration and logs are private runner temp
 only. Uploaded artifact paths contain explicit sanitized metadata JSON only.
 
-The scripted complete-instance recovery uses an approved pause point while browser
+The scripted complete-instance recovery saves a two-sheet workflow and uses a controlled pause point while browser
 waits: graceful backend stop, ciphertext/key/rowversion fingerprint, SQL backup with
 checksum, authenticated encrypted recovery archive, destruction of application/SQL
 containers and database volume, reconstruction, VERIFYONLY/RESTORE, login SID remap,

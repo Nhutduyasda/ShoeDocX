@@ -7,6 +7,10 @@ import gate6b_rollback
 ROOT=Path.cwd(); FEATURE=ROOT/'feature'; EVIDENCE=ROOT/'verification-evidence'; EVIDENCE.mkdir(exist_ok=True)
 
 def verify():
+    assert os.environ.get('GITHUB_ACTIONS')=='true','DISPOSABLE_GITHUB_RUNNER_REQUIRED'
+    assert subprocess.check_output(['git','rev-parse','HEAD'],cwd=FEATURE,text=True).strip()==os.environ['VERIFIED_HEAD'],'WRONG_STAGING_HEAD'
+    existing=subprocess.run(['docker','ps','-aq','--filter','label=com.docker.compose.project=gate6b-isolated'],stdout=subprocess.PIPE,check=True)
+    assert not existing.stdout.strip(),'REFUSING_EXISTING_STAGING_PROJECT'
     report={'head':os.environ['VERIFIED_HEAD'],'status':'FAIL','checks':{},'internal_pilot':'NOT EXECUTED'}
     processes=[]
     with tempfile.TemporaryDirectory(prefix='gate6b-private-') as temp:
@@ -190,6 +194,7 @@ def verify():
             if (private/'browser/office-failure.json').exists():report['browser_failure']=json.loads((private/'browser/office-failure.json').read_text())
             assert browser.returncode==0 and recovered,'PRODUCTION_OFFICE_BROWSER_FAILED'
             summary=json.loads((private/'browser/office-summary.json').read_text());assert summary['status']=='PASS'
+            (EVIDENCE/'gate6b-office-browser.json').write_text(json.dumps(summary,indent=2))
             op('reopen',private/'browser')
             downloads=json.loads((private/'browser/office-downloads.json').read_text())
             qa=[gate5d_browser.verify_workbook(private/'browser'/d['name'],d['scenario'],d['rows']) for d in downloads]
@@ -211,6 +216,8 @@ def verify():
             shutil.copy2(private/'browser/gate6b-faults-db-conflict.json',EVIDENCE/'gate6b-transaction-conflict.json');mark('real_transaction_conflict_no_partial_write')
             cp('stop','sql')
             assert request('/api/health')[0]==503,'SQL_OUTAGE_DID_NOT_FAIL_CLOSED'
+            env['GATE6B_FAULT_MODE']='sql-outage';command(['node','frontend/tests/gate6bFaults.e2e.mjs'],timeout=90)
+            shutil.copy2(private/'browser/gate6b-faults-sql-outage.json',EVIDENCE/'gate6b-sql-outage.json')
             cp('start','sql');ready();mark('sql_outage_controlled_health_and_recovery')
             cp('stop','backend')
             def reject_configuration(name,mutate,arguments=()):
@@ -268,7 +275,7 @@ def verify():
             shutil.copy2(private/'browser/gate6b-faults-expired-draft.json',EVIDENCE/'gate6b-expiration.json');mark('expired_draft_after_recovery_denied')
             env['GATE6B_FAULT_MODE']='workflow-expiry';command(['node','frontend/tests/gate6bFaults.e2e.mjs'],timeout=1300)
             shutil.copy2(private/'browser/gate6b-faults-workflow-expiry.json',EVIDENCE/'gate6b-workflow-expiry.json');mark('real_twenty_minute_session_expiry_denied')
-            report['status']='PARTIAL';report['remaining']=['Full fault-injection inventory not yet verified','Windows SQL TLS production parity not yet verified','Previous-build rollback not yet verified','Actual internal pilot not executed']
+            report['status']='PARTIAL';report['remaining']=['Windows managed TCP SQL TLS, runtime login and native proxy parity remain unverified','Previous accepted build is not an approved hardened rollback target','Actual internal pilot not executed','Production key custody, certificate rotation and monitoring exporter are not provisioned']
         except Exception as e:
             import traceback
             frame=traceback.extract_tb(e.__traceback__)[-1];report['source_location']={'module':Path(frame.filename).name,'line':frame.lineno}

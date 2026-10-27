@@ -7,11 +7,16 @@ import {pathToFileURL} from 'node:url';
 const {request}=await import(pathToFileURL(join(resolve(process.env.STUDIO_PLAYWRIGHT_MODULE),'index.mjs')).href);
 const base=process.env.STUDIO_BASE_URL,folder=process.env.STUDIO_EVIDENCE_DIR,checks=[];
 const mode=process.env.GATE6B_FAULT_MODE??'normal';
-const client=await request.newContext({baseURL:base,...(mode==='wrong-dp'?{storageState:join(folder,'old-protection-state.json')}:{})});
+const client=await request.newContext({baseURL:base,...(['wrong-dp','sql-outage'].includes(mode)?{storageState:join(folder,'old-protection-state.json')}:{})});
 async function login(c,user='admin-a'){const r=await c.post('/api/auth/login',{data:{username:user,password:process.env.STUDIO_PASSWORD}});assert.equal(r.status(),200);return (await r.json()).token;}
 async function boot(c){const r=await c.get('/api/universal-doc/bootstrap');assert.equal(r.status(),200);return (await r.json()).csrfToken;}
 try {
- if(mode==='wrong-dp') {
+ if(mode==='sql-outage') {
+   const saved=JSON.parse(await readFile(join(folder,'old-protection-csrf.json'),'utf8')),draft=JSON.parse(await readFile(join(folder,'gate6b-draft.json'),'utf8'));
+   const r=await client.post(`/api/universal-doc/drafts/${draft.id}/resume`,{headers:{'X-Studio-CSRF':saved.csrf},data:{expectedRevision:draft.revision},timeout:65000});
+   assert.ok([503,504].includes(r.status()));assert.notEqual((await r.body()).subarray(0,2).toString(),'PK');assert.ok(!(await r.text()).includes('00121'));
+   await writeFile(join(folder,'gate6b-faults-sql-outage.json'),JSON.stringify({status:'PASS',checks:['SQL_OUTAGE_ACTUAL_AUTHORIZED_RESUME_FAILS_CLOSED'],httpStatus:r.status()}));
+ } else if(mode==='wrong-dp') {
    const saved=JSON.parse(await readFile(join(folder,'old-protection-csrf.json'),'utf8'));
    const r=await client.post('/api/universal-doc/sessions',{headers:{'X-Studio-CSRF':saved.csrf},data:{workflow:'example-template'}});
    assert.equal(r.status(),400);assert.equal((await r.json()).code,'CSRF_TOKEN_INVALID');
@@ -34,7 +39,7 @@ try {
    const r=await client.post(`/api/universal-doc/drafts/${draft.id}/resume`,{headers,data:{expectedRevision:draft.revision}});
    assert.equal(r.status(),409);assert.equal((await r.json()).code,'DRAFT_PAYLOAD_INVALID');checks.push('INCORRECT_AES_KEY_RESUME_REJECTED_NO_BYTES');
  } else if(mode==='expired-draft') {
-   const r=await client.get('/api/universal-doc/drafts');assert.equal(r.status(),200);assert.deepEqual(await r.json(),[]);checks.push('EXPIRED_RESTORED_DRAFT_NOT_DISCLOSED');
+   const r=await client.get('/api/universal-doc/drafts');assert.equal(r.status(),200);assert.deepEqual(await r.json(),[]);const draft=JSON.parse(await readFile(join(folder,'gate6b-draft.json'),'utf8'));const expired=await client.post(`/api/universal-doc/drafts/${draft.id}/resume`,{headers,data:{expectedRevision:draft.revision}});assert.ok([404,410].includes(expired.status()));assert.notEqual((await expired.body()).subarray(0,2).toString(),'PK');checks.push('EXPIRED_RESTORED_DRAFT_NOT_DISCLOSED_OR_RESUMED');
  } else {
    const expired=await readFile(process.env.GATE6B_EXPIRED_TOKEN,'utf8');
    const expiredClient=await request.newContext({baseURL:base,extraHTTPHeaders:{Authorization:'Bearer '+expired}});

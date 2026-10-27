@@ -261,6 +261,7 @@ app.Use(async (context, next) =>
     {
         app.Logger.LogError("Request failed: {ExceptionType} {TraceId}", ex.GetType().Name, context.TraceIdentifier);
         context.Response.StatusCode = ex switch {
+            Microsoft.Data.SqlClient.SqlException or Microsoft.EntityFrameworkCore.Storage.RetryLimitExceededException or TimeoutException => 503,
             DbUpdateException => 409,
             KeyNotFoundException => 404,
             InvalidOperationException or ArgumentException => 400,

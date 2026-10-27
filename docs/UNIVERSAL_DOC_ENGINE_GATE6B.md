@@ -3,7 +3,7 @@
 Starting main: `2552252d0d916d4184d88482f3649c602468eff8` (merged Gate 6A PR #19).
 Branch: `codex/universal-doc-engine-gate-6b-staging-pilot`. One Draft PR; no merge.
 
-**Current verdict: PARTIAL / NO-GO.** Implementation is under exact-HEAD verification.
+**Current verdict: PARTIAL / NO-GO.** Implementation is under exact-HEAD verification. [PR #20](https://github.com/Nhutduyasda/ShoeDocX/pull/20) records the final SHA, both host runs and immutable artifact links; executed artifact outcomes override this implementation snapshot.
 Do not interpret the presence of a workflow, runbook or test scenario as a passing result.
 The authoritative executed result is the same-HEAD `gate6b-regression.json` for each OS
 and `gate6b-staging.json` for Linux. CI fails closed while any staging acceptance is
@@ -13,12 +13,13 @@ incomplete. No hosted staging or real participant pilot exists.
 |---|---|---|
 | Main merge and open PR preflight | Tested | Main matches requested baseline; only excluded #4/#13/#14 open at start |
 | Production configuration and explicit initialization | Implemented | No ordinary Production DbInitializer writes; both migration chains checked |
-| Certificate protected DataProtection key ring | Implemented | PFX injected, private key outside image; execution pending |
+| Certificate protected DataProtection key ring | Implemented | Independent protection PFX injected, separate from ingress TLS key; private key outside image; exact-HEAD report required |
 | HTTPS reverse proxy and SQL certificate validation | Implemented | Ephemeral test CA, forced SQL TLS; execution pending |
 | Runtime least privilege | Implemented | DML roles, no db_owner or CREATE TABLE, history writes denied; execution pending |
 | Encrypted backup and complete instance reconstruction | Implemented | SQL CHECKSUM + AES-GCM bundle + ciphertext fingerprint; execution pending |
-| Full fault injection / rollback | Not tested | Outstanding inventory below; blocks technical acceptance |
-| Windows production SQL TLS parity | Blocked | LocalDB regression is not a validated production SQL TLS endpoint |
+| Full fault injection / rollback | Implemented | Explicit Production fault probes and immutable previous-build probe; exact-HEAD outcome required |
+| Windows native Production | Tested | Previous execution starts real API, trusted HTTPS health and unauthenticated denial; final HEAD repeats it |
+| Windows production SQL TLS parity | Blocked | LocalDB has no verified managed TCP TLS endpoint / separate runtime SQL login / native proxy parity |
 | Real office participant pilot | Owner approval required | INTERNAL PILOT NOT YET EXECUTED |
 | Hosted staging | Owner approval required | No resource provisioned, existing production assets untouched |
 | Production | Blocked | NO-GO |
@@ -103,15 +104,22 @@ protected keys and file mounts restored, fingerprint equality, fresh authenticat
 draft resume, renewed approval and export. If this has not completed in CI it remains
 **Not tested**. RTO is an observation only when emitted; no SLA or guaranteed RPO.
 
-Outstanding mandatory faults: SQL outage/auth failure/wrong TLS, missing AES key/wrong
-key ID, wrong DataProtection key, corrupt backup, missing attachment storage, incomplete
-configuration, expiry after restore, runtime transaction conflict, full disk/permission
-denial, interrupted download, expired/revoked JWT and missing/invalid CSRF in the
-production proxy path, unauthorized reviewer/approver and owner/tenant draft read,
-expired workflow, invalid/oversized/formula/structure rejection and previous-supported-
-build rollback. Some are inherited unit/SQL/browser checks; none is relabeled as
-production fault-injection evidence until that exact path is executed. This inventory
-blocks STAGING TECHNICAL PASS and keeps the PR Draft.
+Implemented mandatory Production probes cover SQL outage/auth failure/wrong TLS,
+missing AES key/wrong key ID, incorrect DataProtection certificate/old CSRF rejection,
+corrupt authenticated archive and SQL backup, missing attachment/template storage,
+incomplete configuration, expired restored drafts, concurrent updates and a real held
+SQL transaction lock, storage permission denial, client interruption during download
+and byte-identical authorized retry, expired/revoked JWT, missing/invalid CSRF,
+unauthorized reviewer/approver/export, cross-owner/cross-tenant drafts, a real twenty-
+minute session expiry with no clock override, invalid/oversized/unsupported formula/
+structure/reference changes, and rollback to the immutable accepted Gate 6A build.
+Only actual same-HEAD artifact PASS entries count as executed acceptance. Directory
+permission denial is not a full-disk simulation; full-disk recovery remains Not tested.
+The rollback probe copies the key ring, preserves the live encrypted draft, uses a
+separate loopback ingress and reports functional XLSX recovery independently from
+whether the old build maintains hardened key protection. Gate 6A is not preapproved
+as a hardened rollback target. A functional rollback does not waive its startup-write
+or key-encryption limitations. These blockers keep the PR Draft.
 
 ## Handoff
 

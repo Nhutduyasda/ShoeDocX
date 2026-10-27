@@ -56,7 +56,11 @@ internal static class Gate6BNative
             }
             report["actual_native_production_started"]=ready;
             report["blocker"]="LocalDB is not a verified certificate-managed TCP SQL endpoint or separate SQL-login runtime; native proxy/least-privilege parity not established";
-            if(ready){report["trusted_https_health"]=true;report["unauthenticated_authorization"]=(await client.GetAsync($"https://localhost:{port}/api/auth/me")).StatusCode==HttpStatusCode.Unauthorized;}
+            if(ready){
+                await using var connection=new SqlConnection(runtime.ConnectionString);await connection.OpenAsync();
+                await using var query=new SqlCommand("SELECT net_transport,encrypt_option FROM sys.dm_exec_connections WHERE session_id=@@SPID",connection);
+                await using var reader=await query.ExecuteReaderAsync();if(await reader.ReadAsync()){report["sql_transport"]=reader.GetString(0);report["sql_encrypt_option"]=reader.GetString(1);}
+                report["trusted_https_health"]=true;report["unauthenticated_authorization"]=(await client.GetAsync($"https://localhost:{port}/api/auth/me")).StatusCode==HttpStatusCode.Unauthorized;}
         } catch(Exception e) {report["exception_type"]=e.GetType().Name;}
         finally {
             if(process is {HasExited:false}){process.Kill(entireProcessTree:true);await process.WaitForExitAsync();}

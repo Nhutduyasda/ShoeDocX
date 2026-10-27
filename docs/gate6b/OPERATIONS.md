@@ -20,7 +20,7 @@ not an approved production configuration.
 | SQL admin/migration/runtime credentials | Separate principals; admin for isolated provisioning/restore, migration db_owner only during explicit maintenance, runtime DML only; no sa application login |
 | Draft AES-GCM key map + active ID | 32-byte values, stable IDs; retain all keys for nonexpired drafts and retained backups; unknown/wrong key fails closed |
 | DataProtection key ring | Restricted directory AND ProtectKeysWithCertificate; back up encrypted XML plus protected PFX and recovery password separately |
-| PFX / TLS keys | 0400 service account, no image layers; renew certificate and preserve old decryption certs until old protected keys/backups retire |
+| Separate protection PFX / ingress TLS / SQL TLS keys | 0400 service account, no image layers; renew certificate and preserve old decryption certs until old protected keys/backups retire |
 | Bootstrap credential | Disabled in ordinary startup, explicit initialize command only; disable immediately after controlled creation |
 | Backup key | Random 32 bytes, separate custodian/store from authenticated encrypted archive; not uploaded with backup |
 | Optional API keys | Empty in staging; no OCR/OpenAI network access or paid use authorized |
@@ -64,14 +64,18 @@ verify SQL integrity and stop containers. In-memory sessions/approvals disappear
 saved drafts resume only after reauthentication and renewed confirmation/review/approval.
 Deploy an approved immutable build only after a verified recovery checkpoint. Existing
 Compose is a single instance and does not promise zero downtime. Previous-build rollback
-is NOT TESTED; do not claim compatibility from a successful forward migration. Preserve
+has an explicit immutable Gate 6A probe; its actual functional/key-protection results
+are in gate6b-previous-build-rollback.json. Do not claim compatibility from a successful
+forward migration or approve a build that writes new unencrypted protection keys. Preserve
 current database/keys and block release until previous build + restored schema is tested.
 
 ## Backup and restore
 
 Pause writes for the isolated test checkpoint. SQL BACKUP WITH CHECKSUM covers both
 contexts and encrypted drafts. Include actual file/template storage, protected key
-ring, full AES key map/IDs, PFX and relevant config metadata. Put recovery set in an
+ring, full AES key map/IDs, independent protection PFX, ingress/SQL TLS certificates and private keys, and relevant
+protected config/operator metadata. The test root CA signing key and the backup
+decryption key are independent custodial material, not bundled with the archive. Put recovery set in an
 AES-256-GCM envelope; hold the 32-byte backup key separately. Store no unencrypted
 recovery archive outside restricted temp. Encrypted backup alone is useless without
 a tested key custodian and expiration-aware recovery policy.
@@ -124,7 +128,7 @@ an exporter/dashboard/alert pipeline is NOT IMPLEMENTED. Do not expose public me
 alerting guarantee is claimed. Raw logs remain private. An end-to-end telemetry consumer and alert thresholds still
 need operational verification before production.
 
-Open risks: Windows validated SQL TLS parity; complete fault inventory; table-scoped
-runtime privileges; multi-certificate rotation; previous-build rollback; safe metrics
+Open risks: Windows validated SQL TLS and native proxy parity; full-disk recovery; table-scoped
+runtime privileges; multi-certificate rotation; hardened previous-build rollback compatibility; safe metrics
 coverage; generic historical development Compose; no persistent hosted endpoint;
 no real participant feedback; dynamic provider pricing; no measured host capacity or SLA.

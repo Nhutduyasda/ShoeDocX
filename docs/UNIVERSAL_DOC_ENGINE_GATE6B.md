@@ -18,7 +18,7 @@ incomplete. No hosted staging or real participant pilot exists.
 | Runtime least privilege | Implemented | DML roles, no db_owner or CREATE TABLE, history writes denied; execution pending |
 | Encrypted backup and complete instance reconstruction | Implemented | SQL CHECKSUM + AES-GCM bundle + ciphertext fingerprint; execution pending |
 | Full fault injection / rollback | Implemented | Explicit Production fault probes and immutable previous-build probe; exact-HEAD outcome required |
-| Windows native Production | Tested | Previous execution starts real API, trusted HTTPS health and unauthenticated denial; final HEAD repeats it |
+| Windows native Production | Blocked | Earlier LocalDB observation used named pipes with encrypt_option FALSE; hardened Production rejects IPC / implicit transport |
 | Windows production SQL TLS parity | Blocked | LocalDB has no verified managed TCP TLS endpoint / separate runtime SQL login / native proxy parity |
 | Real office participant pilot | Owner approval required | INTERNAL PILOT NOT YET EXECUTED |
 | Hosted staging | Owner approval required | No resource provisioned, existing production assets untouched |
@@ -52,7 +52,9 @@ not production TLS acceptance. Do not weaken ProductionConfiguration for it.
 
 ## Runtime changes and security review
 
-Production now requires a certificate path for DataProtection, loads the PFX through
+Production requires an explicit tcp: SQL endpoint, Encrypt enabled and TrustServerCertificate false. Encrypt=True by itself does not prove TLS for local IPC. A bounded direct connection probe runs before EF startup retries and never opens a listener after a failed probe.
+
+Production also requires a certificate path for DataProtection, loads the PFX through
 X509CertificateLoader and protects persisted key material. Missing/unreadable/wrong
 PFX fails startup. PFX/private password and AES keys require protected operator storage;
 file persistence alone does not protect their master secrets. Backups wrap the complete

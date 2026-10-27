@@ -55,7 +55,7 @@ public static class ProductionConfiguration
         {
             if (string.IsNullOrWhiteSpace(connection)) throw new ArgumentException();
             var value = new SqlConnectionStringBuilder(connection);
-            if (string.IsNullOrWhiteSpace(value.DataSource) || string.IsNullOrWhiteSpace(value.InitialCatalog) ||
+            if (!value.DataSource.StartsWith("tcp:", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(value.InitialCatalog) ||
                 value.TrustServerCertificate || value.Encrypt == SqlConnectionEncryptOption.Optional || value.AttachDBFilename.Length != 0)
                 throw new ArgumentException();
         }

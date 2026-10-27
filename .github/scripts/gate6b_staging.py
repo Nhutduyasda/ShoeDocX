@@ -75,11 +75,11 @@ def verify():
             # CI host and API image trust exactly this ephemeral CA; negative trust control below.
             command(['sudo','cp',str(private/'ca.crt'),'/usr/local/share/ca-certificates/gate6b.crt'])
             command(['sudo','update-ca-certificates'])
-            sqlbase='Server=172.30.86.2;Database=master;User ID=sa;Password='+sa+';Encrypt=True;TrustServerCertificate=False;HostNameInCertificate=sql;Connect Timeout=5'
+            sqlbase='Server=tcp:172.30.86.2;Database=master;User ID=sa;Password='+sa+';Encrypt=True;TrustServerCertificate=False;HostNameInCertificate=sql;Connect Timeout=5'
             operator={'adminConnection':sqlbase,'database':database,'migrationPassword':migration,'runtimePassword':runtime,'userPassword':user}
             operatorpath=write('operator.json',json.dumps(operator));env['GATE6B_OPERATOR']=str(operatorpath)
             def configuration(login,secret):return {
-                'ConnectionStrings':{'DefaultConnection':f'Server=sql;Database={database};User ID={login};Password={secret};Encrypt=True;TrustServerCertificate=False;Connect Timeout=5'},
+                'ConnectionStrings':{'DefaultConnection':f'Server=tcp:sql;Database={database};User ID={login};Password={secret};Encrypt=True;TrustServerCertificate=False;Connect Timeout=5'},
                 'Jwt':{'Key':__import__('base64').b64encode(os.urandom(48)).decode(),'Issuer':'gate6b','Audience':'gate6b'},'AllowedHosts':'localhost',
                 'Xnk':{'AllowedOrigins':['https://localhost:8443'],'CustomsStoragePath':'/app/data/customs','ShipmentTemplatePath':'/app/Templates/synthetic.xlsx'},
                 'Ingress':{'KnownProxies':['172.30.86.4']},

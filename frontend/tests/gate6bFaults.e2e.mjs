@@ -5,7 +5,7 @@ import {readFile,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const {request,chromium}=await import(pathToFileURL(join(resolve(process.env.STUDIO_PLAYWRIGHT_MODULE),'index.mjs')).href);
-const base=process.env.STUDIO_BASE_URL,folder=process.env.STUDIO_EVIDENCE_DIR,checks=[];
+const base=process.env.STUDIO_BASE_URL,folder=process.env.STUDIO_EVIDENCE_DIR,checks=[],measurements={};
 const mode=process.env.GATE6B_FAULT_MODE??'normal';
 const client=await request.newContext({baseURL:base,...(['wrong-dp','sql-outage'].includes(mode)?{storageState:join(folder,'old-protection-state.json')}:{})});
 async function login(c,user='admin-a'){const r=await c.post('/api/auth/login',{data:{username:user,password:process.env.STUDIO_PASSWORD}});assert.equal(r.status(),200);return (await r.json()).token;}
@@ -74,13 +74,13 @@ try {
    const exportData={expectedVersion:current.session.version};const beforeDownload=await client.post(path+'/export',{headers,data:exportData});assert.equal(beforeDownload.status(),200);const original=await beforeDownload.body();
    const browser=await chromium.launch({headless:true});let interrupted=false;
    try {
-     const context=await browser.newContext({storageState:await client.storageState()});const page=await context.newPage();await page.goto(base+'/api/health');
+     const context=await browser.newContext({storageState:await client.storageState()});const page=await context.newPage();await page.goto(base+'/api/health');const channel=await context.newCDPSession(page);await channel.send('Network.enable');await channel.send('Network.emulateNetworkConditions',{offline:false,latency:0,downloadThroughput:1024,uploadThroughput:65536});
      const observed=await page.evaluate(async ({url,csrf,data})=>{
        const controller=new AbortController();const response=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Studio-CSRF':csrf},body:JSON.stringify(data),signal:controller.signal});
        if(response.status!==200)return {status:response.status,chunkReceived:false};
-       const first=await response.body.getReader().read();controller.abort();return {status:response.status,chunkReceived:!first.done&&first.value.length>0};
+       const first=await response.body.getReader().read();controller.abort();return {status:response.status,chunkReceived:!first.done&&first.value.length>0,chunkBytes:first.value?.length??0};
      },{url:base+path+'/export',csrf,data:exportData});
-     assert.equal(observed.status,200);assert.ok(observed.chunkReceived);interrupted=true;await context.close();
+     measurements.interruptedDownload={receivedBytes:observed.chunkBytes,totalBytes:original.length,downloadBytesPerSecond:1024};assert.equal(observed.status,200);assert.ok(observed.chunkReceived);assert.ok(observed.chunkBytes<original.length);interrupted=true;await context.close();
    } finally {await browser.close();}
    assert.ok(interrupted);
    const retry=await client.post(path+'/export',{headers,data:exportData});assert.equal(retry.status(),200);assert.deepEqual(await retry.body(),original);assert.equal((await client.get('/api/health')).status(),200);checks.push('CLIENT_DOWNLOAD_INTERRUPTED_AUTHORIZED_RETRY_IDENTICAL_NO_STATE_LOSS');
@@ -89,10 +89,10 @@ try {
    await writeFile(join(folder,'gate6b-draft.json'),JSON.stringify(newest.draft));
    await login(client);const freshCsrf=await boot(client);await client.storageState({path:join(folder,'old-protection-state.json')});await writeFile(join(folder,'old-protection-csrf.json'),JSON.stringify({csrf:freshCsrf}));
  }
- await writeFile(join(folder,`gate6b-faults-${mode}.json`),JSON.stringify({status:'PASS',checks},null,2));
+ await writeFile(join(folder,`gate6b-faults-${mode}.json`),JSON.stringify({status:'PASS',checks,measurements},null,2));
 }
 }catch(error){
- const failure={mode,status:'FAIL',checks,errorType:error.name,sourceLines:[...String(error.stack).matchAll(/gate6bFaults\.e2e\.mjs:(\d+):\d+/g)].map(m=>Number(m[1])),networkCodes:['EPIPE','ECONNRESET','ECONNREFUSED','CERTIFICATE_VERIFY_FAILED'].filter(code=>String(error.message).includes(code))};
+ const failure={mode,status:'FAIL',checks,measurements,errorType:error.name,sourceLines:[...String(error.stack).matchAll(/gate6bFaults\.e2e\.mjs:(\d+):\d+/g)].map(m=>Number(m[1])),networkCodes:['EPIPE','ECONNRESET','ECONNREFUSED','CERTIFICATE_VERIFY_FAILED'].filter(code=>String(error.message).includes(code))};
  if(Number.isInteger(error.actual)&&error.actual>=100&&error.actual<=599)failure.actualHttpStatus=error.actual;
  if(Number.isInteger(error.expected)&&error.expected>=100&&error.expected<=599)failure.expectedHttpStatus=error.expected;
  await writeFile(join(folder,`gate6b-failure-${mode}.json`),JSON.stringify(failure));console.error('GATE6B_FAULT_FAILED',mode,error.name);process.exitCode=1;

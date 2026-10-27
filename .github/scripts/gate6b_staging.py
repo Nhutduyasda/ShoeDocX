@@ -87,7 +87,7 @@ def verify():
                 'UniversalDocDrafts':{'Enabled':True,'ActiveKeyId':'synthetic-v1','Keys':{'synthetic-v1':__import__('base64').b64encode(os.urandom(32)).decode()}},
                 'UniversalDocGate4A':{'Users':{'admin-a':'synthetic-a','other-a':'synthetic-a','clerk-a':'synthetic-a','admin-b':'synthetic-b'}},
                 'Database':{'ApplyMigrationsOnStartup':False},'BootstrapAdmin':{'Enabled':False},'DevelopmentUsers':{'Enabled':False},
-                'Logging':{'LogLevel':{'Default':'Warning','Microsoft.EntityFrameworkCore':'Warning'}}}
+                'Logging':{'LogLevel':{'Default':'Warning','Program':'Information','Microsoft.EntityFrameworkCore':'Warning'}}}
             fixture=private/'fixtures';op('fixtures',fixture)
             shutil.copy2(fixture/'A-1-false-none.xlsx',private/'templates/synthetic.xlsx')
             write('data/customs/synthetic-attachment.txt','SYNTHETIC RECOVERY SENTINEL')
@@ -241,13 +241,22 @@ def verify():
             shutil.copy2(private/'browser/gate6b-faults-sql-outage.json',EVIDENCE/'gate6b-sql-outage.json')
             cp('start','sql');ready();mark('sql_outage_controlled_health_and_recovery')
             cp('stop','backend')
-            def reject_configuration(name,mutate,arguments=()):
+            def reject_configuration(name,mutate,arguments=(),image=None):
                 value=json.loads(json.dumps(config));mutate(value)
                 path=write('fault-'+name+'.json',json.dumps(value));path.chmod(0o400);command(['sudo','chown','1654:1654',str(path)])
-                result=cp('run','--rm','-v',str(path)+':/run/secrets/runtime.json:ro','backend',*arguments,expected=None,timeout=150)
+                selected=compose
+                if image:
+                    override=write('fault-image-'+name+'.json',json.dumps({'services':{'backend':{'image':image}}}))
+                    selected=compose+['-f',str(override)]
+                try:
+                    result=command(selected+['run','--rm','-v',str(path)+':/run/secrets/runtime.json:ro','backend',*arguments],expected=None,timeout=45)
+                except subprocess.TimeoutExpired as failure:
+                    output=(failure.stdout or b'').decode(errors='replace')
+                    report['startup_rejection_unproven']={'case':name,'initialization_completed':'Database initialized and verified successfully.' in output}
+                    raise AssertionError('STARTUP_REJECTION_NOT_PROVEN_'+name) from None
                 assert result.returncode!=0,'FAULT_CONFIGURATION_ACCEPTED_'+name
                 diagnostic=result.stdout.decode(errors='replace')
-                expected={'unauthorized-maintenance':['MAINTENANCE_AUTHORIZATION_REQUIRED'],'automatic-migration':['PRODUCTION_AUTOMIGRATION_FORBIDDEN'],'bootstrap':['BOOTSTRAP_REQUIRES_EXPLICIT_INITIALIZATION'],'sql-auth':['PRODUCTION_SQL_STARTUP_UNAVAILABLE','PRODUCTION_SQL_STARTUP_TIMEOUT'],'sql-certificate':['PRODUCTION_SQL_STARTUP_UNAVAILABLE','PRODUCTION_SQL_STARTUP_TIMEOUT'],'missing-aes':['DRAFT_CONFIGURATION_UNAVAILABLE'],'wrong-key-id':['DRAFT_CONFIGURATION_UNAVAILABLE'],
+                expected={'unauthorized-maintenance':['MAINTENANCE_AUTHORIZATION_REQUIRED'],'automatic-migration':['PRODUCTION_AUTOMIGRATION_FORBIDDEN'],'bootstrap':['BOOTSTRAP_REQUIRES_EXPLICIT_INITIALIZATION'],'sql-auth':['PRODUCTION_SQL_STARTUP_UNAVAILABLE','PRODUCTION_SQL_STARTUP_TIMEOUT'],'sql-certificate':['PRODUCTION_SQL_STARTUP_UNAVAILABLE','PRODUCTION_SQL_STARTUP_TIMEOUT'],'sql-certificate-name':['PRODUCTION_SQL_CONFIGURATION_INVALID'],'missing-aes':['DRAFT_CONFIGURATION_UNAVAILABLE'],'wrong-key-id':['DRAFT_CONFIGURATION_UNAVAILABLE'],
                     'wrong-dataprotection-password':['CryptographicException'],'missing-dataprotection-certificate':['CryptographicException','FileNotFoundException'],
                     'incomplete-config':['Jwt:Key must be supplied'],'missing-template':['REQUIRED_TEMPLATE_STORAGE_UNAVAILABLE'],
                     'missing-attachment-directory':['REQUIRED_STORAGE_UNAVAILABLE'],'storage-permission':['REQUIRED_STORAGE_UNAVAILABLE']}[name]
@@ -257,7 +266,8 @@ def verify():
             reject_configuration('automatic-migration',lambda v:v['Database'].update(ApplyMigrationsOnStartup=True))
             reject_configuration('bootstrap',lambda v:v['BootstrapAdmin'].update(Enabled=True))
             reject_configuration('sql-auth',lambda v:v['ConnectionStrings'].update(DefaultConnection=v['ConnectionStrings']['DefaultConnection'].replace(runtime,password())))
-            reject_configuration('sql-certificate',lambda v:v['ConnectionStrings'].update(DefaultConnection=v['ConnectionStrings']['DefaultConnection']+';HostNameInCertificate=wrong.invalid'))
+            reject_configuration('sql-certificate-name',lambda v:v['ConnectionStrings'].update(DefaultConnection=v['ConnectionStrings']['DefaultConnection']+';HostNameInCertificate=wrong.invalid'))
+            reject_configuration('sql-certificate',lambda v:None,image='gate6b-api')
             reject_configuration('missing-aes',lambda v:v['UniversalDocDrafts'].update(Keys={}))
             reject_configuration('wrong-key-id',lambda v:v['UniversalDocDrafts'].update(ActiveKeyId='missing-id'))
             reject_configuration('wrong-dataprotection-password',lambda v:v['DataProtection'].update(CertificatePassword='incorrect'))

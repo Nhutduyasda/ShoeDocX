@@ -23,4 +23,7 @@ public sealed class Gate6BTests
     [InlineData("Server=sql;Database=synthetic;Integrated Security=True;Encrypt=True;TrustServerCertificate=False")]
     public void ProductionRejectsImplicitOrNonTcpTransport(string connection) => Assert.Equal("PRODUCTION_SQL_CONFIGURATION_INVALID",
         Assert.Throws<InvalidOperationException>(()=>ProductionConfiguration.Validate(Config(new(){["ConnectionStrings:DefaultConnection"]=connection}),true)).Message);
+
+    [Fact] public void ProductionRejectsCertificateIdentityOverride() => Assert.Equal("PRODUCTION_SQL_CONFIGURATION_INVALID",
+        Assert.Throws<InvalidOperationException>(()=>ProductionConfiguration.Validate(Config(new(){["ConnectionStrings:DefaultConnection"]="Server=tcp:sql;Database=synthetic;Integrated Security=True;Encrypt=True;TrustServerCertificate=False;HostNameInCertificate=wrong.invalid"}),true)).Message);
 }

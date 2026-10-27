@@ -82,6 +82,10 @@ jobs:
         run: |
           export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
           python feature/.github/scripts/verify_gate6b.py
+      - name: Native Windows Production attempt without weakening SQL TLS
+        if: runner.os == 'Windows'
+        shell: bash
+        run: dotnet run --no-build --project feature/tests/Gate6BOperations/Gate6BOperations.csproj -- native "$GITHUB_WORKSPACE/verification-evidence/gate6b-windows-native.json"
       - name: Upload sanitized metadata only
         if: always()
         uses: actions/upload-artifact@v4

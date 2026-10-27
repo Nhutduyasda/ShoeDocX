@@ -6,6 +6,7 @@ services:
     environment:
       ACCEPT_EULA: 'Y'
       MSSQL_PID: Developer
+      MSSQL_MEMORY_LIMIT_MB: '2048'
       MSSQL_SA_PASSWORD: ${GATE6B_SQL_PASSWORD:?synthetic password required}
     volumes:
       - ${GATE6B_PRIVATE:?}/mssql.conf:/var/opt/mssql/mssql.conf:ro
@@ -16,6 +17,9 @@ services:
     networks:
       isolated:
         ipv4_address: 172.30.86.2
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 512
   backend:
     image: gate6b-api-trusted
     environment:
@@ -48,6 +52,9 @@ services:
     networks:
       isolated:
         ipv4_address: 172.30.86.4
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
 networks:
   isolated:
     internal: true

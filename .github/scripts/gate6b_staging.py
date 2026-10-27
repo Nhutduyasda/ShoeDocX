@@ -82,6 +82,7 @@ def verify():
             trust=private/'public-trust-context';trust.mkdir();shutil.copy2(private/'ca.crt',trust/'ca.crt')
             (trust/'Dockerfile').write_text('FROM gate6b-api\nUSER root\nCOPY ca.crt /usr/local/share/ca-certificates/gate6b.crt\nRUN update-ca-certificates\nUSER app\n')
             command(['docker','build','-t','gate6b-api-trusted',str(trust)])
+            cp('run','--rm','--no-deps','--user','0','--entrypoint','/bin/bash','sql','-c','chown 10001:0 /var/opt/mssql/data && chmod 700 /var/opt/mssql/data')
             cp('up','-d','sql')
             for _ in range(90):
                 result=cp('exec','-T','sql','/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-P',sa,'-C','-Q','SELECT 1',expected=None)
@@ -105,6 +106,9 @@ def verify():
             meta=json.loads(command(['docker','inspect',cp('ps','-q','backend').stdout.decode().strip()]).stdout)[0]
             assert meta['Config']['User']=='app' and meta['HostConfig']['ReadonlyRootfs']
             assert not meta['HostConfig']['PortBindings'];mark('nonroot_readonly_backend_no_published_port')
+            images=json.loads(command(['docker','image','inspect','gate6b-api','gate6b-api-trusted','gate6b-web','mcr.microsoft.com/mssql/server:2022-latest']).stdout)
+            report['images']=[{'id':v['Id'],'repo_digests':v.get('RepoDigests',[]),'user':v['Config'].get('User'),'architecture':v['Architecture']} for v in images]
+            cp('exec','-T','web','sh','-c','test ! -e /usr/local/bin/node && test ! -d /app/node_modules');mark('frontend_runtime_has_no_node_or_vite')
             env.update(STUDIO_BASE_URL='https://localhost:8443',STUDIO_EVIDENCE_DIR=str(private/'browser'),GATE6B_FIXTURES=str(fixture),STUDIO_PASSWORD=user,NODE_EXTRA_CA_CERTS=str(private/'ca.crt'))
             # Trust only the test CA for Chromium, never set ignoreHTTPSErrors.
             command(['mkdir','-p',str(Path.home()/'.pki/nssdb')])
@@ -146,6 +150,7 @@ def verify():
                     command(['sudo','chown','-R','1654:1654',str(private/'data'),str(private/'templates')])
                     for name in ('runtime.json','maintenance.json','protection.pfx'):command(['sudo','chown','1654:1654',str(private/name)])
                     command(['sudo','chown','-R','10001:0',str(private/'backup')])
+                    cp('run','--rm','--no-deps','--user','0','--entrypoint','/bin/bash','sql','-c','chown 10001:0 /var/opt/mssql/data && chmod 700 /var/opt/mssql/data')
                     cp('up','-d','sql')
                     for _ in range(90):
                         if cp('exec','-T','sql','/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-P',sa,'-C','-Q','SELECT 1',expected=None).returncode==0:break

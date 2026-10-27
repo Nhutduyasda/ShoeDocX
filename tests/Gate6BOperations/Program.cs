@@ -8,6 +8,8 @@ using ShoeExportInvoice.Api.Models.Entities;
 using ShoeExportInvoice.Tests.UniversalDocEngine;
 using ClosedXML.Excel;
 
+if(args[0]=="native"){await Gate6BNative.Run(args[1]);return;}
+
 // Disposable CI maintenance only. Never shipped in the backend image.
 var config = JsonDocument.Parse(File.ReadAllText(Environment.GetEnvironmentVariable("GATE6B_OPERATOR")!)).RootElement;
 var raw = config.GetProperty("adminConnection").GetString()!;

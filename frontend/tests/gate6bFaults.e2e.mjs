@@ -4,7 +4,7 @@ import https from 'node:https';
 import {readFile,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-const {request}=await import(pathToFileURL(join(resolve(process.env.STUDIO_PLAYWRIGHT_MODULE),'index.mjs')).href);
+const {request,chromium}=await import(pathToFileURL(join(resolve(process.env.STUDIO_PLAYWRIGHT_MODULE),'index.mjs')).href);
 const base=process.env.STUDIO_BASE_URL,folder=process.env.STUDIO_EVIDENCE_DIR,checks=[];
 const mode=process.env.GATE6B_FAULT_MODE??'normal';
 const client=await request.newContext({baseURL:base,...(['wrong-dp','sql-outage'].includes(mode)?{storageState:join(folder,'old-protection-state.json')}:{})});
@@ -68,17 +68,21 @@ try {
    }checks.push('UNSUPPORTED_STRUCTURE_AND_CHANGED_REFERENCE_EXAMPLE_REJECTED');
    const oversizedCookie=(await client.storageState()).cookies.map(c=>c.name+'='+c.value).join('; ');
    const oversizedStatus=await new Promise((resolve,reject)=>{
-     const outgoing=https.request(base+path+'/template',{method:'POST',family:4,headers:{...headers,Cookie:oversizedCookie,'Content-Type':'multipart/form-data; boundary=gate6b','Content-Length':22*1024*1024,Expect:'100-continue'}},response=>{response.resume();response.once('end',()=>{outgoing.destroy();resolve(response.statusCode);});});
+     const outgoing=https.request(base+path+'/template',{method:'POST',family:4,agent:false,headers:{...headers,Cookie:oversizedCookie,'Content-Type':'multipart/form-data; boundary=gate6b','Content-Length':22*1024*1024,Expect:'100-continue'}},response=>{response.resume();response.once('end',()=>{outgoing.destroy();resolve(response.statusCode);});});
      outgoing.once('continue',()=>{outgoing.destroy();reject(new Error('OVERSIZED_TRANSFER_ACCEPTED'));});outgoing.on('error',reject);outgoing.setTimeout(10000,()=>{outgoing.destroy();reject(new Error('OVERSIZED_HEADER_TIMEOUT'));});outgoing.flushHeaders();
    });assert.equal(oversizedStatus,413);checks.push('OVERSIZED_DECLARED_UPLOAD_REJECTED_BEFORE_BODY_TRANSFER');
    const exportData={expectedVersion:current.session.version};const beforeDownload=await client.post(path+'/export',{headers,data:exportData});assert.equal(beforeDownload.status(),200);const original=await beforeDownload.body();
-   const body=JSON.stringify(exportData),cookie=(await client.storageState()).cookies.map(c=>c.name+'='+c.value).join('; ');let interrupted=false;
-   await new Promise((resolve,reject)=>{
-     const outgoing=https.request(base+path+'/export',{method:'POST',family:4,headers:{...headers,Cookie:cookie,'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}},response=>{
-       if(response.statusCode!==200){reject(new Error('INTERRUPTED_EXPORT_STATUS'));response.destroy();return;}
-       response.on('error',()=>{});response.once('data',()=>{interrupted=true;response.destroy();outgoing.destroy();resolve();});response.once('end',()=>{if(!interrupted)reject(new Error('NO_DOWNLOAD_CHUNK'));});
-     });outgoing.on('error',error=>{if(!interrupted)reject(error);});outgoing.setTimeout(10000,()=>{outgoing.destroy();if(!interrupted)reject(new Error('INTERRUPTED_EXPORT_TIMEOUT'));});outgoing.end(body);
-   });assert.ok(interrupted);
+   const browser=await chromium.launch({headless:true});let interrupted=false;
+   try {
+     const context=await browser.newContext({storageState:await client.storageState()});const page=await context.newPage();await page.goto(base+'/api/health');
+     const observed=await page.evaluate(async ({url,csrf,data})=>{
+       const controller=new AbortController();const response=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Studio-CSRF':csrf},body:JSON.stringify(data),signal:controller.signal});
+       if(response.status!==200)return {status:response.status,chunkReceived:false};
+       const first=await response.body.getReader().read();controller.abort();return {status:response.status,chunkReceived:!first.done&&first.value.length>0};
+     },{url:base+path+'/export',csrf,data:exportData});
+     assert.equal(observed.status,200);assert.ok(observed.chunkReceived);interrupted=true;await context.close();
+   } finally {await browser.close();}
+   assert.ok(interrupted);
    const retry=await client.post(path+'/export',{headers,data:exportData});assert.equal(retry.status(),200);assert.deepEqual(await retry.body(),original);assert.equal((await client.get('/api/health')).status(),200);checks.push('CLIENT_DOWNLOAD_INTERRUPTED_AUTHORIZED_RETRY_IDENTICAL_NO_STATE_LOSS');
    const logout=await client.post('/api/auth/logout',{data:{}});assert.equal(logout.status(),204);
    const revoked=await request.newContext({baseURL:base,extraHTTPHeaders:{Authorization:'Bearer '+token}});assert.equal((await revoked.get('/api/auth/me')).status(),401);await revoked.dispose();checks.push('LOGOUT_REVOKES_BEARER_JWT');

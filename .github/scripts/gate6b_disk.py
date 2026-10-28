@@ -22,7 +22,10 @@ def verify(private,env,cp,op,command,evidence,mark):
             info=cp('exec','-T','-u','0',service,'sh','-c',"awk '$2==\""+path+"\" && $3==\"tmpfs\" {print $4}' /proc/mounts").stdout.decode()
             assert 'size='+str(limit*1024)+'k' in info,'BOUNDED_TMPFS_REQUIRED'
             full=cp('exec','-T','-u','0',service,'sh','-c','dd if=/dev/zero of='+filler+' bs=1048576 count='+str(limit+1),expected=None)
-            assert full.returncode!=0 and b'No space left on device' in full.stdout,'ENOSPC_NOT_OBSERVED'
+            diagnostic={'service':service,'exit':full.returncode,'actualENOSPC':b'No space left on device' in full.stdout,
+                'toolOutput':full.stdout.decode(errors='replace')[:1200]}
+            (evidence/'gate6b-disk-attempt.json').write_text(json.dumps(diagnostic,indent=2));print(json.dumps({'diskAttempt':diagnostic}),flush=True)
+            assert full.returncode!=0 and diagnostic['actualENOSPC'],'ENOSPC_NOT_OBSERVED'
             result['volumes'].append({'service':service,'limitMiB':limit,'actualENOSPC':True})
             browser(phase)
         finally:cp('exec','-T','-u','0',service,'rm','-f',filler,expected=None)

@@ -75,3 +75,10 @@
 .office-wizard:has(.visual-studio) .office-editing .uds-panel>footer {position:static}
 
 .office-wizard [id^=office-value-][aria-invalid=true] {border-color:#dc2626;background:#fef2f2}
+.office-step-guide {border-left:3px solid #2563eb;background:#f8faff;padding:14px 18px;margin:16px 0 24px;border-radius:0 8px 8px 0}
+.office-step-guide p {margin:6px 0}.office-step-guide ol {padding-left:22px}.office-step-guide li {margin:7px 0}.office-guide-goal {font-size:15px}.office-guide-next {border-top:1px solid #dbeafe;padding-top:10px;margin-top:12px}.office-guide-next button {margin-top:6px;min-height:44px}.office-step-guide summary,.office-formula-help summary {cursor:pointer;min-height:44px;display:list-item;padding:10px 0;font-weight:600}
+.office-journey {display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;padding:0!important}.office-journey li[aria-current=step] {color:#1d4ed8;font-weight:700}
+.uds .office-field-origin {font-weight:400;max-width:340px;white-space:normal;color:#475569;font-size:12px}.office-field-origin span {display:block;overflow-wrap:anywhere}.office-formula-help {border-bottom:1px solid #e2e8f0;margin-bottom:16px;padding-bottom:8px}
+.office-wizard .office-data-grid th:not(:first-child) {min-width:220px}
+@media(max-width:500px){.office-step-guide {padding:12px}.office-guide-next button {width:100%;margin-right:0;white-space:normal}}
+.office-wizard .office-data-grid th:first-child {min-width:54px;width:54px;white-space:nowrap}

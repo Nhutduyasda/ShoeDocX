@@ -5,10 +5,13 @@ test.beforeAll(async({request})=>{if(!process.env.UI_V2_PASSWORD)return;const r=
 test('actual XLSX canvas, visual schema and mapping, keyboard, paste, server validation and mobile bounds',async({page})=>{
   test.skip(!process.env.UI_V2_PASSWORD||!process.env.UI_V2_OFFICE_FIXTURE,'Requires genuine authenticated API and isolated synthetic SQL.');
   await page.context().addCookies(state.cookies);await page.goto('/universal-doc-studio');
+  await expect(page.getByRole('complementary',{name:'Hướng dẫn bước 1'})).toContainText('Giữ bố cục Excel');
   await page.getByLabel('Mẫu Excel đầu ra',{exact:true}).setInputFiles(process.env.UI_V2_OFFICE_FIXTURE!);
+  await page.getByRole('button',{name:'Đi đến thao tác đang chờ',exact:true}).click();await expect(page.getByRole('button',{name:'Tải và phân tích mẫu',exact:true})).toBeFocused();
   const uploaded=page.waitForResponse(r=>r.url().endsWith('/template')&&r.request().method()==='POST');await page.getByRole('button',{name:'Tải và phân tích mẫu',exact:true}).click();
   const session=await (await uploaded).json();expect(session.schemaDraft.templateSha256).toMatch(/^[a-f0-9]{64}$/i);
-  await page.getByRole('button',{name:'Xem cấu trúc Excel',exact:true}).click();
+  await page.getByRole('button',{name:'Tiếp tục: kiểm tra các mục',exact:true}).click();
+  await expect(page.getByRole('complementary',{name:'Hướng dẫn bước 2'})).toContainText('Quyết định chứng từ');
   const canvas=page.locator('.visual-studio');await expect(canvas.getByRole('gridcell',{name:'B1: CT-00000',exact:true})).toBeVisible();
   await canvas.getByRole('button',{name:'ThamChieu',exact:true}).click();await expect(canvas.getByRole('gridcell',{name:'A1: Synthetic reference 00123',exact:true})).toBeVisible();await canvas.getByRole('button',{name:'HoaDon',exact:true}).click();
   const header=session.schemaDraft.fields.find((f:{scope:string;label:string})=>f.scope==='Header'&&f.label==='Số phiếu');
@@ -34,7 +37,14 @@ test('actual XLSX canvas, visual schema and mapping, keyboard, paste, server val
   for(const width of [1440,1366,1024,390,360]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await page.locator('main.office-wizard').evaluate(e=>e.scrollTop=0);await page.screenshot({path:`../.audit-run/ui-v2/visual-excel/mapping-${width}.png`,fullPage:true});await canvas.locator('.visual-canvas').screenshot({path:`../.audit-run/ui-v2/visual-excel/canvas-${width}.png`});}
   await page.setViewportSize({width:1366,height:900});await canvas.screenshot({path:'../.audit-run/ui-v2/visual-excel/canvas-desktop.png'});
   const confirmation=page.waitForResponse(r=>r.url().endsWith('/mapping/confirm')&&r.request().method()==='POST');await page.getByRole('button',{name:'Xác nhận vị trí Excel',exact:true}).click();expect((await confirmation).status()).toBe(200);
-  await page.getByRole('button',{name:'Bước tiếp theo',exact:true}).click();
+  await page.getByRole('navigation',{name:'Các bước xử lý Excel'}).getByRole('button').nth(1).click();await expect(page.getByRole('button',{name:'Tiếp tục: chọn vị trí Excel',exact:true})).toBeVisible();await page.getByRole('button',{name:'Tiếp tục: chọn vị trí Excel',exact:true}).click();
+  await page.getByRole('button',{name:'Tiếp tục: nhập dữ liệu',exact:true}).click();
+  const guide=page.getByRole('complementary',{name:'Hướng dẫn bước 4'});await expect(guide).toContainText('Nhập nội dung cho chứng từ mới');
+  await expect(page.locator('.office-field-origin').filter({hasText:'Ghi vào: HoaDon!B4'})).toContainText('Nhãn trong mẫu: HoaDon!A1: Số phiếu');
+  await page.getByText('Vì sao cột trong Excel không có ô nhập ở đây?',{exact:true}).click();await expect(page.getByLabel('Ô công thức trên dòng mẫu')).toContainText('HoaDon!F6');
+  for(const width of [1366,390]){await page.setViewportSize({width,height:900});await guide.screenshot({path:`../.audit-run/ui-v2/visual-excel/guide-data-${width}.png`});await page.locator('.office-data-grid').screenshot({path:`../.audit-run/ui-v2/visual-excel/column-origin-${width}.png`});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);}
+  await page.setViewportSize({width:1366,height:900});
+  await page.getByRole('navigation',{name:'Các bước xử lý Excel'}).getByRole('button').nth(5).click();await expect(page.getByRole('complementary',{name:'Hướng dẫn bước 6'})).toContainText('Chưa đủ điều kiện xuất');await expect(page.getByRole('button',{name:'Tải Excel đã phê duyệt',exact:true})).toBeDisabled();await page.getByRole('button',{name:'Về bước 5: kiểm tra điều kiện',exact:true}).click();await page.getByRole('button',{name:'Về bước 4: xử lý dữ liệu',exact:true}).click();
   const first=page.getByLabel(`Dòng 1 ${detail.label}`,{exact:true});await first.focus();
   const text=Array.from({length:20},(_,i)=>`00${i+1}`).join('\n');
   await first.evaluate((el,text)=>{const transfer=new DataTransfer();transfer.setData('text/plain',text);el.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,clipboardData:transfer}));},text);

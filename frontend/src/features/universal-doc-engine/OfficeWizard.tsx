@@ -6,6 +6,7 @@ import { StudioApi, type OfficePreview, type StudioBootstrap, type StudioDraft, 
 import { OfficeData, OfficeFields, OfficeMapping, OfficeRules, type OfficeSection } from './OfficeEditors';
 import { OfficeRequestError, checkLabel, issueText, issueLocation, valueControlId, officeError, ruleText, typeLabel } from './officeModel';
 import { readWorkbook, type WorkbookEvidence } from './workbookPreview';
+import { OfficeStepGuide } from './OfficeStepGuide';
 import { WorksheetCanvas } from './WorksheetCanvas';
 const steps=['Chọn mẫu Excel','Xem cấu trúc','Chọn vị trí dữ liệu','Nhập và kiểm tra','Rà soát và phê duyệt','Xuất Excel'];
 const SESSION='universal-doc-office-session',LINK='universal-doc-office-draft-link';
@@ -78,13 +79,14 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
     {notice&&<p role="status" className="uds-success">{notice}</p>}
     {unsaved&&<div role={navigationBlocked?'alert':'status'} className="uds-error office-pending">{formsDirty&&<strong>Có thay đổi chưa áp dụng. </strong>}{pendingItems.map(item=><p key={item.target}>{item.message}</p>)}</div>}
     {session&&<aside className="uds-state"><strong>Trạng thái máy chủ:</strong> vị trí {session.mappingState==='UserConfirmed'?'đã xác nhận':'chưa xác nhận'}; dữ liệu {session.reviewState==='Approved'?'đã phê duyệt':session.reviewState==='ReadyForApproval'?'đã rà soát, chờ phê duyệt':'chưa hoàn tất rà soát/phê duyệt'}.
-      <button disabled={busy||unsaved} onClick={()=>void run(async()=>{await refresh(await api.read(session.id));if(boot?.draftsEnabled)setDrafts(await api.drafts());setSavedVersion(null);setNotice('Đã tải trạng thái mới nhất từ máy chủ.');})}>Tải lại trạng thái</button>
+      <button id="office-refresh" disabled={busy||unsaved} onClick={()=>void run(async()=>{await refresh(await api.read(session.id));if(boot?.draftsEnabled)setDrafts(await api.drafts());setSavedVersion(null);setNotice('Đã tải trạng thái mới nhất từ máy chủ.');})}>Tải lại trạng thái</button>
       <button disabled={busy||unsaved} onClick={()=>void run(async()=>{await api.remove(session);setSession(null);setPreview(null);setBinding(null);setSavedVersion(null);setLoaded(null);setLoadedExample(null);sessionStorage.removeItem(SESSION);setStep(0);})}>Đóng phiên hiện tại</button>
     </aside>}
     <section className="uds-panel" aria-busy={busy}><h2>{step+1}. {steps[step]}</h2>
+    <OfficeStepGuide step={step} session={session} preview={current} unsaved={unsaved} pendingTarget={pendingItems[0]?.target} templateSelected={!!template} busy={busy} onGo={next=>{if(next.step!==undefined){navigate(next.step);return;}const requested=next.target==='template-picker'?templateInput.current:document.getElementById(next.target??'');const element=requested instanceof HTMLButtonElement&&requested.disabled?workspaceRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]'):requested;element?.scrollIntoView({block:'center'});element?.focus({preventScroll:true});}}/>
     {step===0&&<>
       <p><strong>Mẫu đầu ra:</strong> tệp .xlsx có bố cục muốn giữ. <strong>Ví dụ đã điền:</strong> tệp cùng cấu trúc, có 1–5 dòng dữ liệu minh họa, không phải kết quả đọc ảnh/PDF.</p>
-      <p>Giới hạn: 4 sheet tổng, 3 sheet dữ liệu, một dòng mẫu mỗi sheet, 20 dòng đầu ra, 8 quy tắc, 2.000 ô đã phân tích; không quá dòng 1.000/cột AF. Tổng mẫu, ví dụ và nguồn tối đa 2 MiB. Không hỗ trợ macro, liên kết ngoài hoặc công thức ngoài ngữ pháp được chấp nhận.</p>
+      <details className="office-preview-details"><summary>Giới hạn mẫu được hỗ trợ</summary><p>Giới hạn: 4 sheet tổng, 3 sheet dữ liệu, một dòng mẫu mỗi sheet, 20 dòng đầu ra, 8 quy tắc, 2.000 ô đã phân tích; không quá dòng 1.000/cột AF. Tổng mẫu, ví dụ và nguồn tối đa 2 MiB. Không hỗ trợ macro, liên kết ngoài hoặc công thức ngoài ngữ pháp được chấp nhận.</p></details>
       <form className="uds-inline office-template-form" onSubmit={e=>{e.preventDefault();if(template)void run(uploadTemplate);}}><FileDrop removeLabel="Bỏ tệp mẫu đã chọn" file={template} disabled={busy||formsDirty} inputRef={templateInput} onChange={file=>{setTemplate(file);setNotice('');setNavigationBlocked(false);}} onError={setError}/><button id="office-template-upload" disabled={busy||formsDirty||!template}>{busy&&template?'Đang tải và phân tích…':'Tải và phân tích mẫu'}</button></form>
 
       {loaded&&<button disabled={busy} onClick={()=>navigate(1)}>Xem cấu trúc Excel</button>}
@@ -104,9 +106,9 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
     </>}
     {step===2&&session&&<>{session.mapping&&editorProps?<OfficeMapping key={editorKey} {...editorProps}/>:<p>Áp dụng lựa chọn các mục dữ liệu ở bước 2 trước.</p>}
       {editorProps&&session.mapping&&<OfficeRules key={`rules:${editorKey}`} {...editorProps}/>}
-      <button disabled={busy||unsaved||session.mappingState!=='DraftSuggested'||session.schemaDraft?.state!=='ReadyForConfirmation'} onClick={()=>action('mapping/confirm')}>Xác nhận vị trí Excel</button>
+      <button id="office-confirm-mapping" disabled={busy||unsaved||session.mappingState!=='DraftSuggested'||session.schemaDraft?.state!=='ReadyForConfirmation'} onClick={()=>action('mapping/confirm')}>Xác nhận vị trí Excel</button>
       <p>Xác nhận chỉ áp dụng cho cấu hình hiện tại. Đổi sheet, mục, quy tắc hoặc ví dụ cần xác nhận lại.</p></>}
-    {step===3&&session&&editorProps&&<><h3>Quy tắc hiện tại</h3><ul>{session.validationRules.map(r=><li key={r.id}>{ruleText(r,session)}</li>)}</ul><OfficeData key={`data:${editorKey}`} {...editorProps}/></>}
+    {step===3&&session&&editorProps&&<><h3>Quy tắc hiện tại</h3>{!session.validationRules.length&&<p>Chưa cấu hình quy tắc tính toán riêng. Máy chủ vẫn kiểm tra dữ liệu theo các mục đã chọn; công thức trong mẫu không tự trở thành quy tắc kiểm tra.</p>}<ul>{session.validationRules.map(r=><li key={r.id}>{ruleText(r,session)}</li>)}</ul><OfficeData key={`data:${editorKey}`} {...editorProps}/></>}
     {step>=3&&session&&<>
       <h3>Kết quả kiểm tra từ máy chủ</h3><p className="office-check-summary" data-passed={session.checks.length>0&&session.checks.every(c=>c.outcome==='Passed')}>{session.checks.filter(c=>c.outcome==='Passed').length} đạt · {session.checks.filter(c=>c.outcome==='NotEvaluated').length} chưa đánh giá · {session.checks.filter(c=>c.outcome!=='Passed'&&c.outcome!=='NotEvaluated').length} chưa đạt.</p><details className="office-check-details"><summary>Chi tiết {session.checks.length} kiểm tra máy chủ</summary><ul aria-label="Kết quả kiểm tra">{session.checks.map(c=><li key={c.id}>{checkLabel(c.id,session)}: {c.outcome==='Passed'?'Đạt':c.outcome==='NotEvaluated'?'Chưa đánh giá':'Chưa đạt'} {c.required?'· Bắt buộc':''}</li>)}</ul></details>
       {!session.checks.length&&<p>Chưa có kết quả; hãy gửi dữ liệu để máy chủ kiểm tra.</p>}
@@ -117,11 +119,11 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
     {step===4&&session&&<><h3>Tóm tắt trước phê duyệt</h3><p>Sheet: {session.sheets.join(', ')}. Sheet nhận dữ liệu: {session.mappings.map(s=>s.sheet).join(', ')||'Chưa chọn'}.</p>
       <p>Vị trí: {current?.readiness.mappingConfirmed?'Đã xác nhận trên máy chủ':'Cần xác nhận'}. Kiểm tra dữ liệu: {current?.readiness.dataValid?'Đạt điều kiện dữ liệu trên máy chủ':'Chưa đạt/chưa kiểm tra'}.</p>
       {!session.canReview&&<p>Tài khoản này không có quyền hoàn tất rà soát.</p>}{!session.canApprove&&<p>Tài khoản này không có quyền phê duyệt hoặc xuất tài liệu.</p>}
-      <button disabled={busy||unsaved||!current?.readiness.canReviewNow} onClick={()=>action('review')}>Hoàn tất rà soát</button><button disabled={busy||unsaved||!current?.readiness.canApproveNow} onClick={()=>action('approve')}>Phê duyệt dữ liệu</button>
+      <button id="office-review" disabled={busy||unsaved||!current?.readiness.canReviewNow} onClick={()=>action('review')}>Hoàn tất rà soát</button><button id="office-approve" disabled={busy||unsaved||!current?.readiness.canApproveNow} onClick={()=>action('approve')}>Phê duyệt dữ liệu</button>
     </>}
-    {step>=4&&session&&<ul aria-label="Điều kiện còn thiếu">{current?.readiness.blockers.map(code=><li key={code}>{officeError(code)}</li>)}</ul>}
+    {step>=4&&session&&<ul id="office-readiness" tabIndex={-1} aria-label="Điều kiện còn thiếu">{current?.readiness.blockers.map(code=><li key={code}>{officeError(code)}</li>)}</ul>}
     {step===5&&session&&<><p role="status">{current?.readiness.canExport&&!unsaved?'Máy chủ xác nhận đủ điều kiện xuất ở phiên bản hiện tại.':'Chưa đủ điều kiện xuất Excel. Xử lý các điều kiện còn thiếu và thay đổi chưa áp dụng.'}</p>
-      <button disabled={busy||unsaved||!current?.readiness.canExport} onClick={()=>void run(async()=>{const bytes=await api.export(session);if(bytes.size===0)throw new OfficeRequestError('REQUEST_FAILED');download(bytes);await refresh(await api.read(session.id));setNotice('Đã nhận tệp Excel từ máy chủ và bắt đầu tải xuống.');})}>Tải Excel đã phê duyệt</button>
+      <button id="office-export" disabled={busy||unsaved||!current?.readiness.canExport} onClick={()=>void run(async()=>{const bytes=await api.export(session);if(bytes.size===0)throw new OfficeRequestError('REQUEST_FAILED');download(bytes);await refresh(await api.read(session.id));setNotice('Đã nhận tệp Excel từ máy chủ và bắt đầu tải xuống.');})}>Tải Excel đã phê duyệt</button>
       <p>Máy chủ kiểm tra lại quyền, phiên bản, thời hạn và phê duyệt ngay trước khi trả bytes. Thông tin xem trước không thay thế bước này.</p></>}
     <footer className="uds-inline"><button disabled={busy||step===0} onClick={()=>navigate(step-1)}>Bước trước</button><button disabled={busy||step===5} onClick={()=>navigate(step+1)}>Bước tiếp theo</button></footer>
     </section>

@@ -47,3 +47,12 @@ The before image comes from the immutable baseline source and the same synthetic
 - [After: mobile mapping at 390 px](visual-excel/after-mapping-390.png).
 
 See [Vietnamese testing guide](VISUAL_EXCEL_TESTING_VI.md), [feature matrix](FEATURE_PARITY_MATRIX.md), and the visual screenshots in `visual-excel/`.
+
+
+## Guidance and field provenance follow-up
+
+Each of the six steps now explains its purpose, two concrete tasks, expected result and a next action derived from the current acknowledged state. Navigation helpers use the existing unsaved guard; action helpers focus the existing control rather than making an extra API mutation. The expandable journey explains Apply, mapping confirmation and durable drafts. Unsupported-template limits are expandable so the first task stays prominent.
+
+Step 4 shows original candidate labels and coordinates independently from the currently applied destination. Multiple destinations remain visible; unresolved label evidence is listed as candidates. A confirmed schema is recognized when returning to step 2. The grid explains that original sample values are not imported automatically, and that UI row numbers are not Excel row numbers. Formula help lists only actual formula cells on the mapped prototype row of the hash-matched local workbook; any nearby text is labeled as the cell above, without inventing business meaning. Without local evidence, it asks to reselect the original file. An empty custom-rule list is explained explicitly.
+
+The real-API visual test now exercises pending-action focus, guided navigation, source label vs changed destination, formula-cell explanations and mobile/desktop guide/provenance screenshots. Existing model and pending-upload suites remain unchanged. Automated verification does not replace a first-time-user usability session.

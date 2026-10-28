@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FileDrop } from '../../components/ui/file-drop';
+import { ConfirmAction } from '../../components/ui/confirm-action';
 import { useAuth } from '../../contexts/AuthContext';
 import { StudioApi, type OfficePreview, type StudioBootstrap, type StudioDraft, type StudioSession } from './studioApi';
 import { OfficeData, OfficeFields, OfficeMapping, OfficeRules, type OfficeSection } from './OfficeEditors';
@@ -12,6 +13,8 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
   const {user,logout}=useAuth();const [api]=useState(()=>new StudioApi(true));const [boot,setBoot]=useState<StudioBootstrap|null>(null);
   const [session,setSession]=useState<StudioSession|null>(null);const [preview,setPreview]=useState<OfficePreview|null>(null);
   const [step,setStep]=useState(0);const [busy,setBusy]=useState(true);const [error,setError]=useState('');const [notice,setNotice]=useState('');
+  const workspaceRef=useRef<HTMLElement>(null);
+  useEffect(()=>{workspaceRef.current?.scrollTo({top:0});},[step]);
   const templateInput=useRef<HTMLInputElement>(null), exampleInput=useRef<HTMLInputElement>(null);
   const [template,setTemplate]=useState<File|null>(null);const [example,setExample]=useState<File|null>(null);const [loaded,setLoaded]=useState<{name:string;size:number}|null>(null);
   const [drafts,setDrafts]=useState<StudioDraft[]>([]);const [binding,setBinding]=useState<Binding|null>(null);const [bindingLoaded,setBindingLoaded]=useState(false);const [savedVersion,setSavedVersion]=useState<number|null>(null);
@@ -44,7 +47,7 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
   const editorProps=session?{session,busy,apply,report}:null;
   const saved=!!session&&savedVersion===session.version&&!unsaved;
   const issues=session?.issues??[];
-  return <main className="uds office-wizard" lang="vi">
+  return <main ref={workspaceRef} className="uds office-wizard" lang="vi">
     <header className="uds-top"><div><p className="uds-eyebrow">SHOEDOCX · CÔNG CỤ CHỨNG TỪ</p><h1>Trợ lý Excel văn phòng</h1><p>Chọn mẫu, kiểm tra vị trí, nhập dữ liệu và xuất sau phê duyệt.</p></div><div><span>{user?.fullName}</span><a href="/">Không gian làm việc</a><button disabled={busy||unsaved} onClick={onDemo}>Synthetic Demo / kỹ thuật</button><button onClick={logout}>Đăng xuất</button></div></header>
     <p className="uds-banner">Chưa có OCR hoặc AI nhận dạng. Ví dụ Excel chỉ cung cấp gợi ý cấu trúc; dữ liệu nhập tay cần được kiểm tra. Phiên hết hạn sau 20 phút. Bản nháp đã lưu được giữ tối đa 7 ngày.</p>
     <div className="office-workspace"><nav className="uds-steps" aria-label="Các bước xử lý Excel">{steps.map((label,i)=><button disabled={busy} key={label} aria-current={step===i?'step':undefined} onClick={()=>navigate(i)}><span>{i+1}</span>{label}</button>)}</nav>
@@ -78,11 +81,11 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
       <p>Xác nhận chỉ áp dụng cho cấu hình hiện tại. Đổi sheet, mục, quy tắc hoặc ví dụ cần xác nhận lại.</p></>}
     {step===3&&session&&editorProps&&<><h3>Quy tắc hiện tại</h3><ul>{session.validationRules.map(r=><li key={r.id}>{ruleText(r,session)}</li>)}</ul><OfficeData key={`data:${editorKey}`} {...editorProps}/></>}
     {step>=3&&session&&<>
-      <h3>Kết quả kiểm tra từ máy chủ</h3><ul aria-label="Kết quả kiểm tra">{session.checks.map(c=><li key={c.id}>{checkLabel(c.id,session)}: {c.outcome==='Passed'?'Đạt':c.outcome==='NotEvaluated'?'Chưa đánh giá':'Chưa đạt'} {c.required?'· Bắt buộc':''}</li>)}</ul>
+      <h3>Kết quả kiểm tra từ máy chủ</h3><p className="office-check-summary" data-passed={session.checks.length>0&&session.checks.every(c=>c.outcome==='Passed')}>{session.checks.filter(c=>c.outcome==='Passed').length} đạt · {session.checks.filter(c=>c.outcome==='NotEvaluated').length} chưa đánh giá · {session.checks.filter(c=>c.outcome!=='Passed'&&c.outcome!=='NotEvaluated').length} chưa đạt.</p><details className="office-check-details"><summary>Chi tiết {session.checks.length} kiểm tra máy chủ</summary><ul aria-label="Kết quả kiểm tra">{session.checks.map(c=><li key={c.id}>{checkLabel(c.id,session)}: {c.outcome==='Passed'?'Đạt':c.outcome==='NotEvaluated'?'Chưa đánh giá':'Chưa đạt'} {c.required?'· Bắt buộc':''}</li>)}</ul></details>
       {!session.checks.length&&<p>Chưa có kết quả; hãy gửi dữ liệu để máy chủ kiểm tra.</p>}
       <ul aria-label="Các lỗi và cảnh báo">{issues.map((i,n)=>{return <li key={n}>{i.severity==='Warning'?'Cảnh báo':'Cần xử lý'}: {i.field?checkLabel(i.field,session):'Giá trị hoặc cấu hình'} — {issueText[i.code]??'Máy chủ phát hiện dữ liệu chưa phù hợp. Kiểm tra các mục đang dùng và quy tắc.'}</li>;})}</ul>
-      <h3>Xem dữ liệu và vị trí dự kiến</h3><p>Chỉ là thông tin từ phiên được cấp quyền, chưa tạo tệp Excel. Không dùng làm chứng từ đã phê duyệt.</p>
-      {current?<div className="uds-scroll" role="region" tabIndex={0} aria-label="Xem dữ liệu theo vị trí Excel"><table><thead><tr><th>Mục / dòng</th><th>Kiểu</th><th>Giá trị hiện tại</th><th>Vị trí dự kiến</th></tr></thead><tbody>{current.fields.map(f=><tr key={`${f.scope}:${f.row}:${f.key}`}><th>{f.label}{f.row!==null?` · dòng ${f.row+1}`:''}</th><td>{typeLabel[f.type]}</td><td>{f.missing?(f.required?'Thiếu giá trị bắt buộc':'Chưa nhập'):f.value}</td><td>{f.destinations.map(d=>`${d.sheet}!${d.cell}`).join('; ')||'Chưa có vị trí'}</td></tr>)}</tbody></table></div>:<p>Cần tải lại trạng thái để xem thông tin hiện tại.</p>}
+      <details className="office-preview-details" open={step===3}><summary>Xem dữ liệu và vị trí dự kiến</summary><p>Chỉ là thông tin từ phiên được cấp quyền, chưa tạo tệp Excel. Không dùng làm chứng từ đã phê duyệt.</p>
+      {current?<div className="uds-scroll" role="region" tabIndex={0} aria-label="Xem dữ liệu theo vị trí Excel"><table><thead><tr><th>Mục / dòng</th><th>Kiểu</th><th>Giá trị hiện tại</th><th>Vị trí dự kiến</th></tr></thead><tbody>{current.fields.map(f=><tr key={`${f.scope}:${f.row}:${f.key}`}><th>{f.label}{f.row!==null?` · dòng ${f.row+1}`:''}</th><td>{typeLabel[f.type]}</td><td>{f.missing?(f.required?'Thiếu giá trị bắt buộc':'Chưa nhập'):f.value}</td><td>{f.destinations.map(d=>`${d.sheet}!${d.cell}`).join('; ')||'Chưa có vị trí'}</td></tr>)}</tbody></table></div>:<p>Cần tải lại trạng thái để xem thông tin hiện tại.</p>}</details>
     </>}
     {step===4&&session&&<><h3>Tóm tắt trước phê duyệt</h3><p>Sheet: {session.sheets.join(', ')}. Sheet nhận dữ liệu: {session.mappings.map(s=>s.sheet).join(', ')||'Chưa chọn'}.</p>
       <p>Vị trí: {current?.readiness.mappingConfirmed?'Đã xác nhận trên máy chủ':'Cần xác nhận'}. Kiểm tra dữ liệu: {current?.readiness.dataValid?'Đạt điều kiện dữ liệu trên máy chủ':'Chưa đạt/chưa kiểm tra'}.</p>
@@ -103,9 +106,11 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
       {drafts.map((d,i)=><article className="uds-state" key={d.id}><h3>Bản nháp Excel {i+1}</h3><p>Cập nhật {new Date(d.updatedAt).toLocaleString('vi-VN')} · hết hạn {new Date(d.expiresAt).toLocaleString('vi-VN')}</p>
       {session&&binding?.sessionId===session.id&&binding.draft.id===d.id&&binding.draft.revision!==d.revision&&<><p>Bản nháp đã được yêu cầu khác cập nhật. Mở phiên bản mới hoặc chọn rõ thay thế ở lần lưu sau.</p><button disabled={busy||unsaved} onClick={()=>{setBinding({sessionId:session.id,draft:d});setSavedVersion(null);}}>Chọn thay thế bản nháp {i+1} ở lần lưu sau</button></>}
       <button disabled={busy||unsaved} aria-label={`Mở bản nháp ${i+1}`} onClick={()=>void run(async()=>{const s=await api.resumeDraft(d);await refresh(s);setBinding({sessionId:s.id,draft:d});setSavedVersion(null);setLoaded(null);setStep(1);setNotice('Đã mở bản nháp vào phiên mới. Cần xác nhận vị trí và lặp lại rà soát, phê duyệt.');})}>Mở bản nháp {i+1}</button>
-      <button disabled={busy||unsaved} aria-label={`Xóa bản nháp ${i+1}`} onClick={()=>void run(async()=>{await api.deleteDraft(d);setDrafts(await api.drafts());if(binding?.draft.id===d.id)setBinding(null);setSavedVersion(null);setNotice('Đã xóa bản nháp. Phiên đang mở vẫn tuân theo thời hạn và quyền riêng của nó.');})}>Xóa bản nháp {i+1}</button>
+      <ConfirmAction disabled={busy||unsaved} title={`Xóa bản nháp ${i+1}?`} description="Bản nháp đã lưu sẽ bị xóa. Phiên đang mở vẫn giữ thời hạn và quyền hiện tại. Thao tác này không thể hoàn tác." onConfirm={()=>run(async()=>{await api.deleteDraft(d);setDrafts(await api.drafts());if(binding?.draft.id===d.id)setBinding(null);setSavedVersion(null);setNotice('Đã xóa bản nháp. Phiên đang mở vẫn tuân theo thời hạn và quyền riêng của nó.');})}>Xóa bản nháp {i+1}</ConfirmAction>
       </article>)}
     </section>}
-    </div><aside className="office-context" aria-label="Tiến độ và trạng thái lưu"><span className="section-kicker">PHIÊN LÀM VIỆC</span><h2>{steps[step]}</h2><p>Bước {step+1} / 6</p><dl><dt>Thay đổi cục bộ</dt><dd>{unsaved?'Chưa áp dụng':'Không có thay đổi chờ áp dụng'}</dd><dt>Bản nháp</dt><dd>{saved?'Đã được máy chủ xác nhận lưu':'Chưa xác nhận lưu trạng thái hiện tại'}</dd><dt>Vị trí Excel</dt><dd>{session?.mappingState==='UserConfirmed'?'Đã xác nhận':'Chưa xác nhận'}</dd><dt>Phê duyệt</dt><dd>{session?.reviewState==='Approved'?'Đã phê duyệt':session?.reviewState==='ReadyForApproval'?'Chờ phê duyệt':'Chưa hoàn tất'}</dd></dl><p className="office-session-note">Phiên có thời hạn 20 phút. Bản nháp riêng tư được giữ tối đa 7 ngày. Khi mở lại cần kiểm tra trạng thái mới từ máy chủ.</p><p>Thông tin xem trước chỉ mô tả dữ liệu và vị trí, không phải bản in Excel chính xác.</p></aside></div>
+    </div><aside className="office-context" aria-label="Tiến độ và trạng thái lưu"><span className="section-kicker">PHIÊN LÀM VIỆC</span><h2>{steps[step]}</h2><p>Bước {step+1} / 6</p><dl><dt>Thay đổi cục bộ</dt><dd>{unsaved?'Chưa áp dụng':'Không có thay đổi chờ áp dụng'}</dd><dt>Bản nháp</dt><dd>{saved?'Đã được máy chủ xác nhận lưu':'Chưa xác nhận lưu trạng thái hiện tại'}</dd><dt>Vị trí Excel</dt><dd>{session?.mappingState==='UserConfirmed'?'Đã xác nhận':'Chưa xác nhận'}</dd><dt>Kiểm tra dữ liệu</dt><dd>{current?.readiness.dataValid?'Máy chủ xác nhận hợp lệ':'Chưa hợp lệ hoặc chưa kiểm tra'}</dd><dt>Phê duyệt</dt><dd>{session?.reviewState==='Approved'?'Đã phê duyệt':session?.reviewState==='ReadyForApproval'?'Chờ phê duyệt':'Chưa hoàn tất'}</dd></dl><p className="office-session-note">Phiên có thời hạn 20 phút. Bản nháp riêng tư được giữ tối đa 7 ngày. Khi mở lại cần kiểm tra trạng thái mới từ máy chủ.</p><p>Thông tin xem trước chỉ mô tả dữ liệu và vị trí, không phải bản in Excel chính xác.</p></aside></div>
   </main>;
 }
+
+

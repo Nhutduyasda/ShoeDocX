@@ -10,7 +10,7 @@ root=Path(__file__).resolve().parents[2]
 private=root/'.audit-run/ui-v2/private-full-api'
 private.mkdir(parents=True,exist_ok=True)
 env=os.environ.copy()
-database='ShoeDocXUiV2Synthetic_'+uuid.uuid4().hex
+database='gate5c_ui_v2_full_'+uuid.uuid4().hex
 password='UiV2!'+secrets.token_hex(20)
 env.update(ASPNETCORE_ENVIRONMENT='Development',DOTNET_ENVIRONMENT='Development',
  APPDATA=str(private/'profile'),SHOEDOCX_CONFIGURATION_FILE='',OPENAI_API_KEY='',OpenAI__ApiKey='',
@@ -25,6 +25,7 @@ env.update(ASPNETCORE_ENVIRONMENT='Development',DOTNET_ENVIRONMENT='Development'
  Xnk__DefaultAddress='Synthetic local workspace',Xnk__DefaultCustomerName='Synthetic Customer',
  Logging__LogLevel__Default='Warning',ASPNETCORE_URLS='http://127.0.0.1:5293')
 env['UniversalDocDrafts__Keys__ui-v2-synthetic']=env.pop('UniversalDocDrafts__Keys__ui_v2_synthetic')
+env['Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command']='Warning'
 api=root/'backend/ShoeExportInvoice.Api'
 dll=api/'bin/Debug/net10.0/ShoeExportInvoice.Api.dll'
 process=None
@@ -63,3 +64,8 @@ try:
 finally:
  if process is not None and process.poll() is None:process.terminate();process.wait(timeout=15)
  for log in logs:log.close()
+ # Only the fresh UUID database created by this invocation is disposable.
+ # The existing host enforces its gate5c_ prefix before executing --drop.
+ cleanup_env=env.copy();cleanup_env['GATE5C_DATABASE']=os.environ['GATE5C_SQL']+';Database='+database
+ cleanup=subprocess.run(['dotnet',str(root/'tests/Gate5DDemoHost/bin/Debug/net10.0/Gate5DDemoHost.dll'),'--drop'],cwd=root,env=cleanup_env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=90)
+ assert cleanup.returncode==0,'Synthetic full-API database cleanup failed'

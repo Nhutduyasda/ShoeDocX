@@ -10,6 +10,7 @@ export default defineConfig({
   ],
   outputDir: "../.audit-run/ui-v2/test-results",
   use: {
+    actionTimeout: 15000,
     baseURL: process.env.UI_V2_BASE_URL || "http://127.0.0.1:5174",
     headless: true,
     channel: process.platform === "win32" ? "msedge" : undefined,

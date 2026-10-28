@@ -7,3 +7,5 @@ Official guidance reviewed: https://tailwindcss.com/docs/upgrade-guide and https
 Proposed branch uses Tailwind 4.3.3 with its Vite plugin. `index.css` imports theme and utilities explicitly, omitting `preflight.css`. Legacy JS token extensions are loaded with `@config`. The old PostCSS Tailwind plugin and autoprefixer are removed from the active pipeline. Explicit borders/box-sizing/button defaults are scoped to new UI rather than globally resetting legacy widgets.
 
 Utilities and retained custom CSS still require browser review on each business page. Border defaults, shadows, ring semantics, form controls and document print CSS are particular review points. A successful build is not merge acceptance. No dependency overrides/advisory suppressions were added.
+
+Ant Design cascade integration follows https://ant.design/docs/react/compatible-style/ : StyleProvider enables the antd layer, ordered before utilities. This restores intended utility overrides without enabling Preflight. The direct cssinjs dependency matches Ant Design's installed compatible 2.1.2 version.

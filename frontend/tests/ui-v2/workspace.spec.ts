@@ -93,6 +93,14 @@ test("keyboard focus, reduced motion and 200 percent equivalent viewport", async
 test("authenticated workspace, all authorized destinations, mobile menu and wizard", async ({
   page,
 }) => {
+  test.setTimeout(120000);
+  const serverFailures: string[] = [];
+  const runtimeErrors: string[] = [];
+  page.on('pageerror', error => runtimeErrors.push(error.name));
+  page.on("response", (response) => {
+    if (response.url().includes("/api/") && response.status() >= 500)
+      serverFailures.push(new URL(response.url()).pathname);
+  });
   test.skip(
     !process.env.UI_V2_PASSWORD,
     "Requires an explicitly supplied synthetic local credential; no mock authentication.",
@@ -124,11 +132,71 @@ test("authenticated workspace, all authorized destinations, mobile menu and wiza
     await expect(
       page.getByText("Không thể hiển thị nội dung", { exact: true }),
     ).toHaveCount(0);
+    await expect(page.locator(".ant-spin-spinning")).toHaveCount(0);
+    if (label.trim() === "Invoice & Packing List") {
+      await expect(page.locator(".driver-overlay")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".driver-overlay")).toHaveCount(0);
+    }
+    for (const [width, height] of [
+      [1440, 900],
+      [1366, 768],
+      [1024, 768],
+      [390, 844],
+      [360, 800],
+    ]) {
+      await page.setViewportSize({ width, height });
+      await page.screenshot({
+        path: `${evidence}/page-${labels.indexOf(label)}-${width}.png`,
+        fullPage: true,
+      });
+      const overflow = await page.locator("#workspace-main").evaluate((el) => ({
+        fits: el.scrollWidth <= el.clientWidth + 1,
+        offenders: Array.from(el.querySelectorAll("*"))
+          .filter(
+            (child) => child.getBoundingClientRect().width > el.clientWidth,
+          )
+          .slice(0, 12)
+          .map((child) => ({
+            tag: child.tagName,
+            className: child.getAttribute("class"),
+            width: Math.round(child.getBoundingClientRect().width),
+          })),
+      }));
+      expect(
+        overflow.fits,
+        `page ${label} at ${width}: ${JSON.stringify(overflow.offenders)}`,
+      ).toBe(true);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
+  await navigation
+    .getByRole("button", { name: "Product Master", exact: true })
+    .click();
+  await page.getByRole("button", { name: /Thêm mã hàng/ }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  for (const [width, height] of [
+    [1440, 900],
+    [390, 844],
+    [360, 800],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.getByPlaceholder("42072-030").fill("SYNTH-UI-V2");
+    await expect(page.getByPlaceholder("42072-030")).toHaveValue("SYNTH-UI-V2");
+    await expect(
+      page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Tạo mới", exact: true }),
+    ).toBeInViewport();
     await page.screenshot({
-      path: `${evidence}/page-${labels.indexOf(label)}.png`,
+      path: `${evidence}/product-modal-${width}.png`,
       fullPage: true,
     });
   }
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Hủy", exact: true })
+    .click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Mở menu điều hướng" }).click();
   await expect(
@@ -143,13 +211,11 @@ test("authenticated workspace, all authorized destinations, mobile menu and wiza
     .getByRole("navigation", { name: "Các bước xử lý Excel" })
     .getByRole("button");
   await expect(steps).toHaveCount(6);
-  await page
-    .getByLabel("Mẫu Excel đầu ra", { exact: true })
-    .setInputFiles({
-      name: "invalid.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("synthetic"),
-    });
+  await page.getByLabel("Mẫu Excel đầu ra", { exact: true }).setInputFiles({
+    name: "invalid.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("synthetic"),
+  });
   await expect(page.getByRole("alert")).toContainText(".xlsx");
   for (let index = 0; index < 6; index++) {
     await steps.nth(index).click();
@@ -163,4 +229,33 @@ test("authenticated workspace, all authorized destinations, mobile menu and wiza
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  expect(serverFailures).toEqual([]);
+  expect(runtimeErrors).toEqual([]);
+  await page
+    .getByRole("button", { name: "Synthetic Demo / kỹ thuật", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Universal Document Studio",
+      exact: true,
+    }),
+  ).toBeVisible();
+  for (const [width, height] of [
+    [1440, 900],
+    [1366, 768],
+    [1024, 768],
+    [390, 844],
+    [360, 800],
+  ]) {
+    await page.setViewportSize({ width, height });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: `${evidence}/studio-technical-${width}.png`,
+      fullPage: true,
+    });
+  }
 });

@@ -22,3 +22,5 @@ Ant Design tables, editable grids, dialogs and complex business forms remain com
 ## Dependency decisions
 
 Add Radix dialog/dropdown/slot, CVA, clsx, tailwind-merge and lucide-react for actual used components. Add Playwright solely for verification. Keep Ant Design and existing state/routing. Do not install the upstream dependency graph. Keep parser/nested as dev security fixtures so accepted selector regression tests remain runnable; they are not the active Tailwind pipeline.
+
+Ant Design compatibility now uses explicit cascade layers and shared token radii/text colors. Product Master form and Invoice header responsive changes preserve their existing state, validation and submit callbacks. The Office review groups detail without removing checks, and distinguishes unassessed checks from failures.

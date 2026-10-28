@@ -18,3 +18,13 @@ Local verification so far:
 Limits: retained Ant Design complex widgets still need per-widget migration/visual signoff; CRUD/batch/import/export parity for every legacy page and modal is not yet proven. A rendered page is not a full functional verdict. Native 200% browser zoom, full WCAG review, all legacy keyboard grids and per-role authenticated business coverage remain open. Some pre-existing Ant Design deprecation/ref warnings and lint warnings remain. Large bundle warning remains.
 
 Dedicated Windows 2022 / Ubuntu 24.04 CI is proposed in `ui-v2-verification.yml`, independent of historical Gate 6B release blockers. Only actual completed CI runs may be called PASS. No existing database/secrets were changed by full API QA; it creates a separate `ShoeDocXUiV2Synthetic_*` database and process-only keys. Private API logs/keyring are excluded from artifacts.
+
+## Executed follow-up verification
+
+The full API browser suite now has 12 passing checks. It captures every major business destination at all five required sizes, asserts that only grids scroll horizontally, checks actual API 5xx/runtime errors, and exercises real Product Master creation and material create/search/edit. Product forms stack to one column on mobile with visible footer actions. The Invoice partner header overflow was fixed without changing its handlers. Onboarding is dismissed with Escape in the journey, not bypassed by mock authentication.
+
+Office review groups successful checks and informational preview in expandable sections, keeping failures and server authority visible. Moving between steps resets scroll position. SQL restart, cancel/delete confirmation and all 11 workbook reopen checks passed again after these changes.
+
+CI for initial feature commit `3820ca1660ec4c22d1e58a18725007224294f072`: all four Windows/Ubuntu jobs passed at https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40640404310 . This result does not cover subsequent changes until their exact-head run completes.
+
+New full-API test runs create and drop only their own UUID `gate5c_ui_v2_full_*` database. Earlier local exploratory runs used `ShoeDocXUiV2Synthetic_*` databases and left those isolated synthetic databases in place; existing databases are not automatically swept/deleted. The user database `ShoeDocXLocalTest` is untouched.

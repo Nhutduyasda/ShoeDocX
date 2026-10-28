@@ -16,7 +16,7 @@ export const tokens = {
   colorPrimaryBorder: '#BFDBFE',
 
   // Neutrals & Surfaces
-  pageBg: '#F6F8FA',
+  pageBg: '#F7F8FA',
   surface: '#FFFFFF',
   surfaceSecondary: '#F8FAFC',
   surfaceHover: '#F8FAFC',
@@ -28,9 +28,9 @@ export const tokens = {
   borderLight: '#F3F4F6',
 
   // Text Hierarchy
-  textPrimary: '#1F2937',
+  textPrimary: '#172033',
   textSecondary: '#64748B',
-  textMuted: '#94A3B8',
+  textMuted: '#64748B',
   textDisabled: '#9CA3AF',
   textInverse: '#FFFFFF',
 
@@ -63,9 +63,9 @@ export const tokens = {
 
   // Radii
   radiusXs: 4, // badges, tags
-  radiusSm: 6, // buttons, inputs, dropdowns
-  radiusMd: 8, // cards, panels, modals
-  radiusLg: 8,
+  radiusSm: 7, // shared with shadcn controls
+  radiusMd: 10, // cards, panels, modals
+  radiusLg: 12,
 
   // Shadows
   shadowCard: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',

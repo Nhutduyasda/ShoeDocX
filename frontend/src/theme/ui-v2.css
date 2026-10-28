@@ -12,6 +12,13 @@
   --color-border: #e2e8f0;
   --color-input: #cbd5e1;
 }
+.confirmation-actions {display:flex;justify-content:flex-end;gap:10px;margin-top:24px}
+@media(max-width:767px) { .ant-modal {top:16px!important;padding-bottom:16px} }
+@media print {
+ .ant-modal .ant-modal-body {max-height:none;overflow:visible}
+ .workspace-sidebar,.workspace-header,.workspace-footer {display:none!important}
+ .workspace-shell,.workspace-body,.workspace-main {display:block;height:auto;overflow:visible;padding:0}
+}
 .workspace-shell,
 .signin,
 .ui-menu,

@@ -13,7 +13,7 @@ import openpyxl
 
 
 def browser(ci):
-    feature = ci.ROOT / 'feature'
+    feature = getattr(ci, 'FEATURE', ci.ROOT / 'feature')
     folder = ci.EVIDENCE / 'gate5d'; folder.mkdir(exist_ok=True)
     private = tempfile.TemporaryDirectory(prefix='gate5d-synthetic-private-')
     private_folder = Path(private.name)

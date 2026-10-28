@@ -1,0 +1,129 @@
+name: UI V2 verification
+on:
+  pull_request:
+    branches: [main]
+    paths: ['frontend/**', 'docs/ui-v2/**', '.github/workflows/ui-v2-verification.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  frontend:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: node --test tests/invoiceDraftStore.test.mjs tests/officeModel.test.mjs tests/uiNavigation.test.mjs tests/selectorBackport.test.mjs
+        working-directory: frontend
+      - run: npm audit --audit-level=low
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        if: runner.os == 'Linux'
+        working-directory: frontend
+      - run: npx playwright test --config playwright.ui-v2.config.ts
+        working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-v2-${{ matrix.os }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .audit-run/ui-v2/
+          # Private API logs and DataProtection material are never artifacts.
+          # The anonymous frontend job never creates the private API directory.
+          retention-days: 7
+      # Authenticated legacy/Office XLSX journeys require an isolated SQL fixture
+      # and synthetic identities. A skipped credential test is NOT a parity PASS.
+  office-sql:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.402'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+        working-directory: frontend
+      - run: python -m pip install openpyxl==3.1.5
+      - run: npx playwright install --with-deps chromium
+        if: runner.os == 'Linux'
+        working-directory: frontend
+      - name: Isolated SQL fixture
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            $tool = Get-ChildItem 'C:\Program Files\Microsoft SQL Server' -Filter SqlLocalDB.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
+            if (!$tool) { throw 'Real SQL LocalDB required' }
+            & $tool create UIv2 -s
+            if ($LASTEXITCODE) { throw 'LocalDB startup failed' }
+            'GATE5C_SQL=Server=(localdb)\UIv2;Integrated Security=True;Encrypt=False;Connect Timeout=15' >> $env:GITHUB_ENV
+            'STUDIO_BROWSER_CHANNEL=msedge' >> $env:GITHUB_ENV
+          } else {
+            $sqlPassword = 'UiV2!' + [Guid]::NewGuid().ToString('N')
+            Write-Output "::add-mask::$sqlPassword"
+            $env:MSSQL_SA_PASSWORD = $sqlPassword
+            docker run -d --name ui-v2-sql -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+            if ($LASTEXITCODE) { throw 'SQL fixture start failed' }
+            "GATE5C_SQL=Server=127.0.0.1,1433;User ID=sa;Password=$sqlPassword;Encrypt=False;Connect Timeout=15" >> $env:GITHUB_ENV
+            $ready=$false
+            for ($i=0; $i -lt 60; $i++) {
+              docker exec ui-v2-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $sqlPassword -C -Q 'SELECT 1' *> $null
+              if ($LASTEXITCODE -eq 0) { $ready=$true; break }
+              Start-Sleep -Seconds 1
+            }
+            if (!$ready) { throw 'SQL fixture readiness failed' }
+          }
+      - run: dotnet build tests/Gate5DDemoHost/Gate5DDemoHost.csproj
+      - name: Authenticated Office, SQL restart and independent XLSX QA
+        shell: pwsh
+        run: |
+          $env:STUDIO_PLAYWRIGHT_MODULE = (Resolve-Path 'frontend/node_modules/playwright').Path
+          python .github/scripts/verify_ui_v2_office.py
+          if ($LASTEXITCODE) { throw 'UI V2 authenticated verification failed' }
+      - name: Unchanged full API and legacy UI smoke
+        shell: pwsh
+        run: |
+          python .github/scripts/verify_ui_v2_legacy.py
+          if ($LASTEXITCODE) { throw 'Full application UI smoke failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-v2-office-${{ matrix.os }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            .audit-run/ui-v2/screenshots/
+            .audit-run/ui-v2/office-pending/*.png
+            .audit-run/ui-v2/visual-excel/*.png
+            .audit-run/ui-v2/results.json
+            .audit-run/ui-v2/full-api-summary.json
+            .audit-run/ui-v2/office/**/*.json
+          retention-days: 7

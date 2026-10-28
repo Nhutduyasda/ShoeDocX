@@ -24,3 +24,61 @@
 .office-wizard td input,.office-wizard td select { min-width:130px; width:100%; }.office-wizard th { overflow-wrap:anywhere; }
 .office-wizard .uds-scroll:focus-visible { outline:3px solid #e4af45;outline-offset:2px; }.office-wizard .office-drafts article { border-top:1px solid #dce3ea; }
 @media(max-width:500px){.office-wizard .uds-top>div:last-child { flex-wrap:wrap; }.office-wizard .uds-grid { grid-template-columns:minmax(0,1fr); }.office-wizard .uds-steps { grid-template-columns:repeat(2,minmax(0,1fr)); }.office-wizard .uds-panel { padding:14px; }.office-wizard .uds-state button { margin:8px 4px 0 0; }}
+/* UI V2: retain engine semantics, redesign the editing workspace. */
+.office-pending p {margin:4px 0}
+.office-template-form {flex-direction:column;align-items:stretch!important}
+.uds #office-template-upload {width:100%;min-height:46px;font-weight:700;box-shadow:0 2px 6px #2563eb26}
+.office-uploaded {border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:7px;padding:12px}
+.office-check-details,.office-preview-details {border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;margin:16px 0}
+.office-check-details summary,.office-preview-details summary {cursor:pointer;color:#334155;font-weight:600;min-height:28px}
+.office-check-summary {color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px}
+.office-check-summary[data-passed=true] {color:#166534;background:#f0fdf4;border-color:#bbf7d0}
+.uds {height:100dvh;overflow:auto;background:#f7f8fa;color:#172033;padding:24px;font:14px/1.6 'Segoe UI',system-ui,sans-serif}
+.uds .uds-top {border-bottom:1px solid #e2e8f0;padding-bottom:20px;margin-bottom:20px}.uds .uds-top h1 {font-size:26px;letter-spacing:-.7px}.uds .uds-eyebrow {color:#2563eb;letter-spacing:.1em}.uds .uds-top>div:last-child {flex-wrap:wrap;gap:10px}.uds .uds-banner {background:#eff6ff;color:#334155;border-color:#dbeafe;font-size:12px;border-radius:8px}
+.uds button {background:#2563eb;border-color:#2563eb;border-radius:7px;font-weight:500;padding:9px 13px}.uds button:hover:not(:disabled) {background:#1d4ed8}.uds button:disabled {opacity:.55}.uds button:focus-visible,.uds input:focus-visible,.uds select:focus-visible,.uds a:focus-visible {outline:3px solid #2563eb;outline-offset:3px}.uds a {color:#1d4ed8}.uds .uds-panel {border-color:#e2e8f0;border-radius:12px;box-shadow:0 1px 2px #0f172a05;padding:24px;min-width:0}.uds input,.uds select {border-color:#cbd5e1;border-radius:6px;min-height:38px}.uds th {background:#f8fafc;color:#475569;font-weight:600;font-size:12px}.uds .uds-scroll {border:1px solid #e2e8f0;border-radius:8px;max-width:100%}.uds .uds-success {border:1px solid #bbf7d0;color:#166534;border-radius:7px}.uds .uds-error {background:#fef2f2;border-color:#fecaca;color:#991b1b}.uds .uds-state {font-size:12px;color:#475569}.uds h2 {font-size:19px;letter-spacing:-.3px}.uds h3 {font-size:14px}
+.office-workspace {display:grid;grid-template-columns:206px minmax(0,1fr) 248px;gap:22px;align-items:start}.office-editing {min-width:0}.office-workspace>.uds-steps {position:sticky;top:0;display:flex;flex-direction:column;margin:0;gap:7px}.office-workspace>.uds-steps button {background:transparent;color:#64748b;border:1px solid transparent;font-size:13px;margin:0;gap:10px;padding:12px 10px;line-height:1.5}.office-workspace>.uds-steps button:hover:not(:disabled) {background:#f1f5f9}.office-workspace>.uds-steps button[aria-current] {background:white;border-color:#dbeafe;color:#1d4ed8;box-shadow:0 1px 3px #0f172a08;font-weight:600}.office-workspace>.uds-steps button[aria-current] span {background:#2563eb;color:white;border-color:#2563eb}.office-workspace>.uds-steps span {height:26px;width:26px;line-height:24px}.office-context {position:sticky;top:0;background:white;border:1px solid #e2e8f0;padding:20px;border-radius:12px;font-size:12px;color:#64748b}.office-context h2 {font-size:16px;color:#172033}.office-context dt {margin-top:18px;color:#64748b}.office-context dd {margin:5px 0;color:#334155;font-weight:500}.office-session-note {border-top:1px solid #e2e8f0;margin-top:20px;padding-top:18px}.office-upload {border:1.5px dashed #b6c7e2;border-radius:10px;background:#f8faff;min-height:205px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;width:100%;gap:8px}.office-upload>svg {color:#2563eb}.office-upload>p {font-size:12px;color:#64748b;margin:0}.office-upload-picker {position:relative;background:white;border:1px solid #cbd5e1;padding:8px 14px;border-radius:7px;margin-top:8px;cursor:pointer}.office-upload-picker input {position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}.office-upload-picker:focus-within {outline:3px solid #2563eb;outline-offset:3px}.office-selected-file {display:flex;align-items:center;gap:10px;text-align:left;border:1px solid #e2e8f0;background:white;padding:12px;border-radius:8px;margin-top:12px;width:100%;min-width:0}.office-selected-file>span {flex:1;min-width:0;overflow-wrap:anywhere}.office-selected-file small {display:block;color:#64748b}.office-upload.is-disabled {opacity:.65}.office-wizard .uds-inline:has(.office-upload) {align-items:stretch}.office-wizard .uds-inline:has(.office-upload)>button {margin-top:8px}.office-editing .uds-panel>footer {position:sticky;bottom:-1px;background:white;padding:16px 0 0;justify-content:space-between;z-index:2}.office-wizard .office-drafts {margin-top:22px}
+@media(max-width:1200px){.office-workspace {grid-template-columns:180px minmax(0,1fr)}.office-context {grid-column:2;position:static}.office-context dl {display:grid;grid-template-columns:1fr 1fr;gap:8px}.office-context dt {margin-top:0}}
+@media(max-width:767px){.uds {padding:16px}.office-workspace {grid-template-columns:minmax(0,1fr);gap:16px}.office-workspace>.uds-steps {position:static;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.office-workspace>.uds-steps button {font-size:12px;padding:8px 4px;min-height:52px}.office-context {grid-column:1}.uds .uds-panel {padding:16px}.uds .uds-top h1 {font-size:23px}.office-context dl {grid-template-columns:1fr}.office-upload {padding:18px}.office-wizard .uds-grid {grid-template-columns:minmax(0,1fr)}}
+/* Visual worksheet workspace: all overflow stays inside the canvas. */
+.office-wizard:has(.visual-studio) .office-workspace {grid-template-columns:160px minmax(0,1fr)}
+.office-wizard:has(.visual-studio) .office-context {grid-column:2;position:static}
+.visual-studio {display:grid;grid-template-columns:190px minmax(0,1fr) 200px;gap:14px;margin:20px 0;align-items:start;max-width:100%}
+.visual-studio>* {min-width:0}
+.visual-fields {max-height:640px;overflow:auto;padding:2px}
+.uds .visual-field {display:flex;flex-direction:column;align-items:flex-start;white-space:normal;text-align:left;height:auto;width:100%;margin:0 0 8px;background:white;color:#334155;border-color:#dbe2ea;min-height:80px;padding:12px;gap:4px}
+.uds .visual-field[aria-pressed=true] {background:#eff6ff;border-color:#2563eb;box-shadow:inset 3px 0 #2563eb}
+.uds .visual-field:hover:not(:disabled) {background:#e8f0ff;color:#172033}
+.visual-context {padding:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px}
+.visual-context label {margin:12px 0}.visual-context summary {cursor:pointer;min-height:40px}
+.worksheet {min-width:0;border:1px solid #cbd5e1;border-radius:9px;overflow:hidden;background:white}
+.worksheet-tabs,.worksheet-toolbar {display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px;background:#f8fafc}
+.uds .worksheet button {min-height:40px;white-space:normal;margin:0}
+.uds .worksheet-tabs button {background:white;color:#334155;border-color:#cbd5e1}
+.uds .worksheet-tabs button[aria-pressed=true] {background:#166534;color:white;border-color:#166534}
+.worksheet-toolbar input {width:100px}.worksheet-value {min-height:40px;padding:8px 12px;margin:0;border-top:1px solid #e2e8f0;overflow-wrap:anywhere}
+.worksheet-scroll {max-height:430px;overflow:auto;max-width:100%;position:relative;overscroll-behavior:contain}
+.uds .worksheet table {table-layout:fixed;min-width:0;width:max-content}
+.uds .worksheet th,.uds .worksheet td {border:1px solid #e2e8f0;padding:7px 9px;min-width:110px;width:110px;max-width:110px;height:40px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uds .worksheet th:first-child {min-width:46px;width:46px;position:sticky;left:0;z-index:1;background:#f1f5f9}
+.uds .worksheet thead th {position:sticky;top:0;z-index:2;background:#f1f5f9;text-align:center}
+.uds .worksheet td {cursor:cell;background:white;font-size:12px;color:#334155}
+.uds .worksheet td[aria-selected=true] {outline:2px solid #2563eb;outline-offset:-2px;background:#eff6ff}
+.uds .worksheet td.is-mapped {background:#f0fdf4;border-bottom:3px solid #16a34a}
+.uds .worksheet td.is-pending {background:#fffbeb;border-bottom:3px dashed #d97706}
+.uds .worksheet td.is-merged {background:repeating-linear-gradient(135deg,#f1f5f9,#f1f5f9 5px,#e2e8f0 5px,#e2e8f0 6px)}
+.worksheet>small {display:block;padding:12px}.worksheet>p[role=status] {padding:0 12px}
+.office-data-grid {max-height:520px;overscroll-behavior:contain}.office-data-grid thead {position:sticky;top:0;z-index:1}.office-data-grid input[aria-invalid=true],.office-data-grid select[aria-invalid=true] {border-color:#dc2626;background:#fef2f2}.office-cell-error {color:#991b1b!important}
+@media(max-width:1200px){.visual-studio {grid-template-columns:170px minmax(0,1fr)}.visual-context {grid-column:1/-1}.visual-fields {max-height:520px}}
+@media(max-width:767px){.office-wizard:has(.visual-studio) .office-workspace {grid-template-columns:minmax(0,1fr)}.office-wizard:has(.visual-studio) .office-context {grid-column:1}.visual-studio {grid-template-columns:minmax(0,1fr)}.visual-fields {max-height:240px}.visual-context {grid-column:1}.uds .visual-field {min-height:64px}.worksheet-scroll {max-height:340px}}
+@media(prefers-reduced-motion:reduce){.visual-studio * {scroll-behavior:auto;transition:none}}
+
+.office-wizard:has(.visual-studio) .office-editing .uds-panel>footer {position:static}
+
+.office-wizard [id^=office-value-][aria-invalid=true] {border-color:#dc2626;background:#fef2f2}
+.office-step-guide {border-left:3px solid #2563eb;background:#f8faff;padding:14px 18px;margin:16px 0 24px;border-radius:0 8px 8px 0}
+.office-step-guide p {margin:6px 0}.office-step-guide ol {padding-left:22px}.office-step-guide li {margin:7px 0}.office-guide-goal {font-size:15px}.office-guide-next {border-top:1px solid #dbeafe;padding-top:10px;margin-top:12px}.office-guide-next button {margin-top:6px;min-height:44px}.office-step-guide summary,.office-formula-help summary {cursor:pointer;min-height:44px;display:list-item;padding:10px 0;font-weight:600}
+.office-journey {display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;padding:0!important}.office-journey li[aria-current=step] {color:#1d4ed8;font-weight:700}
+.uds .office-field-origin {font-weight:400;max-width:340px;white-space:normal;color:#475569;font-size:12px}.office-field-origin span {display:block;overflow-wrap:anywhere}.office-formula-help {border-bottom:1px solid #e2e8f0;margin-bottom:16px;padding-bottom:8px}
+.office-wizard .office-data-grid th:not(:first-child) {min-width:220px}
+@media(max-width:500px){.office-step-guide {padding:12px}.office-guide-next button {width:100%;margin-right:0;white-space:normal}}
+.office-wizard .office-data-grid th:first-child {min-width:54px;width:54px;white-space:nowrap}

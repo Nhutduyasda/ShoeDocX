@@ -1,20 +1,25 @@
 import { useEffect, useState } from 'react';
 import type { LearnedField, StudioMapping, StudioRule, StudioSession } from './studioApi';
-import { colName, entryValue, ruleText, scopeLabel, typeLabel, validEntry } from './officeModel';
+import { colName, issueText, issueLocation, valueControlId, entryValue, ruleText, scopeLabel, typeLabel, validEntry } from './officeModel';
+import { OfficeFieldOrigin, OfficeFormulaHelp } from './OfficeFieldOrigin';
+import { VisualMapping } from './VisualMapping';
+import type { WorkbookEvidence } from './workbookPreview';
 export type OfficeSection = 'schema'|'mapping'|'rules'|'data';
 export type OfficeApply = (action:string, body:Record<string,unknown>, section:OfficeSection, method?:string)=>Promise<void>;
-type Props = { session:StudioSession; busy:boolean; apply:OfficeApply; report:(section:OfficeSection,dirty:boolean)=>void };
+type Props = { workbook?:WorkbookEvidence|null; session:StudioSession; busy:boolean; apply:OfficeApply; report:(section:OfficeSection,dirty:boolean)=>void };
 function useDirty(section:OfficeSection,dirty:boolean,report:Props['report']) {
   useEffect(()=>{report(section,dirty);return()=>report(section,false);},[section,dirty,report]);
 }
-function Pending({dirty,discard,busy}:{dirty:boolean;discard:()=>void;busy:boolean}) {return <>{dirty&&<p role="status" className="uds-error">Thay đổi chưa áp dụng lên máy chủ.</p>}<button type="button" disabled={busy||!dirty} onClick={discard}>Hoàn tác thay đổi</button></>;}
-export function OfficeFields({session,busy,apply,report}:Props) {
+function Pending({dirty,discard,busy}:{dirty:boolean;discard:()=>void;busy:boolean}) {return <button type="button" disabled={busy||!dirty} onClick={discard}>Hoàn tác thay đổi</button>;}
+export function OfficeFields({session,busy,apply,report,workbook}:Props) {
   const initial=session.schemaDraft?.fields??[];const [fields,setFields]=useState(initial);const dirty=JSON.stringify(fields)!==JSON.stringify(initial);useDirty('schema',dirty,report);
   const update=(i:number,patch:Partial<LearnedField>)=>setFields(old=>old.map((f,n)=>i===n?{...f,...patch}:f));
   return <form onSubmit={e=>{e.preventDefault();void apply('schema',{fields:fields.map(({key,label,scope,type,required,omit,candidate,worksheet,cell,column,prototypeRow})=>({key,label,scope,type,required,omit,candidate,worksheet,cell,column,prototypeRow}))},'schema','PATCH');}}>
     <h3>Các mục tìm thấy trong mẫu</h3><p>Đây là gợi ý từ cấu trúc và kiểu ô, chưa xác nhận ý nghĩa nghiệp vụ. Mục cùng tên ở hai sheet vẫn là hai mục riêng cho đến khi bạn chọn dùng chung ở bước 3.</p>
     <Pending dirty={dirty} busy={busy} discard={()=>setFields(initial)}/>
     {!fields.length&&<p role="alert">Chưa có vùng được hỗ trợ. Mẫu cần tiêu đề cột in đậm và một dòng mẫu có sẵn.</p>}
+    <VisualMapping session={session} fields={fields} workbook={workbook} busy={busy} onUpdate={update} destinations={fields.flatMap(f=>{const c=f.worksheet?{worksheet:f.worksheet,cell:f.cell,column:f.column,prototypeRow:f.prototypeRow}:f.candidate===null?undefined:f.candidates[f.candidate];return c?[{key:f.key,scope:f.scope,sheet:c.worksheet,cell:c.cell??`${colName(c.column??0)}${c.prototypeRow}`,pending:dirty}]:[];})} onDestination={(f,d)=>update(fields.indexOf(f),{candidate:null,omit:false,worksheet:d.sheet,...(f.scope==='Header'?{cell:d.cell}:{column:d.column,prototypeRow:d.row})})}/>
+    <details><summary>Chỉnh sửa chi tiết các mục và gợi ý</summary>
     {fields.map((f,i)=><fieldset key={`${f.scope}:${f.key}`}><legend>{i+1}. {f.label}</legend>
       <p>{scopeLabel[f.scope]} · {f.candidates.length===1?'Một vị trí gợi ý, cần người kiểm tra':`${f.candidates.length} vị trí gợi ý — cần chọn rõ`}</p>
       <label>Tên mục<input disabled={busy} aria-label={`Tên mục ${i+1}`} value={f.label} maxLength={256} onChange={e=>update(i,{label:e.target.value})}/></label>
@@ -27,10 +32,11 @@ export function OfficeFields({session,busy,apply,report}:Props) {
       {f.scope==='Header'?<label>Ô nhận thông tin<input disabled={busy||f.omit} aria-label={`Ô khác mục ${i+1}`} value={f.cell??''} maxLength={12} onChange={e=>update(i,{cell:e.target.value})}/></label>:<><label>Số cột (A=1, AF=32)<input disabled={busy||f.omit} aria-label={`Cột khác mục ${i+1}`} type="number" min={1} max={32} value={f.column??''} onChange={e=>update(i,{column:Number(e.target.value)})}/></label><label>Dòng mẫu có sẵn<input disabled={busy||f.omit} aria-label={`Dòng khác mục ${i+1}`} type="number" min={1} max={1000} value={f.prototypeRow??''} onChange={e=>update(i,{prototypeRow:Number(e.target.value)})}/></label></>}
       </details>
     </fieldset>)}
-    <button disabled={busy||!fields.length}>Áp dụng các mục dữ liệu</button>
+    </details>
+    <button id="office-apply-schema" disabled={busy||!fields.length}>Áp dụng các mục dữ liệu</button>
   </form>;
 }
-export function OfficeMapping({session,busy,apply,report}:Props) {
+export function OfficeMapping({session,busy,apply,report,workbook}:Props) {
   const initial=session.mappings;const [sheets,setSheets]=useState(initial);const [selected,setSelected]=useState(0);const dirty=JSON.stringify(sheets)!==JSON.stringify(initial);useDirty('mapping',dirty,report);
   const fields=session.schemaDraft?.fields??[];const active=fields.filter(f=>!f.omit);const sheet=sheets[selected];
   const update=(patch:Partial<StudioMapping>)=>setSheets(old=>old.map((s,i)=>i===selected?{...s,...patch}:s));
@@ -38,6 +44,8 @@ export function OfficeMapping({session,busy,apply,report}:Props) {
     <h3>Mục dữ liệu → Sheet → Ô hoặc cột</h3><p>Tối đa 3 sheet dùng cùng tập dòng theo cùng thứ tự. Sheet không được chọn giữ nguyên. Dùng cùng một mục trên nhiều sheet là lựa chọn chia sẻ rõ ràng; không gộp mục chỉ vì tên giống nhau.</p>
     <p>Không ghi vào ô công thức hoặc ô gộp. Chữ ký gộp ở sau bảng được giữ theo phạm vi hỗ trợ. Xác nhận vị trí là thao tác riêng trên máy chủ.</p>
     <Pending busy={busy} dirty={dirty} discard={()=>{setSheets(initial);setSelected(0);}}/>
+    <VisualMapping session={session} fields={active} workbook={workbook} busy={busy} destinations={sheets.flatMap(s=>active.flatMap(f=>{const cell=f.scope==='Header'?s.headers[f.key]:s.columns[f.key]?`${colName(s.columns[f.key])}${s.startRow}`:undefined;return cell?[{key:f.key,scope:f.scope,sheet:s.sheet,cell,pending:dirty}]:[];}))} onDestination={(f,d)=>{const existing=sheets.find(s=>s.sheet===d.sheet);if(!existing&&sheets.length>=3)return 'Đã đủ 3 sheet dữ liệu. Bỏ một sheet ở phần quản lý trước khi chọn sheet khác.';setSheets(old=>{const base=existing??{sheet:d.sheet,startRow:d.row,headers:{},columns:{}};const next=f.scope==='Header'?{...base,headers:{...base.headers,[f.key]:d.cell}}:{...base,startRow:d.row,columns:{...base.columns,[f.key]:d.column}};return existing?old.map(s=>s.sheet===d.sheet?next:s):[...old,next];});}} onRemove={(f,name)=>setSheets(old=>old.map(s=>{if(s.sheet!==name)return s;const headers={...s.headers},columns={...s.columns};if(f.scope==='Header')delete headers[f.key];else delete columns[f.key];return {...s,headers,columns};}))}/>
+    <details><summary>Quản lý sheet và chỉnh sửa vị trí chi tiết</summary>
     <div role="group" aria-label="Các sheet dữ liệu">{sheets.map((s,i)=><button disabled={busy} type="button" key={i} aria-pressed={selected===i} onClick={()=>setSelected(i)}>{s.sheet}</button>)}</div>
     {sheet&&<fieldset><legend>Sheet dữ liệu {selected+1}</legend><div className="uds-grid"><label>Tên sheet<select disabled={busy} aria-label="Sheet đang ánh xạ" value={sheet.sheet} onChange={e=>update({sheet:e.target.value})}>{session.sheets.map(n=><option key={n}>{n}</option>)}</select></label>
       <label>Dòng đầu tiên nhận dữ liệu<input disabled={busy} aria-label="Dòng dữ liệu đầu tiên" type="number" min={1} max={1000} value={sheet.startRow} onChange={e=>update({startRow:Number(e.target.value)})}/></label></div>
@@ -49,7 +57,8 @@ export function OfficeMapping({session,busy,apply,report}:Props) {
       })}</tbody></table></div><button disabled={busy} type="button" onClick={()=>{setSheets(old=>old.filter((_,i)=>i!==selected));setSelected(0);}}>Bỏ sheet khỏi ánh xạ</button>
     </fieldset>}
     <button disabled={busy||sheets.length>=3} type="button" onClick={()=>{const name=session.sheets.find(n=>!sheets.some(s=>s.sheet===n));if(name){setSheets(old=>[...old,{sheet:name,startRow:session.sheetSummaries.find(s=>s.name===name)?.prototypeRows[0]??1,headers:{},columns:{}}]);setSelected(sheets.length);}}}>Thêm sheet dữ liệu</button>
-    <button disabled={busy||!sheets.length||!active.length}>Áp dụng vị trí Excel</button>
+    </details>
+    <button id="office-apply-mapping" disabled={busy||!sheets.length||!active.length}>Áp dụng vị trí Excel</button>
     <p>Trạng thái máy chủ: {session.mappingState==='UserConfirmed'?'Đã xác nhận':'Chưa xác nhận'}. Bảng đang sửa chưa thay đổi trạng thái này.</p>
   </form>;
 }
@@ -71,27 +80,43 @@ export function OfficeRules({session,busy,apply,report}:Props) {
       <button disabled={busy} type="button" onClick={()=>setRules(old=>old.filter((_,n)=>i!==n))}>Xóa quy tắc {i+1}</button><button disabled={busy||i===0} type="button" onClick={()=>setRules(old=>{const n=[...old];[n[i-1],n[i]]=[n[i],n[i-1]];return n;})}>Đưa quy tắc {i+1} lên</button>
     </fieldset>)}
     <button disabled={busy||rules.length>=8} type="button" onClick={()=>setRules(old=>[...old,{id:Array.from({length:9},(_,n)=>`rule${n+1}`).find(id=>!old.some(r=>r.id===id))!,kind:'Arithmetic',fieldA:'',operator:'Multiply',fieldB:'',target:'',tolerance:0,required:true,severity:'BlockingError'}])}>Thêm quy tắc</button>
-    <button disabled={busy||!dirty}>Áp dụng quy tắc</button>
+    <button id="office-apply-rules" disabled={busy||!dirty}>Áp dụng quy tắc</button>
   </form>;
 }
-function ValueInput({field,value,set,busy,label}:{field:LearnedField;value:string;set:(v:string)=>void;busy:boolean;label:string}) {
-  return field.type==='Boolean'?<select disabled={busy} aria-label={label} value={value} onChange={e=>set(e.target.value)}><option value="">Chưa nhập</option><option value="true">Có</option><option value="false">Không</option></select>:<input disabled={busy} aria-label={label} type={field.type==='Date'?'date':'text'} inputMode={field.type==='Decimal'?'decimal':undefined} value={value} maxLength={2000} onChange={e=>set(e.target.value)} aria-invalid={!validEntry(field,value)}/>;
+function ValueInput({field,value,set,busy,label,error,row=0}:{field:LearnedField;value:string;set:(v:string)=>void;busy:boolean;label:string;error?:string;row?:number}) {
+  return field.type==='Boolean'?<select id={valueControlId(field,row)} disabled={busy} title={error} aria-invalid={!!error||!validEntry(field,value)} aria-label={label} value={value} onChange={e=>set(e.target.value)}><option value="">Chưa nhập</option><option value="true">Có</option><option value="false">Không</option></select>:<input id={valueControlId(field,row)} disabled={busy} title={error} aria-invalid={!!error||!validEntry(field,value)} aria-label={label} type={field.type==='Date'?'date':'text'} inputMode={field.type==='Decimal'?'decimal':undefined} value={value} maxLength={2000} onChange={e=>set(e.target.value)}/>;
 }
-export function OfficeData({session,busy,apply,report}:Props) {
+export function OfficeData({session,busy,apply,report,workbook}:Props) {
   const fields=session.schemaDraft?.fields.filter(f=>!f.omit)??[];const headers=fields.filter(f=>f.scope==='Header');const columns=fields.filter(f=>f.scope==='LineItem');
   const [values,setValues]=useState<Record<string,string>>(()=>Object.fromEntries(session.fields.map(f=>[`${f.scope}:${f.row??0}:${f.key}`,entryValue(f.type,f.value)])));const [initial]=useState(values);
   const [rows,setRows]=useState(()=>Math.max(1,...session.fields.filter(f=>f.row!==null).map(f=>f.row!+1)));const [initialRows]=useState(rows);
   const key=(f:LearnedField,row:number)=>`${f.scope}:${row}:${f.key}`;
   const dirty=JSON.stringify(values)!==JSON.stringify(initial)||rows!==initialRows;useDirty('data',dirty,report);
+  const [gridMessage,setGridMessage]=useState('');
+  const cellIssue=(f:LearnedField,row:number)=>session.issues.find(i=>{const location=issueLocation(i,session);return location?.field.key===f.key&&location.field.scope===f.scope&&location.row===row;});
   const invalid=fields.some(f=>Array.from({length:f.scope==='Header'?1:rows},(_,row)=>!validEntry(f,values[key(f,row)]??'')).some(Boolean));
   return <form onSubmit={e=>{e.preventDefault();if(!invalid)void apply('manual-sample',{header:Object.fromEntries(headers.map(f=>[f.key,values[key(f,0)]??''])),rows:Array.from({length:rows},(_,row)=>Object.fromEntries(columns.map(f=>[f.key,values[key(f,row)]??''])))},'data');}}>
-    <h3>Nhập dữ liệu chứng từ</h3><p>Nhập tay, chưa có OCR/AI. Số dùng dấu chấm, không phân nhóm hàng nghìn (ví dụ 2.50). Giữ mã như 00123 ở kiểu Văn bản. Ngày được gửi theo năm-tháng-ngày. Máy chủ quyết định kết quả kiểm tra.</p>
+    <h3>Nhập dữ liệu chứng từ</h3><p>Các giá trị có sẵn trong mẫu chỉ giúp nhận diện bố cục; chúng không tự điền vào chứng từ mới. “Dòng 1” bên dưới là dòng hàng thứ nhất, không phải dòng 1 của Excel.</p><OfficeFormulaHelp session={session} workbook={workbook}/><p>Nhập tay, chưa có OCR/AI. Số dùng dấu chấm, không phân nhóm hàng nghìn (ví dụ 2.50). Giữ mã như 00123 ở kiểu Văn bản. Ngày được gửi theo năm-tháng-ngày. Máy chủ quyết định kết quả kiểm tra.</p>
     <Pending busy={busy} dirty={dirty} discard={()=>{setValues(initial);setRows(initialRows);}}/>
-    <div className="uds-grid">{headers.map(f=><label key={f.key}>{f.label} · {typeLabel[f.type]} {f.required?'(bắt buộc)':''}<ValueInput busy={busy} field={f} label={`Thông tin ${f.label}`} value={values[key(f,0)]??''} set={v=>setValues(old=>({...old,[key(f,0)]:v}))}/></label>)}</div>
-    <div className="uds-scroll" role="region" tabIndex={0} aria-label="Bảng nhập chi tiết"><table><thead><tr><th>Dòng</th>{columns.map(f=><th key={f.key} scope="col">{f.label}<small>{typeLabel[f.type]} {f.required?'· Bắt buộc':''}</small></th>)}</tr></thead><tbody>{Array.from({length:rows},(_,row)=><tr key={row}><th scope="row">{row+1}</th>{columns.map(f=><td key={f.key}><ValueInput field={f} busy={busy} label={`Dòng ${row+1} ${f.label}`} value={values[key(f,row)]??''} set={v=>setValues(old=>({...old,[key(f,row)]:v}))}/></td>)}</tr>)}</tbody></table></div>
+    <div className="uds-grid">{headers.map(f=><label key={f.key}>{f.label} · {typeLabel[f.type]} {f.required?'(bắt buộc)':''}<OfficeFieldOrigin field={f} session={session}/><ValueInput error={cellIssue(f,0)?issueText[cellIssue(f,0)!.code]??'Máy chủ yêu cầu kiểm tra giá trị này.':undefined} busy={busy} field={f} label={`Thông tin ${f.label}`} value={values[key(f,0)]??''} set={v=>setValues(old=>({...old,[key(f,0)]:v}))}/></label>)}</div>
+    <p>Tab / Shift+Tab chuyển ô. Mũi tên lên/xuống hoặc Enter chuyển dòng; Alt+mũi tên trái/phải chuyển cột. Dán bảng dùng tab và xuống dòng; tối đa 20 dòng. Không tính công thức.</p>
+    <p role="status">{gridMessage}</p>
+    <div className="uds-scroll office-data-grid" role="region" tabIndex={0} aria-label="Bảng nhập chi tiết" onKeyDown={e=>{
+      const target=e.target as HTMLElement,td=target.closest('td'),tr=td?.closest('tr');if(!td||!tr)return;
+      const row=tr.sectionRowIndex,column=td.cellIndex-1;let next=row,col=column;
+      if(e.key==='Enter')next+=e.shiftKey?-1:1;else if(e.key==='ArrowDown'&&(e.altKey||target instanceof HTMLInputElement))next++;else if(e.key==='ArrowUp'&&(e.altKey||target instanceof HTMLInputElement))next--;else if(e.altKey&&e.key==='ArrowRight')col++;else if(e.altKey&&e.key==='ArrowLeft')col--;else return;
+      e.preventDefault();const input=e.currentTarget.querySelectorAll('tbody tr')[next]?.querySelectorAll<HTMLElement>('input,select')[col];input?.focus();
+    }} onPaste={e=>{
+      if(busy)return;const text=e.clipboardData.getData('text/plain');if(!/[\t\r\n]/.test(text))return;e.preventDefault();
+      const td=(e.target as HTMLElement).closest('td'),tr=td?.closest('tr');if(!td||!tr)return;
+      if(text.length>1280000){setGridMessage('Bảng dán quá lớn. Chưa thay đổi dữ liệu.');return;}
+      const incoming=text.replace(/\r\n?/g,'\n').replace(/\n$/,'').split('\n',21).map(r=>r.split('\t',columns.length+1));const start=tr.sectionRowIndex,column=td.cellIndex-1;
+      if(start+incoming.length>20||incoming.some(row=>row.length+column>columns.length||row.some(v=>v.length>2000))){setGridMessage('Bảng dán vượt 20 dòng, số cột hoặc 2.000 ký tự mỗi ô. Chưa thay đổi dữ liệu.');return;}
+      setValues(old=>{const next={...old};incoming.forEach((row,r)=>row.forEach((v,c)=>{next[key(columns[column+c],start+r)]=v;}));return next;});setRows(n=>Math.max(n,start+incoming.length));setGridMessage(`Đã dán ${incoming.length} dòng vào bản sửa cục bộ. Cần gửi dữ liệu để kiểm tra.`);
+    }}><table><thead><tr><th>Dòng</th>{columns.map(f=><th key={f.key} scope="col">{f.label}<small>{typeLabel[f.type]} {f.required?'· Bắt buộc':''}</small><OfficeFieldOrigin field={f} session={session}/></th>)}</tr></thead><tbody>{Array.from({length:rows},(_,row)=><tr key={row}><th scope="row">{row+1}</th>{columns.map(f=><td key={f.key}><ValueInput row={row} error={cellIssue(f,row)?issueText[cellIssue(f,row)!.code]??'Máy chủ yêu cầu kiểm tra ô này.':undefined} field={f} busy={busy} label={`Dòng ${row+1} ${f.label}`} value={values[key(f,row)]??''} set={v=>setValues(old=>({...old,[key(f,row)]:v}))}/>{cellIssue(f,row)&&<small className="office-cell-error">{issueText[cellIssue(f,row)!.code]??'Cần kiểm tra giá trị'}</small>}</td>)}</tr>)}</tbody></table></div>
     <div className="uds-inline"><span role="status">{rows}/20 dòng</span><button type="button" disabled={busy||rows>=20} onClick={()=>setRows(n=>n+1)}>Thêm dòng</button><button type="button" disabled={busy||rows<=1} onClick={()=>{setValues(old=>Object.fromEntries(Object.entries(old).filter(([k])=>!k.startsWith(`LineItem:${rows-1}:`))));setRows(n=>n-1);}}>Xóa dòng cuối</button></div>
     {invalid&&<p role="alert">Định dạng số/ngày chưa rõ. Không dùng dấu phẩy hay ký hiệu phân nhóm trong số; hệ thống không tự đoán giá trị.</p>}
-    <button disabled={busy||invalid||session.mappingState!=='UserConfirmed'}>Gửi dữ liệu để kiểm tra</button>
+    <button id="office-apply-data" disabled={busy||invalid||session.mappingState!=='UserConfirmed'}>Gửi dữ liệu để kiểm tra</button>
     {session.mappingState!=='UserConfirmed'&&<p>Xác nhận vị trí Excel ở bước 3 trước khi gửi dữ liệu.</p>}
   </form>;
 }

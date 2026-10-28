@@ -53,13 +53,13 @@ export const BomManagementPage = () => {
     {
       title: 'Thao tác', width: 110, fixed: 'right', align: 'center', render: (_v, record) => (
         <div className="flex justify-center gap-1">
-          <Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditing(record); setModalOpen(true); }} />
+          <Button type="text" size="small" aria-label={`Sửa BOM ${record.styleCode}`} icon={<EditOutlined />} onClick={() => { setEditing(record); setModalOpen(true); }} />
           <Popconfirm title="Xóa BOM này?" description="Toàn bộ chi tiết định mức sẽ bị xóa." onConfirm={async () => {
             await bomApi.deleteDefinition(record.id);
             message.success('Đã xóa BOM.');
             await loadData();
           }}>
-            <Button danger type="text" size="small" icon={<DeleteOutlined />} />
+            <Button danger type="text" size="small" aria-label={`Xóa BOM ${record.styleCode}`} icon={<DeleteOutlined />} />
           </Popconfirm>
         </div>
       ),

@@ -2685,7 +2685,7 @@ export const ShipmentPage = forwardRef<ShipmentPageRef, ShipmentPageProps>(({
 
             {/* Bộ Chuyển Đổi Không Gian Làm Việc Theo Đối Tác (Partner Profile Presets) */}
             <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="flex w-full md:w-auto items-center gap-3 min-w-0 flex-1">
                 <div className="w-9 h-9 rounded-md bg-[#172033] text-white flex items-center justify-center text-sm shadow-xs shrink-0">
                   <ShopOutlined />
                 </div>

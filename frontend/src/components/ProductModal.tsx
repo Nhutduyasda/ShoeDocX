@@ -153,7 +153,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         requiredMark="optional"
       >
         <Row gutter={16}>
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="styleCode"
               label={<span className="text-xs font-medium text-slate-700">Mã hình thể (Style Code) *</span>}
@@ -170,7 +170,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </Form.Item>
           </Col>
 
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="folderId"
               label={<span className="text-xs font-medium text-slate-700">Thư mục đối tác</span>}
@@ -189,7 +189,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         </Row>
 
         <Row gutter={16}>
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="hsCode"
               label={<span className="text-xs font-medium text-slate-700">Mã HS Code Hải quan *</span>}
@@ -203,7 +203,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </Form.Item>
           </Col>
 
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="pairPerCarton"
               label={<span className="text-xs font-medium text-slate-700">Số đôi / Thùng (Pair/CTN) *</span>}
@@ -242,7 +242,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         </Divider>
 
         <Row gutter={16}>
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="unitPriceCMT"
               label={<span className="text-xs font-medium text-slate-700">Đơn giá CMT Thành hình (USD) *</span>}
@@ -259,7 +259,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </Form.Item>
           </Col>
 
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="unitPriceDAP"
               label={<span className="text-xs font-medium text-slate-700">Đơn giá DAP Thành hình (USD) *</span>}
@@ -283,7 +283,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         </Divider>
 
         <Row gutter={16}>
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="unitPriceCMT_Go"
               label={<span className="text-xs font-medium text-slate-700">CMT Gò không may (USD)</span>}
@@ -299,7 +299,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </Form.Item>
           </Col>
 
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="unitPriceDAP_Go"
               label={<span className="text-xs font-medium text-slate-700">DAP Gò không may (USD)</span>}
@@ -317,7 +317,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         </Row>
 
         <Row gutter={16}>
-          <Col span={12}>
+          <Col xs={24} sm={12}>
             <Form.Item
               name="unit"
               label={<span className="text-xs font-medium text-slate-700">Đơn vị tính *</span>}

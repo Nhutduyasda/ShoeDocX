@@ -1,30 +1,48 @@
-# UI V2 engineering checkpoint
+# UI V2 engineering report
 
-Status: **PARTIAL / NOT READY**. Keep the pull request Draft. No merge or deployment authorized.
+**PARTIAL / NOT READY.** Keep Draft PR [#21](https://github.com/Nhutduyasda/ShoeDocX/pull/21). No merge/deployment performed.
 
-Starting main: `329b684ae9daf71879e2198fff65faf073b11f05`. Feature branch: `feat/shoedocx-shadcn-ui-v2`. Exact reviewed SHA is the PR head / CI checkout SHA; subsequent documentation will link actual CI runs.
+## Provenance and scope
 
-Implemented: shadcn/Radix shell, role-filtered navigation and command search, account/help menus, responsive mobile drawer, labeled native login, workspace action cards, explicit dashboard load errors, shared presentation styles, Office upload and three-region six-step workspace, server/save status, error boundary and skeleton. Backend/API/auth/session/approval logic is unchanged.
+Starting main: `329b684ae9daf71879e2198fff65faf073b11f05`. Branch: `feat/shoedocx-shadcn-ui-v2`. Implementation checkpoint: `b1efd49e4e65e845f0ddd3ed99ce200725683403`. The PR's current head and exact-checkout CI run identify subsequent documentation-only commits.
 
-Local verification so far:
+Upstream Shadcn Admin: `e16c87f213a5ba5e45964e9b67c792105ec74d26`. Adapted Button source with complete MIT notice; reviewed sidebar/dialog/menu patterns. No upstream authentication, Clerk, fake data, router or query/state infrastructure imported.
 
-- Baseline build + 32 tests, zero npm audit advisories.
-- Feature build PASS; 48 regression/navigation/security-fixture tests PASS.
-- Full unchanged backend with a new synthetic SQL database: 8 browser checks PASS, including login at five viewports, keyboard/reflow, authenticated navigation, mobile menu and Office empty states.
-- Existing Office journeys: 5 PASS with real Identity, SQL draft restart, cross-owner/tenant denial, validation/approval/export gates, 20-row mobile entry.
-- 11 XLSX independently reopened with openpyxl: PASS (values, types, leading zeros, formulas, styles, sheet order and reference sheet).
-- Dependency audit after migration: zero advisories.
+New presentation: login; responsive shell/sidebar/header; account/help/search; real workspace cards; shared business page/table/modal tokens; Product Master mobile form; Invoice header reflow; Office upload and six-step three-region workspace; readable server checks/preview; explicit mapping/data/approval/save states; accessible draft-delete confirmation; skeleton/error boundary.
 
-Limits: retained Ant Design complex widgets still need per-widget migration/visual signoff; CRUD/batch/import/export parity for every legacy page and modal is not yet proven. A rendered page is not a full functional verdict. Native 200% browser zoom, full WCAG review, all legacy keyboard grids and per-role authenticated business coverage remain open. Some pre-existing Ant Design deprecation/ref warnings and lint warnings remain. Large bundle warning remains.
+Warehouse, shipment, history, OCR, products, materials, BOM, planning and customs retain their business components/API clients. Complex Ant Design widgets remain compatibility areas. This is not a completed component-by-component replacement of every legacy dialog/grid.
 
-Dedicated Windows 2022 / Ubuntu 24.04 CI is proposed in `ui-v2-verification.yml`, independent of historical Gate 6B release blockers. Only actual completed CI runs may be called PASS. No existing database/secrets were changed by full API QA; it creates a separate `ShoeDocXUiV2Synthetic_*` database and process-only keys. Private API logs/keyring are excluded from artifacts.
+## Executed evidence
 
-## Executed follow-up verification
+| Check | Result |
+|---|---|
+| Baseline build and model tests | PASS — 32 tests |
+| Feature regression/navigation/security-fixture tests | PASS — 48 tests |
+| Feature TypeScript and Vite production build | PASS |
+| Full API browser suite | PASS — 12 checks; actual synthetic SQL/Identity, no auth/API mocks |
+| Responsive | PASS — major destinations at 1440×900, 1366×768, 1024×768, 390×844, 360×800; main-page overflow assertions |
+| Product Master | PASS — required validation, real create/persisted list, mobile modal/footer |
+| Materials | PASS — real create/search/edit/persisted list |
+| Office six steps | PASS — 5 journeys including ambiguous mapping, validation rejection/correction, 2/3 mapped sheets, 20-row mobile entry |
+| SQL draft recovery | PASS — actual backend restart, fresh login, resume/reconfirm/review/approve/export; cross-owner/tenant denial |
+| Draft delete | PASS — confirmation cancel then actual authenticated/versioned delete |
+| XLSX independent reopen | PASS — 11 workbooks, values/types/leading zeros/formulas/styles/sheet order/reference sheet |
+| npm audit before/after | PASS — zero advisories; no overrides/advisory suppression |
+| Lint | Completed with existing legacy warnings; no claim of warning-free source |
+| Backend source diff | Empty |
 
-The full API browser suite now has 12 passing checks. It captures every major business destination at all five required sizes, asserts that only grids scroll horizontally, checks actual API 5xx/runtime errors, and exercises real Product Master creation and material create/search/edit. Product forms stack to one column on mobile with visible footer actions. The Invoice partner header overflow was fixed without changing its handlers. Onboarding is dismissed with Escape in the journey, not bypassed by mock authentication.
+Selected real screenshots: [VISUAL_QA.md](VISUAL_QA.md). Complete exercised/untested boundaries: [FEATURE_PARITY_MATRIX.md](FEATURE_PARITY_MATRIX.md).
 
-Office review groups successful checks and informational preview in expandable sections, keeping failures and server authority visible. Moving between steps resets scroll position. SQL restart, cancel/delete confirmation and all 11 workbook reopen checks passed again after these changes.
+Initial commit's four Windows/Ubuntu jobs passed: [run 40640404310](https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40640404310). Follow-up exact-head runs are linked from [PR checks](https://github.com/Nhutduyasda/ShoeDocX/pull/21/checks). Only a completed run on the current SHA is a final CI verdict.
 
-CI for initial feature commit `3820ca1660ec4c22d1e58a18725007224294f072`: all four Windows/Ubuntu jobs passed at https://github.com/Nhutduyasda/ShoeDocX/actions/runs/40640404310 . This result does not cover subsequent changes until their exact-head run completes.
+## Remaining acceptance gaps
 
-New full-API test runs create and drop only their own UUID `gate5c_ui_v2_full_*` database. Earlier local exploratory runs used `ShoeDocXUiV2Synthetic_*` databases and left those isolated synthetic databases in place; existing databases are not automatically swept/deleted. The user database `ShoeDocXLocalTest` is untouched.
+- Complete all legacy CRUD/batch/import/export/reconciliation/print journeys and per-modal validation/error states listed in the parity matrix.
+- Verify Fast-Grid keyboard work and all non-Admin browser role journeys; unit role equivalence is already tested.
+- Finish per-widget shadcn migration/visual signoff of retained Ant Design compatibility areas.
+- Native browser 200% zoom, screen-reader review and complete WCAG 2.2 AA assessment. The current 720×450 reflow check is not native zoom certification.
+- Existing Ant Design deprecation/ref/form warnings and large bundle warning remain. Dark mode is deferred until preview/widget readability can be verified.
+
+## Data and security handling
+
+No backend source, SQL migrations, deployment/Docker files, production keys or existing User Secrets were modified. No paid AI/OCR calls were made. New full-API runs create and drop only their own UUID `gate5c_ui_v2_full_*` database. Earlier exploratory `ShoeDocXUiV2Synthetic_*` databases were left intact rather than broadly deleted. `ShoeDocXLocalTest` was not used for QA. Private API logs/keyring are excluded from CI artifacts.

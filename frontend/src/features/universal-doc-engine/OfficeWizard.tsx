@@ -112,5 +112,3 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
     </div><aside className="office-context" aria-label="Tiến độ và trạng thái lưu"><span className="section-kicker">PHIÊN LÀM VIỆC</span><h2>{steps[step]}</h2><p>Bước {step+1} / 6</p><dl><dt>Thay đổi cục bộ</dt><dd>{unsaved?'Chưa áp dụng':'Không có thay đổi chờ áp dụng'}</dd><dt>Bản nháp</dt><dd>{saved?'Đã được máy chủ xác nhận lưu':'Chưa xác nhận lưu trạng thái hiện tại'}</dd><dt>Vị trí Excel</dt><dd>{session?.mappingState==='UserConfirmed'?'Đã xác nhận':'Chưa xác nhận'}</dd><dt>Kiểm tra dữ liệu</dt><dd>{current?.readiness.dataValid?'Máy chủ xác nhận hợp lệ':'Chưa hợp lệ hoặc chưa kiểm tra'}</dd><dt>Phê duyệt</dt><dd>{session?.reviewState==='Approved'?'Đã phê duyệt':session?.reviewState==='ReadyForApproval'?'Chờ phê duyệt':'Chưa hoàn tất'}</dd></dl><p className="office-session-note">Phiên có thời hạn 20 phút. Bản nháp riêng tư được giữ tối đa 7 ngày. Khi mở lại cần kiểm tra trạng thái mới từ máy chủ.</p><p>Thông tin xem trước chỉ mô tả dữ liệu và vị trí, không phải bản in Excel chính xác.</p></aside></div>
   </main>;
 }
-
-

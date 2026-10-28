@@ -1,0 +1,48 @@
+import { test, expect, type APIRequestContext } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+let state:Awaited<ReturnType<APIRequestContext['storageState']>>;
+test.beforeAll(async({request})=>{if(!process.env.UI_V2_PASSWORD)return;const r=await request.post('/api/auth/login',{data:{username:process.env.UI_V2_USERNAME,password:process.env.UI_V2_PASSWORD}});expect(r.status()).toBe(200);state=await request.storageState();});
+test('actual XLSX canvas, visual schema and mapping, keyboard, paste, server validation and mobile bounds',async({page})=>{
+  test.skip(!process.env.UI_V2_PASSWORD||!process.env.UI_V2_OFFICE_FIXTURE,'Requires genuine authenticated API and isolated synthetic SQL.');
+  await page.context().addCookies(state.cookies);await page.goto('/universal-doc-studio');
+  await page.getByLabel('Mẫu Excel đầu ra',{exact:true}).setInputFiles(process.env.UI_V2_OFFICE_FIXTURE!);
+  const uploaded=page.waitForResponse(r=>r.url().endsWith('/template')&&r.request().method()==='POST');await page.getByRole('button',{name:'Tải và phân tích mẫu',exact:true}).click();
+  const session=await (await uploaded).json();expect(session.schemaDraft.templateSha256).toMatch(/^[a-f0-9]{64}$/i);
+  await page.getByRole('button',{name:'Xem cấu trúc Excel',exact:true}).click();
+  const canvas=page.locator('.visual-studio');await expect(canvas.getByRole('gridcell',{name:'B1: CT-00000',exact:true})).toBeVisible();
+  await canvas.getByRole('button',{name:'ThamChieu',exact:true}).click();await expect(canvas.getByRole('gridcell',{name:'A1: Synthetic reference 00123',exact:true})).toBeVisible();await canvas.getByRole('button',{name:'HoaDon',exact:true}).click();
+  const header=session.schemaDraft.fields.find((f:{scope:string;label:string})=>f.scope==='Header'&&f.label==='Số phiếu');
+  await canvas.getByRole('button',{name:/^Số phiếu/}).first().click();await canvas.locator('[data-cell="B1"]').click();
+  await expect(canvas.getByRole('status').last()).toContainText('Thay đổi cục bộ');
+  await page.getByRole('button',{name:'Bước tiếp theo',exact:true}).click();await expect(page.locator('.office-pending')).toContainText('các mục dữ liệu');
+  // Resolve every candidate explicitly via the original evidence controls.
+  await page.getByText('Chỉnh sửa chi tiết các mục và gợi ý',{exact:true}).click();
+  for(let i=0;i<session.schemaDraft.fields.length;i++)await page.getByLabel(`Vị trí mục ${i+1}`,{exact:true}).selectOption('0');
+  await page.getByLabel(`Bắt buộc mục ${session.schemaDraft.fields.findIndex((f:{key:string})=>f.key===header.key)+1}`,{exact:true}).check();
+  const schemaReply=page.waitForResponse(r=>r.url().endsWith('/schema')&&r.request().method()==='PATCH');await page.getByRole('button',{name:'Áp dụng các mục dữ liệu',exact:true}).click();
+  const corrected=await(await schemaReply).json();expect(corrected.version).toBeGreaterThan(session.version);expect(corrected.schemaDraft.fields.find((f:{key:string})=>f.key===header.key)).toBeTruthy();
+  await page.getByRole('button',{name:'Bước tiếp theo',exact:true}).click();
+  await canvas.getByRole('button',{name:/^Số phiếu/}).first().click();await canvas.locator('[data-cell="B4"]').click();
+  const detail=corrected.schemaDraft.fields.find((f:{scope:string})=>f.scope==='LineItem');
+  await canvas.getByRole('button',{name:new RegExp('^'+detail.label)}).click();await canvas.getByLabel('Đi đến ô',{exact:true}).fill('A6');await canvas.getByLabel('Đi đến ô',{exact:true}).press('Enter');
+  await canvas.locator('[data-cell="A6"]').press('Enter');
+  await expect(canvas.getByRole('status').last()).toContainText('A6');
+  await expect(page.getByRole('button',{name:'Xác nhận vị trí Excel',exact:true})).toBeDisabled();
+  const mappedReply=page.waitForResponse(r=>r.url().endsWith('/multisheet-mapping')&&r.request().method()==='PATCH');await page.getByRole('button',{name:'Áp dụng vị trí Excel',exact:true}).click();
+  const mapped=await(await mappedReply).json();expect(mapped.version).toBeGreaterThan(corrected.version);expect(mapped.mappings[0].headers[header.key]).toBe('B4');expect(mapped.mappings[0].columns[detail.key]).toBe(1);
+  await mkdir('../.audit-run/ui-v2/visual-excel',{recursive:true});
+  for(const width of [1440,1366,1024,390,360]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await page.locator('main.office-wizard').evaluate(e=>e.scrollTop=0);await page.screenshot({path:`../.audit-run/ui-v2/visual-excel/mapping-${width}.png`,fullPage:true});}
+  await page.setViewportSize({width:1366,height:900});await canvas.screenshot({path:'../.audit-run/ui-v2/visual-excel/canvas-desktop.png'});
+  const confirmation=page.waitForResponse(r=>r.url().endsWith('/mapping/confirm')&&r.request().method()==='POST');await page.getByRole('button',{name:'Xác nhận vị trí Excel',exact:true}).click();expect((await confirmation).status()).toBe(200);
+  await page.getByRole('button',{name:'Bước tiếp theo',exact:true}).click();
+  const first=page.getByLabel(`Dòng 1 ${detail.label}`,{exact:true});await first.focus();
+  const text=Array.from({length:20},(_,i)=>`00${i+1}`).join('\n');
+  await first.evaluate((el,text)=>{const transfer=new DataTransfer();transfer.setData('text/plain',text);el.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,clipboardData:transfer}));},text);
+  await expect(page.getByLabel(`Dòng 20 ${detail.label}`,{exact:true})).toHaveValue('0020');await expect(first).toHaveValue('001');
+  await first.evaluate(el=>{const transfer=new DataTransfer();transfer.setData('text/plain',Array.from({length:21},()=> 'overflow').join('\n'));el.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,clipboardData:transfer}));});await expect(first).toHaveValue('001');await expect(page.getByRole('status').filter({hasText:'Bảng dán vượt'})).toBeVisible();
+  await first.press('Enter');await expect(page.getByLabel(`Dòng 2 ${detail.label}`,{exact:true})).toBeFocused();
+  await expect(page.getByRole('button',{name:'Thêm dòng',exact:true})).toBeDisabled();
+  const dataReply=page.waitForResponse(r=>r.url().endsWith('/manual-sample')&&r.request().method()==='POST');await page.getByRole('button',{name:'Gửi dữ liệu để kiểm tra',exact:true}).click();expect((await dataReply).status()).toBe(200);
+  const fix=page.getByRole('button',{name:'Sửa Số phiếu',exact:true});await expect(fix).toBeVisible();await fix.click();await expect(page.getByLabel('Thông tin Số phiếu',{exact:true})).toBeFocused();
+  await page.getByRole('button',{name:'Đóng phiên hiện tại',exact:true}).click();
+});

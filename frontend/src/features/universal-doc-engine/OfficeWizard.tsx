@@ -4,7 +4,9 @@ import { ConfirmAction } from '../../components/ui/confirm-action';
 import { useAuth } from '../../contexts/AuthContext';
 import { StudioApi, type OfficePreview, type StudioBootstrap, type StudioDraft, type StudioSession } from './studioApi';
 import { OfficeData, OfficeFields, OfficeMapping, OfficeRules, type OfficeSection } from './OfficeEditors';
-import { OfficeRequestError, checkLabel, issueText, officeError, ruleText, typeLabel } from './officeModel';
+import { OfficeRequestError, checkLabel, issueText, issueLocation, valueControlId, officeError, ruleText, typeLabel } from './officeModel';
+import { readWorkbook, type WorkbookEvidence } from './workbookPreview';
+import { WorksheetCanvas } from './WorksheetCanvas';
 const steps=['Chọn mẫu Excel','Xem cấu trúc','Chọn vị trí dữ liệu','Nhập và kiểm tra','Rà soát và phê duyệt','Xuất Excel'];
 const SESSION='universal-doc-office-session',LINK='universal-doc-office-draft-link';
 type Binding={sessionId:string;draft:StudioDraft};
@@ -22,6 +24,9 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
   const {user,logout}=useAuth();const [api]=useState(()=>new StudioApi(true));const [boot,setBoot]=useState<StudioBootstrap|null>(null);
   const [session,setSession]=useState<StudioSession|null>(null);const [preview,setPreview]=useState<OfficePreview|null>(null);
   const [step,setStep]=useState(0);const [busy,setBusy]=useState(true);const [error,setError]=useState('');const [notice,setNotice]=useState('');
+  const [workbook,setWorkbook]=useState<WorkbookEvidence|null>(null);const [previewMessage,setPreviewMessage]=useState('');
+  const [focusIssue,setFocusIssue]=useState<string|null>(null);
+  useEffect(()=>{if(focusIssue&&step===3){const element=document.getElementById(focusIssue);element?.scrollIntoView({block:'center'});element?.focus();setFocusIssue(null);}},[focusIssue,step]);
   const [navigationBlocked,setNavigationBlocked]=useState(false);
   const workspaceRef=useRef<HTMLElement>(null);
   useEffect(()=>{workspaceRef.current?.scrollTo({top:0});},[step]);
@@ -50,7 +55,7 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
   function blockPending(){setNavigationBlocked(true);const target=pendingItems[0]?.target;if(target)requestAnimationFrame(()=>{const element=document.getElementById(target);element?.scrollIntoView({block:'center'});element?.focus({preventScroll:true});});}
   function navigate(next:number){if(busy)return;if(unsaved&&next!==step){blockPending();return;}setStep(next);setError('');}
   async function refreshAcknowledgedUpload(next:StudioSession){try{await refresh(next);}catch(e){setPreview(null);setError(`${e instanceof OfficeRequestError?e.message:officeError('REQUEST_FAILED')} Tệp đã được máy chủ xác nhận, nhưng chưa tải được thông tin xem trước. Có thể chuyển bước hoặc bấm “Tải lại trạng thái” để thử lại.`);}}
-  async function uploadTemplate(){const file=template;if(!file)return;const previous=session??await api.create('example-template');setSession(previous);const next=await api.upload(previous,file);verifyUploadAcknowledgement(previous,next);setLoaded({name:file.name,size:file.size});setLoadedExample(null);setTemplate(null);if(templateInput.current)templateInput.current.value='';setNotice('Đã phân tích mẫu trên máy chủ. Có thể bấm “Bước tiếp theo” để xem cấu trúc.');await refreshAcknowledgedUpload(next);}
+  async function uploadTemplate(){const file=template;if(!file)return;const previous=session??await api.create('example-template');setSession(previous);const next=await api.upload(previous,file);verifyUploadAcknowledgement(previous,next);setWorkbook(null);setPreviewMessage('');try{const evidence=await readWorkbook(file);if(evidence.sha256===next.schemaDraft?.templateSha256.toLowerCase())setWorkbook(evidence);else setPreviewMessage('Dấu vân tay mẫu không khớp máy chủ. Chưa hiển thị ô gốc.');}catch(e){setPreviewMessage(e instanceof Error?e.message:'Không đọc được bản xem mẫu.');}setLoaded({name:file.name,size:file.size});setLoadedExample(null);setTemplate(null);if(templateInput.current)templateInput.current.value='';setNotice('Đã phân tích mẫu trên máy chủ. Có thể bấm “Bước tiếp theo” để xem cấu trúc.');await refreshAcknowledgedUpload(next);}
   async function uploadExample(){const file=example;if(!file||!session)return;const next=await api.upload(session,file,'example');verifyUploadAcknowledgement(session,next);setLoadedExample({name:file.name,size:file.size});setExample(null);if(exampleInput.current)exampleInput.current.value='';setNotice('Đã đối chiếu ví dụ trên máy chủ. Cần kiểm tra lại các mục và vị trí Excel.');await refreshAcknowledgedUpload(next);}
   async function apply(action:string,body:Record<string,unknown>,section:OfficeSection,method='POST') {
     if(!session)return;
@@ -61,7 +66,8 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
   const current=preview&&session&&preview.sessionId===session.id&&preview.version===session.version?preview:null;
   // Rebase editor-local state on an acknowledged server snapshot, never on request start/failure.
   const editorKey=session?`${session.id}:${session.version}:${session.profileVersion}:${session.schemaDraft?.revision}:${session.dataRevision}`:'';
-  const editorProps=session?{session,busy,apply,report}:null;
+  const evidence=workbook&&workbook.sha256===session?.schemaDraft?.templateSha256.toLowerCase()?workbook:null;
+  const editorProps=session?{session,busy,apply,report,workbook:evidence}:null;
   const saved=!!session&&savedVersion===session.version&&!unsaved;
   const issues=session?.issues??[];
   return <main ref={workspaceRef} className="uds office-wizard" lang="vi">
@@ -81,6 +87,8 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
       <p>Giới hạn: 4 sheet tổng, 3 sheet dữ liệu, một dòng mẫu mỗi sheet, 20 dòng đầu ra, 8 quy tắc, 2.000 ô đã phân tích; không quá dòng 1.000/cột AF. Tổng mẫu, ví dụ và nguồn tối đa 2 MiB. Không hỗ trợ macro, liên kết ngoài hoặc công thức ngoài ngữ pháp được chấp nhận.</p>
       <form className="uds-inline office-template-form" onSubmit={e=>{e.preventDefault();if(template)void run(uploadTemplate);}}><FileDrop removeLabel="Bỏ tệp mẫu đã chọn" file={template} disabled={busy||formsDirty} inputRef={templateInput} onChange={file=>{setTemplate(file);setNotice('');setNavigationBlocked(false);}} onError={setError}/><button id="office-template-upload" disabled={busy||formsDirty||!template}>{busy&&template?'Đang tải và phân tích…':'Tải và phân tích mẫu'}</button></form>
 
+      {loaded&&<button disabled={busy} onClick={()=>navigate(1)}>Xem cấu trúc Excel</button>}
+      {previewMessage&&<p role="status">{previewMessage}</p>}
       {loaded&&<p className="office-uploaded">Đã tải mẫu lên máy chủ: {loaded.name} · {loaded.size} byte</p>}
       {session&&<form className="uds-inline" onSubmit={e=>{e.preventDefault();if(example)void run(uploadExample);}}><label>Ví dụ đã điền (tùy chọn)<input disabled={busy||formsDirty} ref={exampleInput} aria-label="Ví dụ Excel đã điền" type="file" accept=".xlsx" onChange={e=>{setExample(e.target.files?.[0]??null);setNotice('');setNavigationBlocked(false);}}/></label><button id="office-example-apply" disabled={busy||formsDirty||!example||!!template}>Đối chiếu ví dụ</button></form>}
       {loadedExample&&<p className="office-uploaded">Đã đối chiếu ví dụ trên máy chủ: {loadedExample.name} · {loadedExample.size} byte</p>}
@@ -88,6 +96,7 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
       {session&&<p>Sheet từ máy chủ: {session.sheets.join(', ')||'Chưa có mẫu hợp lệ'}</p>}
     </>}
     {step>0&&!session&&<p>Hãy chọn và tải mẫu ở bước 1, hoặc mở bản nháp đã lưu.</p>}
+    {step>0&&step<4&&session&&<details className="office-preview-details"><summary>Xem lại mẫu gốc</summary><p>Chỉ đọc trên thiết bị này. Khi mở lại bản nháp, chọn đúng tệp gốc; dấu vân tay phải khớp máy chủ. Không tải lên hay sửa phiên.</p><label>Tệp mẫu để xem lại<input type="file" accept=".xlsx" disabled={busy} onChange={e=>{const file=e.target.files?.[0];if(!file)return;void readWorkbook(file).then(w=>{if(w.sha256!==session.schemaDraft?.templateSha256.toLowerCase())throw new Error('Tệp không khớp mẫu đang dùng.');setWorkbook(w);setPreviewMessage('');}).catch(e=>setPreviewMessage(e instanceof Error?e.message:'Không đọc được tệp.'));e.target.value='';}}/></label>{previewMessage&&<p role="status">{previewMessage}</p>}{evidence&&<WorksheetCanvas workbook={evidence} busy={busy}/>}</details>}
     {step===1&&session&&<>
       <div className="uds-scroll" role="region" tabIndex={0} aria-label="Cấu trúc Excel đã phân tích"><table><thead><tr><th>Sheet</th><th>Ô đã phân tích</th><th>Bảng gợi ý / dòng mẫu</th><th>Ô gộp</th></tr></thead><tbody>{session.sheetSummaries.map(s=><tr key={s.name}><th>{s.name}</th><td>{s.usedCells}</td><td>{s.tables} / {s.prototypeRows.join(', ')||'Chưa thấy'}</td><td>{s.mergedRanges.join(', ')||'Không có'}</td></tr>)}</tbody></table></div>
       {editorProps&&<OfficeFields key={editorKey} {...editorProps}/>}
@@ -101,7 +110,7 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
     {step>=3&&session&&<>
       <h3>Kết quả kiểm tra từ máy chủ</h3><p className="office-check-summary" data-passed={session.checks.length>0&&session.checks.every(c=>c.outcome==='Passed')}>{session.checks.filter(c=>c.outcome==='Passed').length} đạt · {session.checks.filter(c=>c.outcome==='NotEvaluated').length} chưa đánh giá · {session.checks.filter(c=>c.outcome!=='Passed'&&c.outcome!=='NotEvaluated').length} chưa đạt.</p><details className="office-check-details"><summary>Chi tiết {session.checks.length} kiểm tra máy chủ</summary><ul aria-label="Kết quả kiểm tra">{session.checks.map(c=><li key={c.id}>{checkLabel(c.id,session)}: {c.outcome==='Passed'?'Đạt':c.outcome==='NotEvaluated'?'Chưa đánh giá':'Chưa đạt'} {c.required?'· Bắt buộc':''}</li>)}</ul></details>
       {!session.checks.length&&<p>Chưa có kết quả; hãy gửi dữ liệu để máy chủ kiểm tra.</p>}
-      <ul aria-label="Các lỗi và cảnh báo">{issues.map((i,n)=>{return <li key={n}>{i.severity==='Warning'?'Cảnh báo':'Cần xử lý'}: {i.field?checkLabel(i.field,session):'Giá trị hoặc cấu hình'} — {issueText[i.code]??'Máy chủ phát hiện dữ liệu chưa phù hợp. Kiểm tra các mục đang dùng và quy tắc.'}</li>;})}</ul>
+      <ul aria-label="Các lỗi và cảnh báo">{issues.map((i,n)=>{const location=issueLocation(i,session);return <li key={n}>{i.severity==='Warning'?'Cảnh báo':'Cần xử lý'}: {i.field?checkLabel(i.field,session):'Giá trị hoặc cấu hình'} — {issueText[i.code]??'Máy chủ phát hiện dữ liệu chưa phù hợp. Kiểm tra các mục đang dùng và quy tắc.'}{location&&<button disabled={busy} onClick={()=>{if(unsaved&&step!==3){blockPending();return;}setStep(3);setFocusIssue(valueControlId(location.field,location.row));}}>Sửa {location.field.label}{location.field.scope==='LineItem'?` dòng ${location.row+1}`:''}</button>}</li>;})}</ul>
       <details className="office-preview-details" open={step===3}><summary>Xem dữ liệu và vị trí dự kiến</summary><p>Chỉ là thông tin từ phiên được cấp quyền, chưa tạo tệp Excel. Không dùng làm chứng từ đã phê duyệt.</p>
       {current?<div className="uds-scroll" role="region" tabIndex={0} aria-label="Xem dữ liệu theo vị trí Excel"><table><thead><tr><th>Mục / dòng</th><th>Kiểu</th><th>Giá trị hiện tại</th><th>Vị trí dự kiến</th></tr></thead><tbody>{current.fields.map(f=><tr key={`${f.scope}:${f.row}:${f.key}`}><th>{f.label}{f.row!==null?` · dòng ${f.row+1}`:''}</th><td>{typeLabel[f.type]}</td><td>{f.missing?(f.required?'Thiếu giá trị bắt buộc':'Chưa nhập'):f.value}</td><td>{f.destinations.map(d=>`${d.sheet}!${d.cell}`).join('; ')||'Chưa có vị trí'}</td></tr>)}</tbody></table></div>:<p>Cần tải lại trạng thái để xem thông tin hiện tại.</p>}</details>
     </>}
@@ -127,6 +136,6 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
       <ConfirmAction disabled={busy||unsaved} title={`Xóa bản nháp ${i+1}?`} description="Bản nháp đã lưu sẽ bị xóa. Phiên đang mở vẫn giữ thời hạn và quyền hiện tại. Thao tác này không thể hoàn tác." onConfirm={()=>run(async()=>{await api.deleteDraft(d);setDrafts(await api.drafts());if(binding?.draft.id===d.id)setBinding(null);setSavedVersion(null);setNotice('Đã xóa bản nháp. Phiên đang mở vẫn tuân theo thời hạn và quyền riêng của nó.');})}>Xóa bản nháp {i+1}</ConfirmAction>
       </article>)}
     </section>}
-    </div><aside className="office-context" aria-label="Tiến độ và trạng thái lưu"><span className="section-kicker">PHIÊN LÀM VIỆC</span><h2>{steps[step]}</h2><p>Bước {step+1} / 6</p><dl><dt>Thay đổi cục bộ</dt><dd>{unsaved?'Chưa áp dụng':'Không có thay đổi chờ áp dụng'}</dd><dt>Bản nháp</dt><dd>{saved?'Đã được máy chủ xác nhận lưu':'Chưa xác nhận lưu trạng thái hiện tại'}</dd><dt>Vị trí Excel</dt><dd>{session?.mappingState==='UserConfirmed'?'Đã xác nhận':'Chưa xác nhận'}</dd><dt>Kiểm tra dữ liệu</dt><dd>{current?.readiness.dataValid?'Máy chủ xác nhận hợp lệ':'Chưa hợp lệ hoặc chưa kiểm tra'}</dd><dt>Phê duyệt</dt><dd>{session?.reviewState==='Approved'?'Đã phê duyệt':session?.reviewState==='ReadyForApproval'?'Chờ phê duyệt':'Chưa hoàn tất'}</dd></dl><p className="office-session-note">Phiên có thời hạn 20 phút. Bản nháp riêng tư được giữ tối đa 7 ngày. Khi mở lại cần kiểm tra trạng thái mới từ máy chủ.</p><p>Thông tin xem trước chỉ mô tả dữ liệu và vị trí, không phải bản in Excel chính xác.</p></aside></div>
+    </div><aside className="office-context" aria-label="Tiến độ và trạng thái lưu"><span className="section-kicker">PHIÊN LÀM VIỆC</span><h2>{steps[step]}</h2><p>Bước {step+1} / 6</p><dl><dt>Yêu cầu hiện tại</dt><dd>{busy?'Đang liên hệ máy chủ…':'Đã hoàn tất yêu cầu'}</dd><dt>Thay đổi cục bộ</dt><dd>{unsaved?'Chưa áp dụng':'Không có thay đổi chờ áp dụng'}</dd><dt>Bản nháp</dt><dd>{saved?'Đã được máy chủ xác nhận lưu':'Chưa xác nhận lưu trạng thái hiện tại'}</dd><dt>Vị trí Excel</dt><dd>{session?.mappingState==='UserConfirmed'?'Đã xác nhận':'Chưa xác nhận'}</dd><dt>Kiểm tra dữ liệu</dt><dd>{current?.readiness.dataValid?'Máy chủ xác nhận hợp lệ':'Chưa hợp lệ hoặc chưa kiểm tra'}</dd><dt>Phê duyệt</dt><dd>{session?.reviewState==='Approved'?'Đã phê duyệt':session?.reviewState==='ReadyForApproval'?'Chờ phê duyệt':'Chưa hoàn tất'}</dd></dl><p className="office-session-note">Phiên có thời hạn 20 phút. Bản nháp riêng tư được giữ tối đa 7 ngày. Khi mở lại cần kiểm tra trạng thái mới từ máy chủ.</p><p>Thông tin xem trước chỉ mô tả dữ liệu và vị trí, không phải bản in Excel chính xác.</p></aside></div>
   </main>;
 }

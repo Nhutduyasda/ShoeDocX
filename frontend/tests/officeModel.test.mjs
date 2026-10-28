@@ -15,3 +15,13 @@ test('Dates and booleans have unambiguous wire formats',()=>{assert.ok(validEntr
 test('Empty is submitted for server requiredness evaluation, never declared PASS locally',()=>assert.ok(validEntry({type:'Decimal',required:true},'')));
 test('Coordinates stay bounded to accepted analyzed columns',()=>{assert.equal(colName(1),'A');assert.equal(colName(26),'Z');assert.equal(colName(27),'AA');assert.equal(colName(32),'AF');for(const n of [0,33,16384,NaN])assert.equal(colName(n),'?');});
 test('Readable rule labels use exact schema identities and omitted fields are not described as active',()=>{const s={schemaDraft:{fields:[{key:'a',label:'Số lượng',scope:'LineItem',omit:false},{key:'b',label:'Đơn giá',scope:'LineItem',omit:false},{key:'t',label:'Thành tiền',scope:'LineItem',omit:false}]}};assert.equal(ruleText({kind:'Arithmetic',fieldA:'a',fieldB:'b',target:'t',operator:'Multiply'},s),'Số lượng × Đơn giá = Thành tiền');});
+
+
+test('Server check IDs resolve to exact field identities and bounded rows for focus',()=>{
+  const header={key:'id',scope:'Header',omit:false},item={key:'amount',scope:'LineItem',omit:false};
+  const session={schemaDraft:{fields:[header,item]},validationRules:[{id:'multiply',kind:'Arithmetic',target:'amount'},{id:'sum',kind:'CrossFoot',target:'id'}]};
+  const locate=field=>module.exports.issueLocation({field,rowPosition:null},session);
+  assert.equal(locate('field:Header:id').field,header);assert.equal(locate('field:LineItem:amount:19').row,19);
+  assert.equal(locate('multiply:2').field,item);assert.equal(locate('multiply:2').row,2);assert.equal(locate('sum').field,header);
+  assert.equal(locate('field:LineItem:amount:20'),null);assert.equal(locate('multiply:invalid'),null);assert.equal(locate('unknown'),null);
+});

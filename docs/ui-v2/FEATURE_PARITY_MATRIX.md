@@ -28,3 +28,20 @@ PASS is limited to the executed behavior in each row. Rendering/viewport coverag
 | Shared legacy dialogs/grids | Product modal and retained Ant Design controls share tokens/layers | NOT TESTED | Complete per-widget accessibility, keyboard, import/export parity |
 
 Evidence: `frontend/tests/ui-v2/`, `frontend/tests/universalDocGate5D.e2e.mjs`, generated `results.json`, `office-summary.json`, `workbook-qa.json`; selected screenshots in `screenshots/`. Keep Draft until the untested protected flows are verified.
+
+
+## Visual Excel Studio continuation
+
+| Behavior | Result | Evidence / limit |
+|---|---|---|
+| Actual XLSX values, tabs, coordinates, merge/formula indications | PASS | Real openpyxl fixture and authenticated upload; raw values only |
+| Header pointer and detail keyboard mapping | PASS | Real schema/multisheet acknowledgments and version advances |
+| Ambiguity, type/required corrections, three-sheet limit | PASS | Candidate evidence and original detailed editors retained; existing 2/3-sheet export journeys |
+| 20-row paste, leading-zero strings, keyboard and Undo/Apply | PASS | New visual API journey plus existing Office tests |
+| Error-to-control focus | PASS | Actual missing required header response, focus recovery; bounded check/rule ID resolution model test |
+| Pending-upload/navigation regression | PASS | All eight original pending cases retained |
+| Five viewport widths | PASS | 1440/1366/1024/390/360; region-confined scrolling |
+| Durable preview values across restart | PARTIAL | SQL business draft survives; original file must be reselected locally and hash-matched |
+| Full Excel fidelity / assistive technologies | NOT TESTED | Unsupported formatting/images/print/recalculation explicit; manual accessibility review outstanding |
+
+See `VISUAL_EXCEL_STUDIO.md` for the actual tested scope and security review. Visual workspace PARTIAL; mapping/data/security parity PASS within synthetic coverage; NOT READY to merge.

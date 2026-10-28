@@ -210,6 +210,7 @@ test("E–F schema and mapping edits stay guarded until server acknowledges Appl
 }) => {
   await upload(page);
   await next(page);
+  await page.getByText("Chỉnh sửa chi tiết các mục và gợi ý", {exact:true}).click();
   const count = await page.getByLabel(/^Tên mục \d+$/).count();
   for (let i = 1; i <= count; i++)
     await page.getByLabel(`Vị trí mục ${i}`, { exact: true }).selectOption("0");
@@ -239,6 +240,7 @@ test("E–F schema and mapping edits stay guarded until server acknowledges Appl
   await expect(
     page.getByRole("heading", { name: "3. Chọn vị trí dữ liệu", exact: true }),
   ).toBeVisible();
+  await page.getByText("Quản lý sheet và chỉnh sửa vị trí chi tiết", {exact:true}).click();
   await page.getByLabel("Vị trí HoaDon Số phiếu", { exact: true }).fill("B4");
   await next(page);
   await expect(

@@ -81,6 +81,14 @@ export function validEntry(field: LearnedField, value: string): boolean {
   if(field.type==='Boolean') return value==='true'||value==='false';
   return true;
 }
+export function issueLocation(issue:StudioSession['issues'][number],session:StudioSession):{field:LearnedField;row:number}|null {
+  const parts=(issue.field??'').split(':');let scope:string|undefined,key:string|undefined,row=issue.rowPosition??0;
+  if(parts[0]==='field'){scope=parts[1];key=parts[2];if(parts[3]!==undefined){if(!/^\d+$/.test(parts[3]))return null;row=Number(parts[3]);}}
+  else {const rule=session.validationRules.find(r=>r.id===parts[0]);if(rule){key=rule.target;scope=rule.kind==='CrossFoot'?'Header':'LineItem';if(parts[1]!==undefined){if(!/^\d+$/.test(parts[1]))return null;row=Number(parts[1]);}}else key=issue.field??undefined;}
+  const matches=session.schemaDraft?.fields.filter(f=>!f.omit&&f.key===key&&(!scope||f.scope===scope));const field=matches?.length===1?matches[0]:undefined;
+  return field&&Number.isInteger(row)&&row>=0&&row<20?{field,row:field.scope==='Header'?0:row}:null;
+}
+export function valueControlId(field:LearnedField,row:number){return `office-value-${field.scope}-${row}-${field.key}`;}
 export const issueText: Readonly<Record<string,string>> = {
   REQUIRED_FIELD_MISSING:'Thiếu giá trị bắt buộc.', MISSING_FIELD:'Thiếu giá trị.', REQUIRED_HEADER_MISSING:'Thiếu thông tin bắt buộc.',
   MISSING_RULE_INPUT:'Chưa đủ giá trị để kiểm tra quy tắc.', DIVISION_BY_ZERO:'Không thể chia cho 0.', NUMERIC_OVERFLOW:'Số vượt phạm vi được hỗ trợ.',

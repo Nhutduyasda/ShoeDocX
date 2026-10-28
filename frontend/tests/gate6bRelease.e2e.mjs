@@ -8,7 +8,7 @@ const folder=process.env.STUDIO_EVIDENCE_DIR,phase=process.env.GATE6B_RELEASE_PH
 const client=await request.newContext({baseURL:process.env.STUDIO_BASE_URL});
 const report={phase,status:'FAIL',stages:{},oldApprovalRestored:false};
 try {
- async function expect(response,status,key){report.stages[key]=response.status();assert.equal(response.status(),status);return status===204?null:response.json();}
+ async function expect(response,status,key){report.stages[key]=response.status();if(response.status()!==status){try{const body=await response.json();if(typeof body.code==='string'&&/^[A-Z_]+$/.test(body.code))report.errorCode=body.code;}catch{}}assert.equal(response.status(),status);return status===204?null:response.json();}
  await expect(await client.post('/api/auth/login',{data:{username:'admin-a',password:process.env.STUDIO_PASSWORD}}),200,'login');
  const headers={'X-Studio-CSRF':(await expect(await client.get('/api/universal-doc/bootstrap'),200,'bootstrap')).csrfToken};
  let draft=JSON.parse(await readFile(join(folder,'gate6b-draft.json'),'utf8')),session;
@@ -22,7 +22,8 @@ try {
      session=await expect(await client.post(`/api/universal-doc/sessions/${session.id}/${endpoint}`,{headers,multipart:{expectedVersion:String(session.version),file:{name:file,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:await readFile(join(process.env.GATE6B_FIXTURES,file))}}}),200,endpoint);
    }
    const fields=seed.schemaDraft.fields.map(f=>{const c=f.omit?null:f.candidates[f.candidate];return {key:f.key,label:f.label,scope:f.scope,type:f.type,required:f.required,omit:f.omit,candidate:null,worksheet:c?.worksheet,cell:c?.cell,column:c?.column,prototypeRow:c?.prototypeRow};});
-   await mutation('schema',{fields},'patch');await mutation('multisheet-mapping',{sheets:seed.mappings},'patch');await mutation('validation-rules',{rules:seed.validationRules},'patch');await mutation('mapping/confirm',{});
+   const sheets=seed.mappings.map(m=>({sheet:m.sheet,prototypeRow:m.startRow,headers:m.headers,columns:m.columns}));
+   await mutation('schema',{fields},'patch');await mutation('multisheet-mapping',{sheets},'patch');await mutation('validation-rules',{rules:seed.validationRules},'patch');await mutation('mapping/confirm',{});
    const included=new Set(fields.filter(f=>!f.omit).map(f=>f.scope+':'+f.key));
    const values=seed.fields.filter(f=>included.has(f.scope+':'+f.key));
    const header=Object.fromEntries(values.filter(f=>f.scope==='Header').map(f=>[f.key,f.value??'']));

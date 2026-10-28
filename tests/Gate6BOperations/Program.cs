@@ -10,6 +10,7 @@ using ClosedXML.Excel;
 
 if(args[0]=="native"){await Gate6BNative.Run(args[1]);return;}
 if(args[0]=="native-tcp"){await Gate6BNativeTcp.Run(args[1]);return;}
+if(args[0]=="native-cert"){Gate6BNativeCertificates.Create(args[1]);return;}
 
 // Offline recovery cannot depend on configuration sealed inside the lost bundle.
 if(args[0] is "seal" or "unseal") {

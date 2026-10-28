@@ -5,6 +5,7 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or !$IsWindows) { throw 'DISPOSABLE_WINDOWS_
 $root=Join-Path $env:RUNNER_TEMP ('gate6b-tcp-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $root | Out-Null
 icacls $root /inheritance:r /grant:r "$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name):(OI)(CI)F" 'SYSTEM:(OI)(CI)F' | Out-Null
+if ($LASTEXITCODE -ne 0) {throw 'PRIVATE_DIRECTORY_ACL_REQUIRED'}
 $report=[ordered]@{status='BLOCKED';productionParity='UNVERIFIED';phase='download';installerEvidence=@();publicSqlPort=$false}
 $thumb=$null;$caThumb=$null;$rsa=$null;$instance='GATE6BTCP';$service='MSSQL$GATE6BTCP'
 function Verified([string]$File) {
@@ -13,9 +14,16 @@ function Verified([string]$File) {
  $report.installerEvidence+=@{sha256=(Get-FileHash $File -Algorithm SHA256).Hash;signature='Valid Microsoft Corporation';version=(Get-Item $File).VersionInfo.FileVersion}
 }
 function Run-Private([string]$File,[string[]]$Arguments,[int]$Seconds) {
- $p=Start-Process $File -ArgumentList $Arguments -PassThru -RedirectStandardOutput (Join-Path $root ('stdout-'+[guid]::NewGuid()+'.txt')) -RedirectStandardError (Join-Path $root ('stderr-'+[guid]::NewGuid()+'.txt'))
+ $stdout=Join-Path $root ('stdout-'+[guid]::NewGuid()+'.txt');$stderr=Join-Path $root ('stderr-'+[guid]::NewGuid()+'.txt')
+ $p=Start-Process $File -ArgumentList $Arguments -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
  if (!$p.WaitForExit($Seconds*1000)) { Stop-Process -Id $p.Id -Force; throw 'BOUNDED_PROCESS_TIMEOUT' }
- if ($p.ExitCode -notin @(0,3010)) { $report.processExit=$p.ExitCode;throw 'PROCESS_FAILED' }
+ if ($p.ExitCode -notin @(0,3010)) {
+   $report.processExit=$p.ExitCode
+   $diagnostic=(Get-Content $stdout -Raw -ErrorAction SilentlyContinue)+(Get-Content $stderr -Raw -ErrorAction SilentlyContinue)
+   $report.processExceptionTypes=@([regex]::Matches($diagnostic,'\b[A-Za-z.]+Exception\b') | ForEach-Object {$_.Value} | Sort-Object -Unique)
+   $report.processClassifiers=@{unsupportedAlgorithm=($diagnostic -match 'Invalid algorithm|algorithm.*not supported|does not support');privateKeyMissing=($diagnostic -match 'private key.*not|Keyset does not exist');accessDenied=($diagnostic -match 'Access.*denied|UnauthorizedAccessException')}
+   throw 'PROCESS_FAILED'
+ }
 }
 try {
  if (Get-Service $service -ErrorAction SilentlyContinue) { throw 'REFUSING_EXISTING_SQL_INSTANCE' }
@@ -34,24 +42,14 @@ try {
  Run-Private $setup @('/Q','/IACCEPTSQLSERVERLICENSETERMS','/SUPPRESSPRIVACYSTATEMENTNOTICE','/ACTION=Install','/FEATURES=SQLEngine',"/INSTANCENAME=$instance",'/SQLSVCACCOUNT="NT Service\MSSQL$GATE6BTCP"',"/SQLSYSADMINACCOUNTS=`"$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)`"",'/SECURITYMODE=SQL',"/SAPWD=$sa",'/TCPENABLED=0','/NPENABLED=0','/SQLSVCSTARTUPTYPE=Manual','/UPDATEENABLED=True') 900
  Stop-Service $service -ErrorAction SilentlyContinue
  $report.phase='certificate'
- $ca=New-SelfSignedCertificate -Type Custom -Subject 'CN=Gate6B Synthetic SQL Root' -KeyUsage CertSign,CRLSign,DigitalSignature -TextExtension '2.5.29.19={critical}{text}ca=1&pathlength=0' -CertStoreLocation 'Cert:\LocalMachine\My' -KeyAlgorithm RSA -KeyLength 2048 -KeySpec Signature -Provider 'Microsoft RSA SChannel Cryptographic Provider' -NotAfter (Get-Date).AddDays(2)
- $caThumb=$ca.Thumbprint
- $cert=New-SelfSignedCertificate -Type SSLServerAuthentication -Signer $ca -DnsName $env:COMPUTERNAME,'localhost' -CertStoreLocation 'Cert:\LocalMachine\My' -KeyAlgorithm RSA -KeyLength 2048 -KeySpec KeyExchange -Provider 'Microsoft RSA SChannel Cryptographic Provider' -NotAfter (Get-Date).AddDays(1)
- $thumb=$cert.Thumbprint
- $public=Join-Path $root 'ca.cer';Export-Certificate -Cert $ca -FilePath $public | Out-Null
- Import-Certificate -FilePath $public -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
- $cert=Get-Item "Cert:\LocalMachine\My\$thumb"
- $report.leafHasPrivateKey=$cert.HasPrivateKey
- $rsa=[System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
- if (!$rsa) {throw 'SQL_RSA_PRIVATE_KEY_REQUIRED'}
- $report.privateKeyProvider=$rsa.GetType().Name
- if ($rsa -isnot [System.Security.Cryptography.RSACryptoServiceProvider]) {throw 'LEGACY_SQL_PRIVATE_KEY_REQUIRED'}
+ Run-Private 'dotnet' @('run','--no-build','--project',"`"$env:GITHUB_WORKSPACE/feature/tests/Gate6BOperations/Gate6BOperations.csproj`"",'--','native-cert',"`"$root`"") 45
+ $key=Get-Content (Join-Path $root 'sql-key.json') -Raw | ConvertFrom-Json
+ $thumb=$key.leafThumbprint;$caThumb=$key.rootThumbprint
+ $report.leafHasPrivateKey=$key.hasPrivateKey;$report.privateKeyProvider=$key.privateKeyProvider;$report.machinePrivateKey=$key.machinePrivateKey
+ if (!$key.hasPrivateKey -or !$key.machinePrivateKey) {throw 'MACHINE_PRIVATE_KEY_REQUIRED'}
  $account=(Get-CimInstance Win32_Service -Filter "Name='$service'").StartName
  if ($account -ne 'NT Service\MSSQL$GATE6BTCP') {throw 'SQL_VIRTUAL_SERVICE_REQUIRED'}
- $keyInfo=$rsa.CspKeyContainerInfo
- $report.machinePrivateKey=$keyInfo.MachineKeyStore
- if (!$keyInfo.MachineKeyStore) {throw 'MACHINE_PRIVATE_KEY_REQUIRED'}
- $keyFile=Join-Path "$env:ProgramData\Microsoft\Crypto\RSA\MachineKeys" $keyInfo.UniqueKeyContainerName
+ $keyFile=Join-Path "$env:ProgramData\Microsoft\Crypto\RSA\MachineKeys" $key.keyFileName
  if (!(Test-Path -LiteralPath $keyFile -PathType Leaf)) {throw 'MACHINE_KEY_FILE_REQUIRED'}
  $serviceSid=([System.Security.Principal.NTAccount]::new($account)).Translate([System.Security.Principal.SecurityIdentifier])
  $acl=Get-Acl -LiteralPath $keyFile
@@ -84,6 +82,7 @@ try {
  $report.blocker='Inspect native subreport for executed stages. Trusted reverse-proxy, unprivileged application identity, full native browser/owner/tenant/draft recovery parity remain unverified. No Windows platform waiver.'
 } catch {
  $report.errorType=$_.Exception.GetType().Name
+ $report.sourceLine=$_.InvocationInfo.ScriptLineNumber
  # Only our fixed identifiers may leave private diagnostics.
  if ($_.Exception.Message -match '^[A-Z_]+$') {$report.errorCode=$_.Exception.Message}
  if ($id) {

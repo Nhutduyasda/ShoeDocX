@@ -20,10 +20,32 @@ public static class ProductionConfiguration
         var path = configuration["DataProtection:KeyPath"];
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
             throw new InvalidOperationException("PRODUCTION_DATA_PROTECTION_PATH_REQUIRED");
+        if (string.IsNullOrWhiteSpace(configuration["DataProtection:CertificatePath"]) ||
+            !Path.IsPathFullyQualified(configuration["DataProtection:CertificatePath"]!))
+            throw new InvalidOperationException("PRODUCTION_DATA_PROTECTION_CERTIFICATE_REQUIRED");
+        if (configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
+            throw new InvalidOperationException("PRODUCTION_AUTOMIGRATION_FORBIDDEN");
         if (configuration.GetValue<bool>("UniversalDocDrafts:Enabled"))
         {
             ValidateSql(configuration["UniversalDocDrafts:ConnectionString"] ?? configuration.GetConnectionString("DefaultConnection"));
             _ = new DraftCipher(configuration);
+        }
+    }
+
+    // Probe without EF execution-strategy retries. Fatal TLS/authentication settings
+    // must never leave the production process indefinitely waiting before readiness.
+    public static async Task VerifySqlConnectionsAsync(IConfiguration configuration)
+    {
+        var connections = new List<string> { configuration.GetConnectionString("DefaultConnection")! };
+        if (configuration.GetValue<bool>("UniversalDocDrafts:Enabled"))
+            connections.Add(configuration["UniversalDocDrafts:ConnectionString"] ?? connections[0]);
+        foreach (var value in connections.Distinct(StringComparer.Ordinal))
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await using var connection = new SqlConnection(value);
+            try { await connection.OpenAsync(timeout.Token); }
+            catch (OperationCanceledException) { throw new InvalidOperationException("PRODUCTION_SQL_STARTUP_TIMEOUT"); }
+            catch (SqlException) { throw new InvalidOperationException("PRODUCTION_SQL_STARTUP_UNAVAILABLE"); }
         }
     }
 
@@ -33,7 +55,7 @@ public static class ProductionConfiguration
         {
             if (string.IsNullOrWhiteSpace(connection)) throw new ArgumentException();
             var value = new SqlConnectionStringBuilder(connection);
-            if (string.IsNullOrWhiteSpace(value.DataSource) || string.IsNullOrWhiteSpace(value.InitialCatalog) ||
+            if (!value.DataSource.StartsWith("tcp:", StringComparison.OrdinalIgnoreCase) || value.HostNameInCertificate.Length != 0 || string.IsNullOrWhiteSpace(value.InitialCatalog) ||
                 value.TrustServerCertificate || value.Encrypt == SqlConnectionEncryptOption.Optional || value.AttachDBFilename.Length != 0)
                 throw new ArgumentException();
         }

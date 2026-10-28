@@ -1,4 +1,7 @@
 using System.Text;
+using System.Net;
+using Microsoft.AspNetCore.HttpOverrides;
+using ShoeExportInvoice.Api.Infrastructure.UniversalDocDrafts;
 using Microsoft.AspNetCore.DataProtection;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -14,11 +17,35 @@ using ShoeExportInvoice.Api.Services;
 using ShoeExportInvoice.Api.Features.UniversalDocEngine.Application;
 
 var builder = WebApplication.CreateBuilder(args);
+var operatorConfiguration = Environment.GetEnvironmentVariable("SHOEDOCX_CONFIGURATION_FILE");
+if (!string.IsNullOrWhiteSpace(operatorConfiguration)) {
+    // Complete protected operator configuration is authoritative. In particular,
+    // configuration arrays must not retain HTTP origins from appsettings defaults.
+    builder.Configuration.Sources.Clear();
+    builder.Configuration.AddJsonFile(operatorConfiguration, optional: false, reloadOnChange: false)
+        .AddEnvironmentVariables(prefix: "ASPNETCORE_");
+}
 ProductionConfiguration.Validate(builder.Configuration, builder.Environment.IsProduction());
+var maintenance = args.Contains("--migrate-all") || args.Contains("--initialize-staging");
+if (maintenance && !builder.Configuration.GetValue<bool>("Database:MaintenanceAuthorized"))
+    throw new InvalidOperationException("MAINTENANCE_AUTHORIZATION_REQUIRED");
+if (builder.Environment.IsProduction() && builder.Configuration.GetValue<bool>("BootstrapAdmin:Enabled") && !args.Contains("--initialize-staging"))
+    throw new InvalidOperationException("BOOTSTRAP_REQUIRES_EXPLICIT_INITIALIZATION");
+builder.Services.Configure<ForwardedHeadersOptions>(options => {
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear(); options.KnownProxies.Clear();
+    foreach (var value in builder.Configuration.GetSection("Ingress:KnownProxies").Get<string[]>() ?? [])
+        options.KnownProxies.Add(IPAddress.Parse(value));
+    // With no configured proxy, leave forwarding disabled. Never trust all peers.
+    if (options.KnownProxies.Count == 0) options.ForwardedHeaders = ForwardedHeaders.None;
+});
 var protectionPath = builder.Configuration["DataProtection:KeyPath"];
-if (!string.IsNullOrWhiteSpace(protectionPath))
-    builder.Services.AddDataProtection().SetApplicationName("ShoeDocX")
+if (!string.IsNullOrWhiteSpace(protectionPath)) {
+    var protection = builder.Services.AddDataProtection().SetApplicationName("ShoeDocX")
         .PersistKeysToFileSystem(new DirectoryInfo(protectionPath));
+    protection.ConfigureCertificates(builder.Configuration);
+}
 
 // Keep local/CLI startup independent from the Windows Event Log, which may
 // require elevated permissions and must never make a successful migration fail.
@@ -130,6 +157,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddConcurrencyLimiter("health", limit => { limit.PermitLimit = 4; limit.QueueLimit = 0; });
     options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: $"{context.Connection.RemoteIpAddress}:{context.Request.Path}",
         factory: _ => new FixedWindowRateLimiterOptions
@@ -205,6 +233,23 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
     o.MultipartBodyLengthLimit = builder.Configuration.GetValue<long?>("Xnk:MaxUploadBytes") ?? 20971520);
 var app = builder.Build();
+OperationalTelemetry.Event("application_start");
+app.Lifetime.ApplicationStopping.Register(()=>OperationalTelemetry.Event("application_stopping"));
+if (app.Environment.IsProduction()) {
+    OperationalTelemetry.VerifyStorage(builder.Configuration["DataProtection:KeyPath"]!);
+    OperationalTelemetry.VerifyStorage(Path.GetFullPath(builder.Configuration["Xnk:CustomsStoragePath"] ?? "data/customs"));
+    if (!Directory.Exists(Path.Combine(app.Environment.ContentRootPath,"Templates")) ||
+        !File.Exists(Path.GetFullPath(builder.Configuration["Xnk:ShipmentTemplatePath"] ?? "Templates/Shipment_Template.xlsx")))
+        throw new InvalidOperationException("REQUIRED_TEMPLATE_STORAGE_UNAVAILABLE");
+}
+app.Use(async (context,next)=> { try {await next(context);} finally {OperationalTelemetry.Request(context.Request.Path,context.Response.StatusCode);} });
+app.UseForwardedHeaders();
+if (app.Environment.IsProduction()) app.Use(async (context, next) => {
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["Cache-Control"] = "no-store";
+    if (!context.Request.IsHttps) { context.Response.StatusCode = 400; return; }
+    await next(context);
+});
 app.Use(async (context, next) =>
 {
     try { await next(context); }
@@ -212,6 +257,7 @@ app.Use(async (context, next) =>
     {
         app.Logger.LogError("Request failed: {ExceptionType} {TraceId}", ex.GetType().Name, context.TraceIdentifier);
         context.Response.StatusCode = ex switch {
+            Microsoft.Data.SqlClient.SqlException or Microsoft.EntityFrameworkCore.Storage.RetryLimitExceededException or TimeoutException => 503,
             DbUpdateException => 409,
             KeyNotFoundException => 404,
             InvalidOperationException or ArgumentException => 400,
@@ -233,11 +279,22 @@ using (var scope = app.Services.CreateScope())
     var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
     try
     {
-        var applyMigrations = args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage") ||
+        if (app.Environment.IsProduction()) await ProductionConfiguration.VerifySqlConnectionsAsync(builder.Configuration);
+        var applyMigrations = args.Contains("--migrate-all") || args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage") ||
             builder.Configuration.GetValue<bool?>("Database:ApplyMigrationsOnStartup") == true || app.Environment.IsDevelopment();
         if (!applyMigrations && (await context.Database.GetPendingMigrationsAsync()).Any())
             throw new InvalidOperationException("DATABASE_MIGRATION_REQUIRED");
-        await DbInitializer.InitializeAsync(context, logger, applyMigrations);
+        if (app.Environment.IsProduction() && !maintenance) {
+            if (applyMigrations) throw new InvalidOperationException("EXPLICIT_MAINTENANCE_REQUIRED");
+        } else await DbInitializer.InitializeAsync(context, logger, applyMigrations);
+        if (builder.Configuration.GetValue<bool>("UniversalDocDrafts:Enabled")) {
+            var factory = services.GetRequiredService<IDbContextFactory<UniversalDocDraftDb>>();
+            await using var drafts = await factory.CreateDbContextAsync();
+            if (args.Contains("--migrate-all")) await drafts.Database.MigrateAsync();
+            if ((await drafts.Database.GetPendingMigrationsAsync()).Any())
+                throw new InvalidOperationException("DRAFT_MIGRATION_REQUIRED");
+            if (drafts.Database.HasPendingModelChanges()) throw new InvalidOperationException("DRAFT_MODEL_MISMATCH");
+        }
         var storageOptions = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<XnkOptions>>().Value;
         var environment = services.GetRequiredService<IWebHostEnvironment>();
         if (args.Contains("--migrate-customs-storage"))
@@ -261,7 +318,7 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-if (args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage")) return;
+if (maintenance || args.Contains("--migrate-only") || args.Contains("--migrate-customs-storage")) return;
 
 // Swagger UI
 if (app.Environment.IsDevelopment())
@@ -279,6 +336,11 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapGet("/api/health", async (HttpContext context, AppDbContext db) => {
+    context.Response.Headers["X-ShoeDocX-Storage-Health"] = "temp-write-v1";
+    try { OperationalTelemetry.VerifyStorage(Path.GetTempPath()); using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)); return await db.Database.CanConnectAsync(timeout.Token) ? Results.Ok(new { status = "ready" }) : Results.StatusCode(503); }
+    catch { return Results.StatusCode(503); }
+}).AllowAnonymous().RequireRateLimiting("health");
 app.MapControllers();
 
 app.Run();

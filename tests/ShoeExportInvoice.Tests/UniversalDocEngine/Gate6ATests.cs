@@ -8,10 +8,10 @@ namespace ShoeExportInvoice.Tests.UniversalDocEngine;
 
 public sealed class Gate6ATests(Xunit.Abstractions.ITestOutputHelper output)
 {
-    private static IConfiguration Config(string connection = "Server=sql.example;Database=synthetic;Integrated Security=True;Encrypt=True;TrustServerCertificate=False", string origin="https://office.example") =>
+    private static IConfiguration Config(string connection = "Server=tcp:sql.example;Database=synthetic;Integrated Security=True;Encrypt=True;TrustServerCertificate=False", string origin="https://office.example") =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> {
             ["ConnectionStrings:DefaultConnection"]=connection, ["Xnk:AllowedOrigins:0"]=origin,
-            ["DataProtection:KeyPath"]=Path.GetFullPath("synthetic-keys") }).Build();
+            ["DataProtection:CertificatePath"]=Path.GetFullPath("synthetic-certificate.pfx"), ["DataProtection:KeyPath"]=Path.GetFullPath("synthetic-keys") }).Build();
     [Theory]
     [InlineData("Data Source=/app/data/shoe_export.db")]
     [InlineData("Server=sql.example;Database=test;Encrypt=False")]

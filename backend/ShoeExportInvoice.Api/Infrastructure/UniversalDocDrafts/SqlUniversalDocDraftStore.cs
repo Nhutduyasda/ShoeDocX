@@ -22,7 +22,7 @@ public sealed class SqlUniversalDocDraftStore(IDbContextFactory<UniversalDocDraf
     private static void Purge(UniversalDocDraftDb db, DateTimeOffset now)
     {
         db.Drafts.RemoveRange(db.Drafts.Where(x => x.ExpiresAt <= now).OrderBy(x => x.ExpiresAt).Take(16));
-        db.Leases.RemoveRange(db.Leases.Where(x => x.ExpiresAt <= now).OrderBy(x => x.ExpiresAt).Take(16)); db.SaveChanges();
+        db.Leases.RemoveRange(db.Leases.Where(x => x.ExpiresAt <= now).OrderBy(x => x.ExpiresAt).Take(16)); if(db.SaveChanges()>0) ShoeExportInvoice.Api.Services.OperationalTelemetry.Event("expired_draft_cleanup");
     }
     private static DraftRecord Find(UniversalDocDraftDb db, UniversalDocActor actor, string id, long revision, DateTimeOffset now)
     {

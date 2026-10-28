@@ -1,0 +1,130 @@
+using System.Text.Json;
+using System.Security.Cryptography;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
+using ShoeExportInvoice.Api.Data;
+using ShoeExportInvoice.Api.Models.Entities;
+using ShoeExportInvoice.Tests.UniversalDocEngine;
+using ClosedXML.Excel;
+
+if(args[0]=="native"){await Gate6BNative.Run(args[1]);return;}
+if(args[0]=="native-tcp"){await Gate6BNativeTcp.Run(args[1]);return;}
+if(args[0]=="native-cert"){Gate6BNativeCertificates.Create(args[1]);return;}
+
+// Offline recovery cannot depend on configuration sealed inside the lost bundle.
+if(args[0] is "seal" or "unseal") {
+    var key=File.ReadAllBytes(args[3]);using var aes=new AesGcm(key,16);var input=File.ReadAllBytes(args[1]);
+    if(args[0]=="seal") {var nonce=RandomNumberGenerator.GetBytes(12);var output=new byte[input.Length+28];nonce.CopyTo(output,0);aes.Encrypt(nonce,input,output.AsSpan(12,input.Length),output.AsSpan(12+input.Length,16));File.WriteAllBytes(args[2],output);}
+    else {var output=new byte[input.Length-28];aes.Decrypt(input.AsSpan(0,12),input.AsSpan(12,input.Length-28),input.AsSpan(input.Length-16),output);File.WriteAllBytes(args[2],output);}
+    Console.WriteLine("OPERATION_PASS");return;
+}
+
+// Disposable CI maintenance only. Never shipped in the backend image.
+var config = JsonDocument.Parse(File.ReadAllText(Environment.GetEnvironmentVariable("GATE6B_OPERATOR")!)).RootElement;
+var raw = config.GetProperty("adminConnection").GetString()!;
+var cs = new SqlConnectionStringBuilder(raw);
+var database = config.GetProperty("database").GetString()!;
+if (!System.Text.RegularExpressions.Regex.IsMatch(database,"^gate6b_[a-f0-9]{32}$")) throw new InvalidOperationException("SYNTHETIC_DATABASE_REQUIRED");
+async Task Execute(string sql, params SqlParameter[] parameters) {
+    await using var c = new SqlConnection(raw); await c.OpenAsync();
+    await using var q = new SqlCommand(sql,c) {CommandTimeout=90}; q.Parameters.AddRange(parameters); await q.ExecuteNonQueryAsync();
+}
+var action=args[0];
+if(action=="provision") {
+    await Execute($"CREATE DATABASE [{database}]");
+    foreach(var name in new[]{"migration","runtime"}) {
+        var login="gate6b_"+name;
+        var password=config.GetProperty(name+"Password").GetString()!;
+        // Server DDL does not accept password parameters. QUOTENAME is evaluated by SQL.
+        await Execute("DECLARE @sql nvarchar(max) = N'CREATE LOGIN [' + @login + N'] WITH PASSWORD=' + QUOTENAME(@password,'''') + N', CHECK_POLICY=ON'; EXEC(@sql);",
+            new SqlParameter("@login",login),new SqlParameter("@password",password));
+        await Execute($"USE [{database}]; CREATE USER [{login}] FOR LOGIN [{login}]; ALTER ROLE [{(name=="migration"?"db_owner":"db_datareader")}] ADD MEMBER [{login}];");
+        if(name=="runtime") await Execute($"USE [{database}]; ALTER ROLE db_datawriter ADD MEMBER [{login}];");
+    }
+} else if(action=="users") {
+    cs.InitialCatalog=database;
+    await using var db=new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(cs.ConnectionString).Options);
+    foreach(var (id,department) in new[]{("admin-a",Department.Admin),("other-a",Department.Xnk),("admin-b",Department.Admin),("clerk-a",Department.Kho)}) {
+        var user=new ApplicationUser { Id=id,UserName=id,NormalizedUserName=id.ToUpperInvariant(),FullName="Synthetic pilot",Department=department,SecurityStamp=Guid.NewGuid().ToString(),ConcurrencyStamp=Guid.NewGuid().ToString() };
+        user.PasswordHash=new PasswordHasher<ApplicationUser>().HashPassword(user,config.GetProperty("userPassword").GetString()!);
+        db.Users.Add(user);
+    }
+    await db.SaveChangesAsync();
+} else if(action=="fixtures") {
+    Directory.CreateDirectory(args[1]);
+    foreach(var scenario in new[]{"A","B","C","D","E","F","G","H"})
+      foreach(var rows in new[]{1,3}) foreach(var filled in new[]{false,true})
+        File.WriteAllBytes(Path.Combine(args[1],$"{scenario}-{rows}-{filled.ToString().ToLowerInvariant()}-none.xlsx"),Gate5DFixtures.Workbook(scenario,rows,filled));
+    File.WriteAllBytes(Path.Combine(args[1],"H-1-false-cross-sheet.xlsx"),Gate5DFixtures.Workbook("H",unsupported:"cross-sheet"));
+    File.WriteAllBytes(Path.Combine(args[1],"H-1-false-far.xlsx"),Gate5DFixtures.Workbook("H",unsupported:"far"));
+    File.WriteAllBytes(Path.Combine(args[1],"F-3-true-reference.xlsx"),Gate5DFixtures.Workbook("F",3,true,"reference"));
+} else if(action=="backup") {
+    await Execute($"BACKUP DATABASE [{database}] TO DISK='/var/opt/mssql/backup/staging.bak' WITH INIT, CHECKSUM;");
+} else if(action=="restore") {
+    await Execute($"RESTORE VERIFYONLY FROM DISK='/var/opt/mssql/backup/staging.bak' WITH CHECKSUM;");
+    await Execute($"RESTORE DATABASE [{database}] FROM DISK='/var/opt/mssql/backup/staging.bak' WITH CHECKSUM, REPLACE;");
+    await Execute($"USE [{database}]; ALTER USER [gate6b_migration] WITH LOGIN=[gate6b_migration]; ALTER USER [gate6b_runtime] WITH LOGIN=[gate6b_runtime];");
+} else if(action=="fingerprint") {
+    await using var c=new SqlConnection(raw);await c.OpenAsync();
+    await using var q=new SqlCommand($"SELECT Id, KeyId, Ciphertext, RowVersion FROM [{database}].ude.Drafts ORDER BY Id",c);
+    await using var r=await q.ExecuteReaderAsync();using var sha=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);var rows=0;
+    while(await r.ReadAsync()){rows++;sha.AppendData(System.Text.Encoding.UTF8.GetBytes(r.GetString(0)+r.GetString(1)));sha.AppendData((byte[])r[2]);sha.AppendData((byte[])r[3]);}
+    File.WriteAllText(args[1],JsonSerializer.Serialize(new{rows,sha256=Convert.ToHexString(sha.GetHashAndReset())}));
+} else if(action=="state") {
+    // Order-independent hashes of every user-table row, including histories and
+    // ciphertext. Raw values stay in memory and never reach logs/artifacts.
+    cs.InitialCatalog=database;
+    await using var c=new SqlConnection(cs.ConnectionString);await c.OpenAsync();
+    var tables=new List<string>();
+    await using(var q=new SqlCommand("SELECT QUOTENAME(SCHEMA_NAME(schema_id))+'.'+QUOTENAME(name) FROM sys.tables ORDER BY schema_id,name",c))
+    await using(var reader=await q.ExecuteReaderAsync())while(await reader.ReadAsync())tables.Add(reader.GetString(0));
+    using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);var rows=0;
+    foreach(var table in tables) {
+        await using var q=new SqlCommand("SELECT * FROM "+table+" FOR JSON PATH, INCLUDE_NULL_VALUES",c);
+        await using var reader=await q.ExecuteReaderAsync();var text=new System.Text.StringBuilder();
+        while(await reader.ReadAsync())text.Append(reader.GetString(0));
+        using var json=JsonDocument.Parse(text.Length==0?"[]":text.ToString());
+        hash.AppendData(System.Text.Encoding.UTF8.GetBytes(table));
+        foreach(var row in json.RootElement.EnumerateArray().Select(x=>x.GetRawText()).OrderBy(x=>x,StringComparer.Ordinal)) {
+            rows++;hash.AppendData(System.Text.Encoding.UTF8.GetBytes(row));
+        }
+    }
+    File.WriteAllText(args[1],JsonSerializer.Serialize(new{tables=tables.Count,rows,sha256=Convert.ToHexString(hash.GetHashAndReset())}));
+} else if(action=="hold-lock") {
+    cs.InitialCatalog=database;
+    await using var connection=new SqlConnection(cs.ConnectionString);await connection.OpenAsync();
+    await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync();
+    await using var command=new SqlCommand("DECLARE @result int; EXEC @result=sys.sp_getapplock @Resource=N'ude.draft-admission.v1',@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=1000; IF @result<0 THROW 51000,'Lock control failed',1;",connection,transaction);
+    await command.ExecuteNonQueryAsync();File.WriteAllText(args[1],"ready");
+    var deadline=DateTime.UtcNow.AddSeconds(40);
+    while(!File.Exists(args[2])&&DateTime.UtcNow<deadline)await Task.Delay(100);
+    await transaction.RollbackAsync();
+    if(!File.Exists(args[2]))throw new InvalidOperationException("LOCK_CONTROL_TIMEOUT");
+} else if(action=="expired-jwt") {
+    var token=new System.IdentityModel.Tokens.Jwt.JwtSecurityToken("gate6b","gate6b",
+        new[]{new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier,"admin-a"),new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role,"Admin")},
+        DateTime.UtcNow.AddHours(-2),DateTime.UtcNow.AddHours(-1),
+        new Microsoft.IdentityModel.Tokens.SigningCredentials(new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(config.GetProperty("jwtKey").GetString()!)),Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256));
+    File.WriteAllText(args[1],new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token));
+} else if(action=="expire") {
+    await Execute($"UPDATE [{database}].ude.Drafts SET ExpiresAt=DATEADD(day,-1,SYSDATETIMEOFFSET())");
+} else if(action=="tls-negative") {
+    cs.HostNameInCertificate="wrong-sql.invalid";
+    try { await using var c=new SqlConnection(cs.ConnectionString); await c.OpenAsync(); }
+    catch(SqlException) {Console.WriteLine("OPERATION_PASS");return;}
+    throw new InvalidOperationException("WRONG_SQL_CERTIFICATE_ACCEPTED");
+} else if(action=="permissions") {
+    await Execute($"USE [{database}]; DENY INSERT, UPDATE, DELETE ON dbo.__EFMigrationsHistory TO [gate6b_runtime]; DENY INSERT, UPDATE, DELETE ON ude.__DraftMigrations TO [gate6b_runtime];");
+    await Execute("ALTER LOGIN [gate6b_migration] DISABLE");
+    cs.InitialCatalog=database;cs.IntegratedSecurity=false;cs.UserID="gate6b_runtime";cs.Password=config.GetProperty("runtimePassword").GetString();
+    await using var c=new SqlConnection(cs.ConnectionString);await c.OpenAsync();
+    await using var q=new SqlCommand("SELECT HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','CREATE TABLE'), IS_MEMBER('db_owner'), HAS_PERMS_BY_NAME('ude.Drafts','OBJECT','SELECT'), HAS_PERMS_BY_NAME('ude.Drafts','OBJECT','UPDATE'), HAS_PERMS_BY_NAME('ude.__DraftMigrations','OBJECT','UPDATE'), HAS_PERMS_BY_NAME('dbo.__EFMigrationsHistory','OBJECT','UPDATE')",c);
+    await using var r=await q.ExecuteReaderAsync();await r.ReadAsync();
+    if(r.GetInt32(0)!=0||r.GetInt32(1)!=0||r.GetInt32(2)!=1||r.GetInt32(3)!=1||r.GetInt32(4)!=0||r.GetInt32(5)!=0)throw new InvalidOperationException("RUNTIME_PERMISSIONS_INVALID");
+} else if(action=="reopen") {
+    var files=File.Exists(args[1])?new[]{args[1]}:Directory.GetFiles(args[1],"office-*.xlsx");
+    if(files.Length==0)throw new InvalidOperationException("NO_WORKBOOKS_REOPENED");
+    foreach(var file in files){using var workbook=new XLWorkbook(file);if(workbook.Worksheets.Count<2)throw new InvalidOperationException("WORKBOOK_INVALID");}
+} else throw new InvalidOperationException("UNKNOWN_OPERATION");
+Console.WriteLine("OPERATION_PASS");

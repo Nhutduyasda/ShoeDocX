@@ -47,7 +47,7 @@ internal sealed class UniversalDocDraftCleanup(IServiceScopeFactory scopes) : Ba
         while (await timer.WaitForNextTickAsync(stoppingToken)) {
             using var scope = scopes.CreateScope();
             try { scope.ServiceProvider.GetRequiredService<IUniversalDocDraftStore>().Cleanup(); }
-            catch (StudioFault) { /* Fail closed; expired rows remain inaccessible. Bounded retry on next tick. */ }
+            catch (StudioFault) { ShoeExportInvoice.Api.Services.OperationalTelemetry.Event("draft_cleanup_failure"); /* Fail closed; expired rows remain inaccessible. */ }
         }
     }
 }

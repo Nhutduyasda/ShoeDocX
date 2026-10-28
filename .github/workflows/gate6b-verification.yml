@@ -1,0 +1,176 @@
+name: Gate 6B staging and pilot verification
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-6b-staging-pilot'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: feature
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 2552252d0d916d4184d88482f3649c602468eff8
+          path: baseline
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 1df7badbf3635fda03687cb8604dde8858cd9bb5
+          path: dependency-baseline
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.402
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Ephemeral Linux SQL Server Developer
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker run -d --name gate5c-sql -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD='Gate5C_Synthetic_Only!2026' -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+          echo 'GATE5C_SQL=Server=127.0.0.1,1433;User ID=sa;Password=Gate5C_Synthetic_Only!2026;Encrypt=False;Connect Timeout=15' >> "$GITHUB_ENV"
+          for i in {1..60}; do if docker exec gate5c-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Gate5C_Synthetic_Only!2026' -C -Q 'SELECT 1' >/dev/null 2>&1; then exit 0; fi; sleep 1; done
+          exit 1
+      - name: Ephemeral Windows SQL Server LocalDB
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tool = Get-ChildItem 'C:\Program Files\Microsoft SQL Server' -Filter SqlLocalDB.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
+          if (!$tool) { throw 'Mandatory real SQL Server LocalDB unavailable' }
+          & $tool create Gate5C -s
+          if ($LASTEXITCODE -ne 0) { throw 'Ephemeral SQL Server LocalDB startup failed' }
+          'GATE5C_SQL=Server=(localdb)\Gate5C;Integrated Security=True;Encrypt=False;Connect Timeout=15' >> $env:GITHUB_ENV
+      - name: Compile office host and run Gate 5C–6A security and compatibility tests
+        shell: bash
+        run: |
+          cd feature
+          dotnet build tests/Gate5CDemoHost/Gate5CDemoHost.csproj
+          dotnet build tests/Gate5DDemoHost/Gate5DDemoHost.csproj
+          export GATE5C_PROBE="$GITHUB_WORKSPACE/feature/tests/Gate5CDemoHost/bin/Debug/net10.0/Gate5CDemoHost.dll"
+          echo "GATE5C_PROBE=$GATE5C_PROBE" >> "$GITHUB_ENV"
+          dotnet test tests/ShoeExportInvoice.Tests/ShoeExportInvoice.Tests.csproj --filter 'FullyQualifiedName~UniversalDocEngine.Gate5C|FullyQualifiedName~UniversalDocEngine.Gate5D|FullyQualifiedName~UniversalDocEngine.Gate6A'
+      - name: Install isolated verification tools
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/studio-browser" --no-package-lock --no-save playwright@1.62.1 pngjs@7.0.0
+          node "$RUNNER_TEMP/studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
+          python -m pip install openpyxl==3.1.5
+      - name: Baseline comparison, SQL regression, actual browser restart and XLSX QA
+        shell: bash
+        env:
+          VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          export STUDIO_PLAYWRIGHT_MODULE="$RUNNER_TEMP/studio-browser/node_modules/playwright"
+          python feature/.github/scripts/verify_gate6b.py
+      - name: Native Windows Production attempt without weakening SQL TLS
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          dotnet run --no-build --project feature/tests/Gate6BOperations/Gate6BOperations.csproj -- native "$GITHUB_WORKSPACE/verification-evidence/gate6b-windows-native.json"
+          python -c 'import json,os; from pathlib import Path; data=json.loads((Path(os.environ["GITHUB_WORKSPACE"])/"verification-evidence/gate6b-windows-native.json").read_text()); allowed={"status","production_tls_parity","docker_executed","actual_native_production_started","production_process_exit","blocker","trusted_https_health","unauthenticated_authorization","sql_transport","sql_encrypt_option","exception_type"}; print(json.dumps({k:v for k,v in data.items() if k in allowed},indent=2))'
+      - name: Upload sanitized metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate6b-regression-${{ matrix.os }}
+          path: verification-evidence/**/*.json
+          if-no-files-found: error
+          retention-days: 14
+  windows-tcp-feasibility:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-6b-staging-pilot'
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: feature
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.402'
+      - name: Compile disposable native helper
+        run: dotnet build feature/tests/Gate6BOperations/Gate6BOperations.csproj
+      - name: Bounded signed SQL Express TCP and native HTTPS investigation
+        shell: pwsh
+        run: |
+          ./feature/.github/scripts/gate6b_windows_tcp.ps1 -Output "$env:GITHUB_WORKSPACE/verification-evidence/gate6b-windows-tcp.json"
+          # Full native parity is mandatory until the owner approves a platform scope.
+          exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate6b-windows-tcp
+          path: verification-evidence/gate6b-windows-tcp.json
+          if-no-files-found: error
+          retention-days: 14
+  staging-linux:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-6b-staging-pilot'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VERIFIED_HEAD: ${{ github.event.pull_request.head.sha }}
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: feature
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 2552252d0d916d4184d88482f3649c602468eff8
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.402'
+      - uses: actions/checkout@v4
+        with:
+          ref: b0604b9472a79905d1a9b5c7afe13e681f23a232
+          path: hardened
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libnss3-tools
+          npm install --prefix "$RUNNER_TEMP/studio-browser" --no-package-lock --no-save playwright@1.62.1
+          node "$RUNNER_TEMP/studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
+          python -m pip install openpyxl==3.1.5
+          echo "STUDIO_PLAYWRIGHT_MODULE=$RUNNER_TEMP/studio-browser/node_modules/playwright" >> "$GITHUB_ENV"
+      - name: Compile disposable operations helper
+        run: dotnet build feature/tests/Gate6BOperations/Gate6BOperations.csproj
+      - name: Run actual HTTPS composed production application and recovery
+        run: python feature/.github/scripts/gate6b_staging.py
+      - name: Sanitized staging evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate6b-staging-linux
+          path: verification-evidence/*.json
+          if-no-files-found: error
+          retention-days: 14

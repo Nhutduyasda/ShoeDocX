@@ -1,20 +1,33 @@
-import { test, expect, type Page } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Page,
+  type APIRequestContext,
+} from "@playwright/test";
 import { mkdir, readFile } from "node:fs/promises";
 const evidence = "../.audit-run/ui-v2/office-pending";
+let authenticatedState: Awaited<ReturnType<APIRequestContext["storageState"]>>;
+test.beforeAll(async ({ request }) => {
+  if (!process.env.UI_V2_PASSWORD || !process.env.UI_V2_OFFICE_FIXTURE) return;
+  // One genuine Identity login; keep cookies in memory, never in artifacts.
+  // Each test still gets an isolated browser/sessionStorage and real CSRF bootstrap.
+  const response = await request.post("/api/auth/login", {
+    data: {
+      username: process.env.UI_V2_USERNAME,
+      password: process.env.UI_V2_PASSWORD,
+    },
+  });
+  expect(response.status()).toBe(200);
+  authenticatedState = await request.storageState();
+});
 test.beforeEach(async ({ page }) => {
   test.skip(
     !process.env.UI_V2_PASSWORD || !process.env.UI_V2_OFFICE_FIXTURE,
     "Requires real synthetic SQL/API fixture.",
   );
   await mkdir(evidence, { recursive: true });
+  await page.context().addCookies(authenticatedState.cookies);
   await page.goto("/universal-doc-studio");
-  await page
-    .getByLabel("Tên đăng nhập", { exact: true })
-    .fill(process.env.UI_V2_USERNAME!);
-  await page
-    .getByLabel("Mật khẩu", { exact: true })
-    .fill(process.env.UI_V2_PASSWORD!);
-  await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Trợ lý Excel văn phòng", exact: true }),
   ).toBeVisible();
@@ -117,14 +130,12 @@ test("B confirmed upload clears pending file and permits structure step without 
 test("C real rejected XLSX upload retains the file for retry and never announces success", async ({
   page,
 }) => {
-  await page
-    .getByLabel("Mẫu Excel đầu ra", { exact: true })
-    .setInputFiles({
-      name: "invalid-synthetic.xlsx",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      buffer: Buffer.from("not a valid workbook"),
-    });
+  await page.getByLabel("Mẫu Excel đầu ra", { exact: true }).setInputFiles({
+    name: "invalid-synthetic.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from("not a valid workbook"),
+  });
   const request = page.waitForResponse(
     (r) => r.url().endsWith("/template") && r.request().method() === "POST",
   );

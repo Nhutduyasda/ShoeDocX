@@ -33,6 +33,8 @@ Baseline: `79f05046e219c1aaa4dd0b300b61135b7be89b5a`, branch `feat/shoedocx-shad
 
 Full API suite: **20/20 PASS**, including the eight new cases. Real Identity and a fresh isolated synthetic SQL database were used; authentication and CSRF were not mocked. Only deliberate transport/response faults were injected in the two named fault cases. The valid XLSX was generated with openpyxl; invalid input was synthetic bytes.
 
+CI exposed a test-fixture rate issue: separate logins for all new tests exceeded the unchanged 10/minute login limiter on fast runners. The pending-test group now reuses cookies from one real Identity login, held only in memory; browser/sessionStorage isolation and per-test real CSRF bootstrap remain. No backend limiter, authentication or security check was weakened.
+
 Existing Office suite: **five journeys PASS**, including upload → structure → mapping, 20-row/multi-sheet entry, SQL draft recovery across an actual test-host restart, fresh review/approval and cross-owner/tenant denial. **11 XLSX independently reopened PASS**.
 
 Frontend TypeScript/Vite build: **PASS**. Existing regression/model/navigation/security tests: **48/48 PASS**. No new package dependencies.
@@ -45,3 +47,12 @@ The tests create/drop only dedicated disposable databases and their own sessions
 - Acknowledged example + failed preview: [before](office-pending/before-example-preview-failure.png) / [after](office-pending/after-example-preview-failure.png).
 
 These are actual browser screenshots with synthetic authenticated users. They are not mockups.
+
+## Files changed
+
+- `frontend/src/features/universal-doc-engine/OfficeWizard.tsx`: acknowledged-upload lifecycle, precise pending reasons/focus, editor snapshot key, uploaded file status.
+- `frontend/src/features/universal-doc-engine/OfficeEditors.tsx`: stable Apply focus targets; remove duplicate generic pending notice.
+- `frontend/src/components/ui/file-drop.tsx`: explicit selected/not-uploaded label and reusable removal label.
+- `frontend/src/features/universal-doc-engine/studio.css`: prominent upload action and acknowledged-file presentation.
+- `frontend/tests/ui-v2/office-pending.spec.ts`: eight real-API/synthetic regression checks covering A–G and protocol/preview faults.
+- `.github/scripts/verify_ui_v2_legacy.py`, `.github/workflows/ui-v2-verification.yml`: generate bounded synthetic XLSX, run the new suite and retain sanitized screenshots.

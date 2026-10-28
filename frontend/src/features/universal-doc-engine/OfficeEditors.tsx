@@ -7,7 +7,7 @@ type Props = { session:StudioSession; busy:boolean; apply:OfficeApply; report:(s
 function useDirty(section:OfficeSection,dirty:boolean,report:Props['report']) {
   useEffect(()=>{report(section,dirty);return()=>report(section,false);},[section,dirty,report]);
 }
-function Pending({dirty,discard,busy}:{dirty:boolean;discard:()=>void;busy:boolean}) {return <>{dirty&&<p role="status" className="uds-error">Thay đổi chưa áp dụng lên máy chủ.</p>}<button type="button" disabled={busy||!dirty} onClick={discard}>Hoàn tác thay đổi</button></>;}
+function Pending({dirty,discard,busy}:{dirty:boolean;discard:()=>void;busy:boolean}) {return <button type="button" disabled={busy||!dirty} onClick={discard}>Hoàn tác thay đổi</button>;}
 export function OfficeFields({session,busy,apply,report}:Props) {
   const initial=session.schemaDraft?.fields??[];const [fields,setFields]=useState(initial);const dirty=JSON.stringify(fields)!==JSON.stringify(initial);useDirty('schema',dirty,report);
   const update=(i:number,patch:Partial<LearnedField>)=>setFields(old=>old.map((f,n)=>i===n?{...f,...patch}:f));
@@ -27,7 +27,7 @@ export function OfficeFields({session,busy,apply,report}:Props) {
       {f.scope==='Header'?<label>Ô nhận thông tin<input disabled={busy||f.omit} aria-label={`Ô khác mục ${i+1}`} value={f.cell??''} maxLength={12} onChange={e=>update(i,{cell:e.target.value})}/></label>:<><label>Số cột (A=1, AF=32)<input disabled={busy||f.omit} aria-label={`Cột khác mục ${i+1}`} type="number" min={1} max={32} value={f.column??''} onChange={e=>update(i,{column:Number(e.target.value)})}/></label><label>Dòng mẫu có sẵn<input disabled={busy||f.omit} aria-label={`Dòng khác mục ${i+1}`} type="number" min={1} max={1000} value={f.prototypeRow??''} onChange={e=>update(i,{prototypeRow:Number(e.target.value)})}/></label></>}
       </details>
     </fieldset>)}
-    <button disabled={busy||!fields.length}>Áp dụng các mục dữ liệu</button>
+    <button id="office-apply-schema" disabled={busy||!fields.length}>Áp dụng các mục dữ liệu</button>
   </form>;
 }
 export function OfficeMapping({session,busy,apply,report}:Props) {
@@ -49,7 +49,7 @@ export function OfficeMapping({session,busy,apply,report}:Props) {
       })}</tbody></table></div><button disabled={busy} type="button" onClick={()=>{setSheets(old=>old.filter((_,i)=>i!==selected));setSelected(0);}}>Bỏ sheet khỏi ánh xạ</button>
     </fieldset>}
     <button disabled={busy||sheets.length>=3} type="button" onClick={()=>{const name=session.sheets.find(n=>!sheets.some(s=>s.sheet===n));if(name){setSheets(old=>[...old,{sheet:name,startRow:session.sheetSummaries.find(s=>s.name===name)?.prototypeRows[0]??1,headers:{},columns:{}}]);setSelected(sheets.length);}}}>Thêm sheet dữ liệu</button>
-    <button disabled={busy||!sheets.length||!active.length}>Áp dụng vị trí Excel</button>
+    <button id="office-apply-mapping" disabled={busy||!sheets.length||!active.length}>Áp dụng vị trí Excel</button>
     <p>Trạng thái máy chủ: {session.mappingState==='UserConfirmed'?'Đã xác nhận':'Chưa xác nhận'}. Bảng đang sửa chưa thay đổi trạng thái này.</p>
   </form>;
 }
@@ -71,7 +71,7 @@ export function OfficeRules({session,busy,apply,report}:Props) {
       <button disabled={busy} type="button" onClick={()=>setRules(old=>old.filter((_,n)=>i!==n))}>Xóa quy tắc {i+1}</button><button disabled={busy||i===0} type="button" onClick={()=>setRules(old=>{const n=[...old];[n[i-1],n[i]]=[n[i],n[i-1]];return n;})}>Đưa quy tắc {i+1} lên</button>
     </fieldset>)}
     <button disabled={busy||rules.length>=8} type="button" onClick={()=>setRules(old=>[...old,{id:Array.from({length:9},(_,n)=>`rule${n+1}`).find(id=>!old.some(r=>r.id===id))!,kind:'Arithmetic',fieldA:'',operator:'Multiply',fieldB:'',target:'',tolerance:0,required:true,severity:'BlockingError'}])}>Thêm quy tắc</button>
-    <button disabled={busy||!dirty}>Áp dụng quy tắc</button>
+    <button id="office-apply-rules" disabled={busy||!dirty}>Áp dụng quy tắc</button>
   </form>;
 }
 function ValueInput({field,value,set,busy,label}:{field:LearnedField;value:string;set:(v:string)=>void;busy:boolean;label:string}) {
@@ -91,7 +91,7 @@ export function OfficeData({session,busy,apply,report}:Props) {
     <div className="uds-scroll" role="region" tabIndex={0} aria-label="Bảng nhập chi tiết"><table><thead><tr><th>Dòng</th>{columns.map(f=><th key={f.key} scope="col">{f.label}<small>{typeLabel[f.type]} {f.required?'· Bắt buộc':''}</small></th>)}</tr></thead><tbody>{Array.from({length:rows},(_,row)=><tr key={row}><th scope="row">{row+1}</th>{columns.map(f=><td key={f.key}><ValueInput field={f} busy={busy} label={`Dòng ${row+1} ${f.label}`} value={values[key(f,row)]??''} set={v=>setValues(old=>({...old,[key(f,row)]:v}))}/></td>)}</tr>)}</tbody></table></div>
     <div className="uds-inline"><span role="status">{rows}/20 dòng</span><button type="button" disabled={busy||rows>=20} onClick={()=>setRows(n=>n+1)}>Thêm dòng</button><button type="button" disabled={busy||rows<=1} onClick={()=>{setValues(old=>Object.fromEntries(Object.entries(old).filter(([k])=>!k.startsWith(`LineItem:${rows-1}:`))));setRows(n=>n-1);}}>Xóa dòng cuối</button></div>
     {invalid&&<p role="alert">Định dạng số/ngày chưa rõ. Không dùng dấu phẩy hay ký hiệu phân nhóm trong số; hệ thống không tự đoán giá trị.</p>}
-    <button disabled={busy||invalid||session.mappingState!=='UserConfirmed'}>Gửi dữ liệu để kiểm tra</button>
+    <button id="office-apply-data" disabled={busy||invalid||session.mappingState!=='UserConfirmed'}>Gửi dữ liệu để kiểm tra</button>
     {session.mappingState!=='UserConfirmed'&&<p>Xác nhận vị trí Excel ở bước 3 trước khi gửi dữ liệu.</p>}
   </form>;
 }

@@ -4,11 +4,22 @@ Runtime credentials exist only in child-process environments. No existing secret
 database or production configuration is read or modified.
 """
 from pathlib import Path
+from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.styles import Font
 import base64, json, os, secrets, subprocess, time, urllib.request, urllib.error, uuid
 
 root=Path(__file__).resolve().parents[2]
 private=root/'.audit-run/ui-v2/private-full-api'
 private.mkdir(parents=True,exist_ok=True)
+fixture=private/'synthetic-office.xlsx'
+workbook=Workbook();sheet=workbook.active;sheet.title='HoaDon'
+for row in [('Số phiếu','CT-00000'),('Ngày chứng từ',datetime(2026,10,24)),('Đã đối chiếu',False),('Số phiếu','KHÔNG DÙNG'),('Mã hàng','Số lượng','Đơn giá','Thành tiền','Đơn vị'),('00000',0,0,0,'cái')]:sheet.append(row)
+sheet['B2'].number_format='yyyy-mm-dd'
+for cell in sheet[5]:cell.font=Font(bold=True)
+sheet['F6']='=B6*C6';sheet['A7']='Tổng cộng';sheet['F7']='=SUM(F6:F6)'
+workbook.create_sheet('ThamChieu')['A1']='Synthetic reference 00123'
+workbook.save(fixture)
 env=os.environ.copy()
 database='gate5c_ui_v2_full_'+uuid.uuid4().hex
 password='UiV2!'+secrets.token_hex(20)
@@ -57,8 +68,10 @@ try:
  process.terminate();process.wait(timeout=15)
  env['UniversalDocGate4A__Users__'+user['id']]='11111111-1111-1111-1111-111111111111'
  process=start()
- test_env=env.copy();test_env.update(UI_V2_API_TARGET='http://127.0.0.1:5293',UI_V2_USERNAME='ui-v2-admin',UI_V2_PASSWORD=password)
- result=subprocess.run(['node','node_modules/@playwright/test/cli.js','test','--config','playwright.ui-v2.config.ts'],cwd=root/'frontend',env=test_env,timeout=240)
+ test_env=env.copy();test_env.update(UI_V2_API_TARGET='http://127.0.0.1:5293',UI_V2_USERNAME='ui-v2-admin',UI_V2_PASSWORD=password,UI_V2_OFFICE_FIXTURE=str(fixture))
+ test_args=['node','node_modules/@playwright/test/cli.js','test','--config','playwright.ui-v2.config.ts']
+ if os.environ.get('UI_V2_TEST_FILE'):test_args.append(os.environ['UI_V2_TEST_FILE'])
+ result=subprocess.run(test_args,cwd=root/'frontend',env=test_env,timeout=360)
  assert result.returncode==0,'Full application browser verification failed'
  (root/'.audit-run/ui-v2/full-api-summary.json').write_text(json.dumps({'status':'PASS','backend':'unchanged full application','database':database,'syntheticOnly':True,'legacyCoverage':'navigation/render/API smoke; CRUD/export parity not implied'}),encoding='utf-8')
 finally:

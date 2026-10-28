@@ -121,6 +121,7 @@ jobs:
           name: ui-v2-office-${{ matrix.os }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             .audit-run/ui-v2/screenshots/
+            .audit-run/ui-v2/office-pending/*.png
             .audit-run/ui-v2/results.json
             .audit-run/ui-v2/full-api-summary.json
             .audit-run/ui-v2/office/**/*.json

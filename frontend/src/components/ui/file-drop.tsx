@@ -7,12 +7,14 @@ export function FileDrop({
   inputRef,
   onChange,
   onError,
+  removeLabel = "Gỡ tệp đã chọn",
 }: {
   file: File | null;
   disabled: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
   onChange: (file: File | null) => void;
   onError: (message: string) => void;
+  removeLabel?: string;
 }) {
   function select(file?: File) {
     if (!file) return;
@@ -57,6 +59,7 @@ export function FileDrop({
         <div className="office-selected-file">
           <FileSpreadsheet size={20} />
           <span>
+            <small>Đã chọn trên máy · chưa tải lên máy chủ</small>
             <strong>{file.name}</strong>
             <small>{(file.size / 1024).toFixed(1)} KiB</small>
           </span>
@@ -65,7 +68,8 @@ export function FileDrop({
             variant="ghost"
             size="icon"
             disabled={disabled}
-            aria-label="Gỡ tệp đã chọn"
+            aria-label={removeLabel}
+            title={removeLabel}
             onClick={() => {
               onChange(null);
               if (inputRef.current) inputRef.current.value = "";

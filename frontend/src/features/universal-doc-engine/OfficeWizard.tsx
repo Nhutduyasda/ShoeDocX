@@ -8,18 +8,30 @@ import { OfficeRequestError, checkLabel, issueText, officeError, ruleText, typeL
 const steps=['Chọn mẫu Excel','Xem cấu trúc','Chọn vị trí dữ liệu','Nhập và kiểm tra','Rà soát và phê duyệt','Xuất Excel'];
 const SESSION='universal-doc-office-session',LINK='universal-doc-office-draft-link';
 type Binding={sessionId:string;draft:StudioDraft};
+const pendingActions:Record<OfficeSection,{message:string;target:string}>={
+  schema:{message:'Đang sửa các mục dữ liệu. Bấm “Áp dụng các mục dữ liệu” hoặc “Hoàn tác thay đổi”.',target:'office-apply-schema'},
+  mapping:{message:'Đang sửa vị trí Excel. Bấm “Áp dụng vị trí Excel” hoặc “Hoàn tác thay đổi”.',target:'office-apply-mapping'},
+  rules:{message:'Đang sửa quy tắc kiểm tra. Bấm “Áp dụng quy tắc” hoặc “Hoàn tác thay đổi”.',target:'office-apply-rules'},
+  data:{message:'Đang sửa dữ liệu chứng từ. Bấm “Gửi dữ liệu để kiểm tra” hoặc “Hoàn tác thay đổi”.',target:'office-apply-data'},
+};
+function verifyUploadAcknowledgement(previous:StudioSession,next:StudioSession){
+  if(next?.id!==previous.id||!Number.isSafeInteger(next.version)||next.version<=previous.version)throw new OfficeRequestError('SESSION_VERSION_CONFLICT',409);
+}
 function download(blob:Blob) {const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='chung-tu.xlsx';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
   const {user,logout}=useAuth();const [api]=useState(()=>new StudioApi(true));const [boot,setBoot]=useState<StudioBootstrap|null>(null);
   const [session,setSession]=useState<StudioSession|null>(null);const [preview,setPreview]=useState<OfficePreview|null>(null);
   const [step,setStep]=useState(0);const [busy,setBusy]=useState(true);const [error,setError]=useState('');const [notice,setNotice]=useState('');
+  const [navigationBlocked,setNavigationBlocked]=useState(false);
   const workspaceRef=useRef<HTMLElement>(null);
   useEffect(()=>{workspaceRef.current?.scrollTo({top:0});},[step]);
   const templateInput=useRef<HTMLInputElement>(null), exampleInput=useRef<HTMLInputElement>(null);
   const [template,setTemplate]=useState<File|null>(null);const [example,setExample]=useState<File|null>(null);const [loaded,setLoaded]=useState<{name:string;size:number}|null>(null);
+  const [loadedExample,setLoadedExample]=useState<{name:string;size:number}|null>(null);
   const [drafts,setDrafts]=useState<StudioDraft[]>([]);const [binding,setBinding]=useState<Binding|null>(null);const [bindingLoaded,setBindingLoaded]=useState(false);const [savedVersion,setSavedVersion]=useState<number|null>(null);
   const [dirty,setDirty]=useState<Partial<Record<OfficeSection,boolean>>>({});const formsDirty=Object.values(dirty).some(Boolean);const unsaved=formsDirty||!!template||!!example;
-  const report=useCallback((section:OfficeSection,value:boolean)=>{setDirty(old=>old[section]===value?old:{...old,[section]:value});if(value)setNotice('');},[]);
+  const pendingItems=[...(template?[{message:'Đã chọn mẫu Excel nhưng chưa tải lên máy chủ. Bấm “Tải và phân tích mẫu” hoặc bỏ tệp đã chọn.',target:'office-template-upload'}]:[]),...(example?[{message:'Đã chọn ví dụ nhưng chưa đối chiếu. Bấm “Đối chiếu ví dụ” hoặc “Bỏ ví dụ đã chọn”.',target:'office-example-apply'}]:[]),...Object.entries(dirty).filter(([,value])=>value).map(([section])=>pendingActions[section as OfficeSection])];
+  const report=useCallback((section:OfficeSection,value:boolean)=>{setDirty(old=>old[section]===value?old:{...old,[section]:value});if(value){setNotice('');setNavigationBlocked(false);}},[]);
   const refresh=async(s:StudioSession)=>{setSession(s);setPreview(null);const p=await api.officePreview(s);if(p.version!==s.version||p.sessionId!==s.id)throw new OfficeRequestError('SESSION_VERSION_CONFLICT',409);setPreview(p);};
   useEffect(()=>{let stopped=false;const abort=new AbortController();void (async()=>{
     try {const b=await api.bootstrap(abort.signal);if(stopped)return;setBoot(b);
@@ -34,16 +46,21 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
   useEffect(()=>{if(session)sessionStorage.setItem(SESSION,session.id);},[session]);
   useEffect(()=>{if(!bindingLoaded)return;if(binding)sessionStorage.setItem(LINK,JSON.stringify({sessionId:binding.sessionId,draftId:binding.draft.id,revision:binding.draft.revision}));else sessionStorage.removeItem(LINK);},[binding,bindingLoaded]);
   useEffect(()=>{if(!unsaved)return;const guard=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue='';};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[unsaved]);
-  async function run(operation:()=>Promise<void>) {setBusy(true);setError('');setNotice('');try{await operation();}catch(e){setSavedVersion(null);setPreview(null);setError(e instanceof OfficeRequestError?e.message:officeError('REQUEST_FAILED'));}finally{setBusy(false);}}
-  function navigate(next:number){if(busy)return;if(unsaved&&next!==step){setError(officeError('UNSAVED_CHANGES'));return;}setStep(next);setError('');}
+  async function run(operation:()=>Promise<void>) {setBusy(true);setError('');setNotice('');setNavigationBlocked(false);try{await operation();}catch(e){setSavedVersion(null);setPreview(null);setError(e instanceof OfficeRequestError?e.message:officeError('REQUEST_FAILED'));}finally{setBusy(false);}}
+  function blockPending(){setNavigationBlocked(true);const target=pendingItems[0]?.target;if(target)requestAnimationFrame(()=>{const element=document.getElementById(target);element?.scrollIntoView({block:'center'});element?.focus({preventScroll:true});});}
+  function navigate(next:number){if(busy)return;if(unsaved&&next!==step){blockPending();return;}setStep(next);setError('');}
+  async function refreshAcknowledgedUpload(next:StudioSession){try{await refresh(next);}catch(e){setPreview(null);setError(`${e instanceof OfficeRequestError?e.message:officeError('REQUEST_FAILED')} Tệp đã được máy chủ xác nhận, nhưng chưa tải được thông tin xem trước. Có thể chuyển bước hoặc bấm “Tải lại trạng thái” để thử lại.`);}}
+  async function uploadTemplate(){const file=template;if(!file)return;const previous=session??await api.create('example-template');setSession(previous);const next=await api.upload(previous,file);verifyUploadAcknowledgement(previous,next);setLoaded({name:file.name,size:file.size});setLoadedExample(null);setTemplate(null);if(templateInput.current)templateInput.current.value='';setNotice('Đã phân tích mẫu trên máy chủ. Có thể bấm “Bước tiếp theo” để xem cấu trúc.');await refreshAcknowledgedUpload(next);}
+  async function uploadExample(){const file=example;if(!file||!session)return;const next=await api.upload(session,file,'example');verifyUploadAcknowledgement(session,next);setLoadedExample({name:file.name,size:file.size});setExample(null);if(exampleInput.current)exampleInput.current.value='';setNotice('Đã đối chiếu ví dụ trên máy chủ. Cần kiểm tra lại các mục và vị trí Excel.');await refreshAcknowledgedUpload(next);}
   async function apply(action:string,body:Record<string,unknown>,section:OfficeSection,method='POST') {
     if(!session)return;
-    if(template||example||Object.entries(dirty).some(([name,value])=>value&&name!==section)){setError(officeError('UNSAVED_CHANGES'));return;}
+    if(template||example||Object.entries(dirty).some(([name,value])=>value&&name!==section)){blockPending();return;}
     await run(async()=>{await refresh(await api.act(session,action,body,method));setNotice('Đã áp dụng lên máy chủ. Kiểm tra trạng thái trước khi tiếp tục.');});
   }
-  function action(name:string){if(!session)return;if(unsaved){setError(officeError('UNSAVED_CHANGES'));return;}void run(async()=>{await refresh(await api.act(session,name));setNotice(name==='mapping/confirm'?'Đã xác nhận vị trí Excel hiện tại.':name==='review'?'Đã hoàn tất rà soát dữ liệu hiện tại.':'Đã phê duyệt dữ liệu hiện tại.');});}
+  function action(name:string){if(!session)return;if(unsaved){blockPending();return;}void run(async()=>{await refresh(await api.act(session,name));setNotice(name==='mapping/confirm'?'Đã xác nhận vị trí Excel hiện tại.':name==='review'?'Đã hoàn tất rà soát dữ liệu hiện tại.':'Đã phê duyệt dữ liệu hiện tại.');});}
   const current=preview&&session&&preview.sessionId===session.id&&preview.version===session.version?preview:null;
-  const editorKey=session?`${session.id}:${session.profileVersion}:${session.schemaDraft?.revision}:${session.dataRevision}`:'';
+  // Rebase editor-local state on an acknowledged server snapshot, never on request start/failure.
+  const editorKey=session?`${session.id}:${session.version}:${session.profileVersion}:${session.schemaDraft?.revision}:${session.dataRevision}`:'';
   const editorProps=session?{session,busy,apply,report}:null;
   const saved=!!session&&savedVersion===session.version&&!unsaved;
   const issues=session?.issues??[];
@@ -53,19 +70,20 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
     <div className="office-workspace"><nav className="uds-steps" aria-label="Các bước xử lý Excel">{steps.map((label,i)=><button disabled={busy} key={label} aria-current={step===i?'step':undefined} onClick={()=>navigate(i)}><span>{i+1}</span>{label}</button>)}</nav>
     <div className="office-editing">{error&&<div role="alert" className="uds-error">{error}</div>}
     {notice&&<p role="status" className="uds-success">{notice}</p>}
-    {unsaved&&<p role="status" className="uds-error">Có nội dung chưa áp dụng. Đây chưa phải dữ liệu đã lưu hoặc được xác nhận.</p>}
+    {unsaved&&<div role={navigationBlocked?'alert':'status'} className="uds-error office-pending">{formsDirty&&<strong>Có thay đổi chưa áp dụng. </strong>}{pendingItems.map(item=><p key={item.target}>{item.message}</p>)}</div>}
     {session&&<aside className="uds-state"><strong>Trạng thái máy chủ:</strong> vị trí {session.mappingState==='UserConfirmed'?'đã xác nhận':'chưa xác nhận'}; dữ liệu {session.reviewState==='Approved'?'đã phê duyệt':session.reviewState==='ReadyForApproval'?'đã rà soát, chờ phê duyệt':'chưa hoàn tất rà soát/phê duyệt'}.
       <button disabled={busy||unsaved} onClick={()=>void run(async()=>{await refresh(await api.read(session.id));if(boot?.draftsEnabled)setDrafts(await api.drafts());setSavedVersion(null);setNotice('Đã tải trạng thái mới nhất từ máy chủ.');})}>Tải lại trạng thái</button>
-      <button disabled={busy||unsaved} onClick={()=>void run(async()=>{await api.remove(session);setSession(null);setPreview(null);setBinding(null);setSavedVersion(null);setLoaded(null);sessionStorage.removeItem(SESSION);setStep(0);})}>Đóng phiên hiện tại</button>
+      <button disabled={busy||unsaved} onClick={()=>void run(async()=>{await api.remove(session);setSession(null);setPreview(null);setBinding(null);setSavedVersion(null);setLoaded(null);setLoadedExample(null);sessionStorage.removeItem(SESSION);setStep(0);})}>Đóng phiên hiện tại</button>
     </aside>}
     <section className="uds-panel" aria-busy={busy}><h2>{step+1}. {steps[step]}</h2>
     {step===0&&<>
       <p><strong>Mẫu đầu ra:</strong> tệp .xlsx có bố cục muốn giữ. <strong>Ví dụ đã điền:</strong> tệp cùng cấu trúc, có 1–5 dòng dữ liệu minh họa, không phải kết quả đọc ảnh/PDF.</p>
       <p>Giới hạn: 4 sheet tổng, 3 sheet dữ liệu, một dòng mẫu mỗi sheet, 20 dòng đầu ra, 8 quy tắc, 2.000 ô đã phân tích; không quá dòng 1.000/cột AF. Tổng mẫu, ví dụ và nguồn tối đa 2 MiB. Không hỗ trợ macro, liên kết ngoài hoặc công thức ngoài ngữ pháp được chấp nhận.</p>
-      <form className="uds-inline" onSubmit={e=>{e.preventDefault();if(template)void run(async()=>{const s=session??await api.create('example-template');setSession(s);const next=await api.upload(s,template);setLoaded({name:template.name,size:template.size});setTemplate(null);if(templateInput.current)templateInput.current.value='';await refresh(next);setNotice('Đã phân tích mẫu. Xem danh sách sheet và gợi ý ở bước 2.');});}}><FileDrop file={template} disabled={busy||formsDirty} inputRef={templateInput} onChange={setTemplate} onError={setError}/><button disabled={busy||formsDirty||!template}>Tải và phân tích mẫu</button></form>
-      {template&&<p>{template.name} · {template.size} byte <button disabled={busy} onClick={()=>{setTemplate(null);if(templateInput.current)templateInput.current.value='';}}>Bỏ tệp mẫu đã chọn</button></p>}
-      {loaded&&<p>Mẫu vừa áp dụng: {loaded.name} · {loaded.size} byte</p>}
-      {session&&<form className="uds-inline" onSubmit={e=>{e.preventDefault();if(example)void run(async()=>{await refresh(await api.upload(session,example,'example'));setExample(null);if(exampleInput.current)exampleInput.current.value='';setNotice('Đã đối chiếu ví dụ. Cần kiểm tra lại các mục và vị trí Excel.');});}}><label>Ví dụ đã điền (tùy chọn)<input disabled={busy||formsDirty} ref={exampleInput} aria-label="Ví dụ Excel đã điền" type="file" accept=".xlsx" onChange={e=>setExample(e.target.files?.[0]??null)}/></label><button disabled={busy||formsDirty||!example||!!template}>Đối chiếu ví dụ</button></form>}
+      <form className="uds-inline office-template-form" onSubmit={e=>{e.preventDefault();if(template)void run(uploadTemplate);}}><FileDrop removeLabel="Bỏ tệp mẫu đã chọn" file={template} disabled={busy||formsDirty} inputRef={templateInput} onChange={file=>{setTemplate(file);setNotice('');setNavigationBlocked(false);}} onError={setError}/><button id="office-template-upload" disabled={busy||formsDirty||!template}>{busy&&template?'Đang tải và phân tích…':'Tải và phân tích mẫu'}</button></form>
+
+      {loaded&&<p className="office-uploaded">Đã tải mẫu lên máy chủ: {loaded.name} · {loaded.size} byte</p>}
+      {session&&<form className="uds-inline" onSubmit={e=>{e.preventDefault();if(example)void run(uploadExample);}}><label>Ví dụ đã điền (tùy chọn)<input disabled={busy||formsDirty} ref={exampleInput} aria-label="Ví dụ Excel đã điền" type="file" accept=".xlsx" onChange={e=>{setExample(e.target.files?.[0]??null);setNotice('');setNavigationBlocked(false);}}/></label><button id="office-example-apply" disabled={busy||formsDirty||!example||!!template}>Đối chiếu ví dụ</button></form>}
+      {loadedExample&&<p className="office-uploaded">Đã đối chiếu ví dụ trên máy chủ: {loadedExample.name} · {loadedExample.size} byte</p>}
       {example&&<p>{example.name} · {example.size} byte <button disabled={busy} onClick={()=>{setExample(null);if(exampleInput.current)exampleInput.current.value='';}}>Bỏ ví dụ đã chọn</button></p>}
       {session&&<p>Sheet từ máy chủ: {session.sheets.join(', ')||'Chưa có mẫu hợp lệ'}</p>}
     </>}
@@ -105,7 +123,7 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
       {binding?.sessionId===session.id&&<button disabled={busy||unsaved} onClick={()=>void run(async()=>{const r=await api.saveDraft(session);await refresh(r.session);setBinding({sessionId:r.session.id,draft:r.draft});setDrafts(await api.drafts());setSavedVersion(r.session.version);setNotice('Đã lưu thành một bản nháp mới, riêng biệt.');})}>Lưu thành bản mới</button>}</>}
       {drafts.map((d,i)=><article className="uds-state" key={d.id}><h3>Bản nháp Excel {i+1}</h3><p>Cập nhật {new Date(d.updatedAt).toLocaleString('vi-VN')} · hết hạn {new Date(d.expiresAt).toLocaleString('vi-VN')}</p>
       {session&&binding?.sessionId===session.id&&binding.draft.id===d.id&&binding.draft.revision!==d.revision&&<><p>Bản nháp đã được yêu cầu khác cập nhật. Mở phiên bản mới hoặc chọn rõ thay thế ở lần lưu sau.</p><button disabled={busy||unsaved} onClick={()=>{setBinding({sessionId:session.id,draft:d});setSavedVersion(null);}}>Chọn thay thế bản nháp {i+1} ở lần lưu sau</button></>}
-      <button disabled={busy||unsaved} aria-label={`Mở bản nháp ${i+1}`} onClick={()=>void run(async()=>{const s=await api.resumeDraft(d);await refresh(s);setBinding({sessionId:s.id,draft:d});setSavedVersion(null);setLoaded(null);setStep(1);setNotice('Đã mở bản nháp vào phiên mới. Cần xác nhận vị trí và lặp lại rà soát, phê duyệt.');})}>Mở bản nháp {i+1}</button>
+      <button disabled={busy||unsaved} aria-label={`Mở bản nháp ${i+1}`} onClick={()=>void run(async()=>{const s=await api.resumeDraft(d);await refresh(s);setBinding({sessionId:s.id,draft:d});setSavedVersion(null);setLoaded(null);setLoadedExample(null);setStep(1);setNotice('Đã mở bản nháp vào phiên mới. Cần xác nhận vị trí và lặp lại rà soát, phê duyệt.');})}>Mở bản nháp {i+1}</button>
       <ConfirmAction disabled={busy||unsaved} title={`Xóa bản nháp ${i+1}?`} description="Bản nháp đã lưu sẽ bị xóa. Phiên đang mở vẫn giữ thời hạn và quyền hiện tại. Thao tác này không thể hoàn tác." onConfirm={()=>run(async()=>{await api.deleteDraft(d);setDrafts(await api.drafts());if(binding?.draft.id===d.id)setBinding(null);setSavedVersion(null);setNotice('Đã xóa bản nháp. Phiên đang mở vẫn tuân theo thời hạn và quyền riêng của nó.');})}>Xóa bản nháp {i+1}</ConfirmAction>
       </article>)}
     </section>}

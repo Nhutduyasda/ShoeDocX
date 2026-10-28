@@ -26,9 +26,10 @@ public sealed class Gate6BCertificateRolloverTests
             using var b = new CertificateRequest("CN=Synthetic B", rsaB, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
                 .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60));
             var password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+            var oldPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
             var pathA = Path.Combine(root, "a.pfx");
             var pathB = Path.Combine(root, "b.pfx");
-            File.WriteAllBytes(pathA, a.Export(X509ContentType.Pfx, password));
+            File.WriteAllBytes(pathA, a.Export(X509ContentType.Pfx, oldPassword));
             File.WriteAllBytes(pathB, b.Export(X509ContentType.Pfx, password));
             if (!OperatingSystem.IsWindows()) {
                 File.SetUnixFileMode(pathA, UnixFileMode.UserRead | UnixFileMode.UserWrite);
@@ -39,11 +40,11 @@ public sealed class Gate6BCertificateRolloverTests
             {
                 var values = new Dictionary<string, string?> {
                     ["DataProtection:CertificatePath"] = active,
-                    ["DataProtection:CertificatePassword"] = password
+                    ["DataProtection:CertificatePassword"] = active == pathA ? oldPassword : password
                 };
                 if (retainA) {
                     values["DataProtection:DecryptionCertificates:0:Path"] = pathA;
-                    values["DataProtection:DecryptionCertificates:0:Password"] = password;
+                    values["DataProtection:DecryptionCertificates:0:Password"] = oldPassword;
                 }
                 var services = new ServiceCollection();
                 services.AddDataProtection().SetApplicationName("ShoeDocX")

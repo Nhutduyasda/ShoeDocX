@@ -96,6 +96,34 @@ jobs:
           path: verification-evidence/**/*.json
           if-no-files-found: error
           retention-days: 14
+  windows-tcp-feasibility:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-6b-staging-pilot'
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: feature
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.402'
+      - name: Compile disposable native helper
+        run: dotnet build feature/tests/Gate6BOperations/Gate6BOperations.csproj
+      - name: Bounded signed SQL Express TCP and native HTTPS investigation
+        shell: pwsh
+        run: |
+          ./feature/.github/scripts/gate6b_windows_tcp.ps1 -Output "$env:GITHUB_WORKSPACE/verification-evidence/gate6b-windows-tcp.json"
+          # Full native parity is mandatory until the owner approves a platform scope.
+          exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate6b-windows-tcp
+          path: verification-evidence/gate6b-windows-tcp.json
+          if-no-files-found: error
+          retention-days: 14
   staging-linux:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/universal-doc-engine-gate-6b-staging-pilot'
     runs-on: ubuntu-24.04
@@ -118,6 +146,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.402'
+      - uses: actions/checkout@v4
+        with:
+          ref: b0604b9472a79905d1a9b5c7afe13e681f23a232
+          path: hardened
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

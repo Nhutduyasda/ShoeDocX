@@ -19,6 +19,8 @@ incomplete. No hosted staging or real participant pilot exists.
 | Runtime least privilege | Implemented | DML roles, no db_owner or CREATE TABLE, history writes denied; execution pending |
 | Encrypted backup and complete instance reconstruction | Implemented | SQL CHECKSUM + AES-GCM bundle + ciphertext fingerprint; execution pending |
 | Full fault injection / rollback | Implemented | Explicit Production fault probes and immutable previous-build probe; exact-HEAD outcome required |
+| Hardened two-version rollback | Implemented | Frozen b0604b9 A and later B, same database/key ring, startup row hashes and fresh authorized exports; current CI required |
+| Actual disk exhaustion | Implemented | Only 8 MiB ingress / 64 MiB backend tmpfs filled to ENOSPC, failed-upload atomicity, in-memory exports, readiness and capacity recovery; current CI required |
 | Windows native Production | Blocked | Earlier LocalDB observation used named pipes with encrypt_option FALSE; hardened Production rejects IPC / implicit transport |
 | Windows production SQL TLS parity | Blocked | LocalDB has no verified managed TCP TLS endpoint / separate runtime SQL login / native proxy parity |
 | Real office participant pilot | Owner approval required | INTERNAL PILOT NOT YET EXECUTED |
@@ -42,7 +44,7 @@ Only one host loopback port is published. SQL/API have no host port. The API/SQL
 network is internal; only Nginx also joins a separate ingress bridge for the loopback
 port publication. Internal-only containers do not provide a reliable published ingress. The proxy replaces client X-Forwarded-* values; the backend
 accepts one hop from the exact configured proxy IP, never all peers. Host is fixed
-by ingress; AllowedHosts is explicit. Health emits only ready/503. Swagger remains
+by ingress; AllowedHosts is explicit. Health emits only ready/503 plus a constant storage-probe capability header. Swagger remains
 Development-only. Frontend runtime is Nginx with compiled dist, no Node/Vite.
 
 The existing root Compose and HTTP Nginx remain historical development examples,
@@ -117,12 +119,33 @@ unauthorized reviewer/approver/export, cross-owner/cross-tenant drafts, a real t
 minute session expiry with no clock override, invalid/oversized/unsupported formula/
 structure/reference changes, and rollback to the immutable accepted Gate 6A build.
 Only actual same-HEAD artifact PASS entries count as executed acceptance. Directory
-permission denial is not a full-disk simulation; full-disk recovery remains Not tested.
+permission denial is not a full-disk simulation. The bounded tmpfs test requires
+actual ENOSPC and verifies ingress failure before template commit, encrypted draft
+integrity, temporary-file cleanup and capacity restoration. The Excel API deliberately
+buffers bounded uploads/exports in memory: exports that succeed while temporary disk
+is full are resilience evidence, not an invented export-failure claim. Candidate B
+readiness rejects unavailable temporary storage with 503. Current CI evidence is required.
 The rollback probe copies the key ring, preserves the live encrypted draft, uses a
 separate loopback ingress and reports functional XLSX recovery independently from
 whether the old build maintains hardened key protection. Gate 6A is not preapproved
 as a hardened rollback target. A functional rollback does not waive its startup-write
 or key-encryption limitations. These blockers keep the PR Draft.
+
+A separate hardened release exercise freezes reviewed b0604b9 source and its fresh
+immutable image ID as A, uses the current candidate with temporary-storage readiness
+as B, then runs A-create/save/export -> B-upgrade/resume/reapprove/export -> A-rollback/
+resume/reapprove/export. The live SQL instance, certificates, key XML and ciphertext
+after the legitimate A save are preserved. All user-table row hashes are compared
+across startup. Real twenty-minute expiry runs while B is active; SQL leases expire
+naturally. Its result is gate6b-hardened-rollback.json. This is distinct from the
+rejected Gate 6A probe, complete backup restoration, forward recovery and production rollback.
+
+The signed-Express Windows investigation records exact installer phase, signatures,
+hashes and any executed native TCP/TLS/HTTPS/auth/CSRF subset. Full native reverse-proxy,
+unprivileged application identity, browser, tenant/owner and draft recovery parity
+are not inferred from a subset. No Windows requirement is waived. See the
+[platform-scope and restricted rollback decision package](gate6b/PLATFORM_DECISION.md).
+The owner must approve any Linux-only pilot scope and initial-release rollback policy.
 
 ## Handoff
 
@@ -130,6 +153,7 @@ or key-encryption limitations. These blockers keep the PR Draft.
 - [Operator runbooks and secrets](gate6b/OPERATIONS.md)
 - [Vietnamese quick-start and participant checklist](gate6b/PILOT_VI.md)
 - [Feedback and incident templates](gate6b/FEEDBACK.md)
+- [Pending platform, rollback and concrete pilot decisions](gate6b/PLATFORM_DECISION.md)
 
 Final acceptance must report separately STAGING TECHNICAL PASS/PARTIAL/FAIL,
 INTERNAL PILOT PASS/NOT EXECUTED/FAIL, PR MERGE READY/NOT READY, PRODUCTION GO/NO-GO.

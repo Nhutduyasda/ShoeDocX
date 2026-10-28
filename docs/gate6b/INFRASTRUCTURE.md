@@ -41,6 +41,11 @@ Source evidence (official pages checked read-only):
 
 ## Exact owner decision package — pending, not an invitation
 
+The targeted platform-scope, restricted rollback and smallest existing-host pilot
+proposal is [PLATFORM_DECISION.md](PLATFORM_DECISION.md). Windows Production is not
+waived by proposing Linux. The signed Express investigation is separate from Windows
+regression and from full native parity acceptance.
+
 Recommended current decision: finish isolated technical acceptance with A; retain
 INTERNAL PILOT NOT YET EXECUTED. This incurs no new hosting subscription. Only standard
 runners and small sanitized artifacts are used; no large runner or paid API enabled.

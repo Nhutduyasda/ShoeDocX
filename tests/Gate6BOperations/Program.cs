@@ -9,6 +9,7 @@ using ShoeExportInvoice.Tests.UniversalDocEngine;
 using ClosedXML.Excel;
 
 if(args[0]=="native"){await Gate6BNative.Run(args[1]);return;}
+if(args[0]=="native-tcp"){await Gate6BNativeTcp.Run(args[1]);return;}
 
 // Offline recovery cannot depend on configuration sealed inside the lost bundle.
 if(args[0] is "seal" or "unseal") {
@@ -69,6 +70,26 @@ if(action=="provision") {
     await using var r=await q.ExecuteReaderAsync();using var sha=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);var rows=0;
     while(await r.ReadAsync()){rows++;sha.AppendData(System.Text.Encoding.UTF8.GetBytes(r.GetString(0)+r.GetString(1)));sha.AppendData((byte[])r[2]);sha.AppendData((byte[])r[3]);}
     File.WriteAllText(args[1],JsonSerializer.Serialize(new{rows,sha256=Convert.ToHexString(sha.GetHashAndReset())}));
+} else if(action=="state") {
+    // Order-independent hashes of every user-table row, including histories and
+    // ciphertext. Raw values stay in memory and never reach logs/artifacts.
+    cs.InitialCatalog=database;
+    await using var c=new SqlConnection(cs.ConnectionString);await c.OpenAsync();
+    var tables=new List<string>();
+    await using(var q=new SqlCommand("SELECT QUOTENAME(SCHEMA_NAME(schema_id))+'.'+QUOTENAME(name) FROM sys.tables ORDER BY schema_id,name",c))
+    await using(var reader=await q.ExecuteReaderAsync())while(await reader.ReadAsync())tables.Add(reader.GetString(0));
+    using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);var rows=0;
+    foreach(var table in tables) {
+        await using var q=new SqlCommand("SELECT * FROM "+table+" FOR JSON PATH, INCLUDE_NULL_VALUES",c);
+        await using var reader=await q.ExecuteReaderAsync();var text=new System.Text.StringBuilder();
+        while(await reader.ReadAsync())text.Append(reader.GetString(0));
+        using var json=JsonDocument.Parse(text.Length==0?"[]":text.ToString());
+        hash.AppendData(System.Text.Encoding.UTF8.GetBytes(table));
+        foreach(var row in json.RootElement.EnumerateArray().Select(x=>x.GetRawText()).OrderBy(x=>x,StringComparer.Ordinal)) {
+            rows++;hash.AppendData(System.Text.Encoding.UTF8.GetBytes(row));
+        }
+    }
+    File.WriteAllText(args[1],JsonSerializer.Serialize(new{tables=tables.Count,rows,sha256=Convert.ToHexString(hash.GetHashAndReset())}));
 } else if(action=="hold-lock") {
     cs.InitialCatalog=database;
     await using var connection=new SqlConnection(cs.ConnectionString);await connection.OpenAsync();
@@ -95,7 +116,7 @@ if(action=="provision") {
 } else if(action=="permissions") {
     await Execute($"USE [{database}]; DENY INSERT, UPDATE, DELETE ON dbo.__EFMigrationsHistory TO [gate6b_runtime]; DENY INSERT, UPDATE, DELETE ON ude.__DraftMigrations TO [gate6b_runtime];");
     await Execute("ALTER LOGIN [gate6b_migration] DISABLE");
-    cs.InitialCatalog=database;cs.UserID="gate6b_runtime";cs.Password=config.GetProperty("runtimePassword").GetString();
+    cs.InitialCatalog=database;cs.IntegratedSecurity=false;cs.UserID="gate6b_runtime";cs.Password=config.GetProperty("runtimePassword").GetString();
     await using var c=new SqlConnection(cs.ConnectionString);await c.OpenAsync();
     await using var q=new SqlCommand("SELECT HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','CREATE TABLE'), IS_MEMBER('db_owner'), HAS_PERMS_BY_NAME('ude.Drafts','OBJECT','SELECT'), HAS_PERMS_BY_NAME('ude.Drafts','OBJECT','UPDATE'), HAS_PERMS_BY_NAME('ude.__DraftMigrations','OBJECT','UPDATE'), HAS_PERMS_BY_NAME('dbo.__EFMigrationsHistory','OBJECT','UPDATE')",c);
     await using var r=await q.ExecuteReaderAsync();await r.ReadAsync();

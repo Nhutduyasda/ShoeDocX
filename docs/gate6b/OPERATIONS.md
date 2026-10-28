@@ -69,6 +69,15 @@ are in gate6b-previous-build-rollback.json. Do not claim compatibility from a su
 forward migration or approve a build that writes new unencrypted protection keys. Preserve
 current database/keys and block release until previous build + restored schema is tested.
 
+The separate hardened A/B exercise uses immutable image IDs on the same SQL instance
+and mounts: A creates/saves a workflow, B resumes/reapproves/exports, and A does so
+after rollback. Startup compares order-independent SHA-256 hashes of all table rows;
+all three exports are independently reopened. No key XML is rewritten or SQL lease
+deleted to bypass capacity. Require gate6b-hardened-rollback.json. Only that pair and
+schema/key contract is exercised; arbitrary past releases and production rollback are
+not approved. Archive and approve exact OCI images, a host rehearsal and a recovery
+checkpoint before real deployment. See [pending decisions](PLATFORM_DECISION.md).
+
 ## Backup and restore
 
 Pause writes for the isolated test checkpoint. SQL BACKUP WITH CHECKSUM covers both
@@ -134,6 +143,13 @@ explicit operator approval before real credential/key changes.
   restricted operator tooling; never turn off SQL encryption or certificate validation.
 - Full disk/storage denial: stop new uploads/exports, preserve existing files/drafts,
   measure free bytes without listing sensitive names; restore capacity before retry.
+  B readiness verifies one temporary byte can be written/deleted and returns 503 if
+  unavailable. In isolated CI only, fill verified bounded tmpfs mounts, never the
+  host root or SQL volume. Ingress cache is 8 MiB and backend temp 64 MiB. A failed
+  spooled ingress upload must not advance its session or leave a partial/completed
+  file. After filler removal repeat the upload. Bounded in-memory Excel exports may
+  remain successful. Actual ENOSPC, cleanup, draft integrity and recovery are separate
+  evidence from permission denial.
 - Migration failure: leave application stopped, retain exact failed version/schema,
   restore to a separate instance for investigation; no automatic destructive retry.
 - Missing keys: fail closed, retrieve approved recovery key material through custodian;
@@ -154,7 +170,7 @@ an exporter/dashboard/alert pipeline is NOT IMPLEMENTED. Do not expose public me
 alerting guarantee is claimed. Raw logs remain private. An end-to-end telemetry consumer and alert thresholds still
 need operational verification before production.
 
-Open risks: Windows validated SQL TLS and native proxy parity; full-disk recovery; table-scoped
-runtime privileges; production certificate custody/retirement; hardened previous-build rollback compatibility; safe metrics
+Open risks: complete Windows native parity (consult actual TCP investigation); table-scoped
+runtime privileges; production certificate custody/retirement; production image archive and restricted rollback approval; safe metrics
 coverage; generic historical development Compose; no persistent hosted endpoint;
 no real participant feedback; dynamic provider pricing; no measured host capacity or SLA.

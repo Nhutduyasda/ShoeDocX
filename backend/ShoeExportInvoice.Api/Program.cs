@@ -336,8 +336,9 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/api/health", async (AppDbContext db) => {
-    try { using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)); return await db.Database.CanConnectAsync(timeout.Token) ? Results.Ok(new { status = "ready" }) : Results.StatusCode(503); }
+app.MapGet("/api/health", async (HttpContext context, AppDbContext db) => {
+    context.Response.Headers["X-ShoeDocX-Storage-Health"] = "temp-write-v1";
+    try { OperationalTelemetry.VerifyStorage(Path.GetTempPath()); using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)); return await db.Database.CanConnectAsync(timeout.Token) ? Results.Ok(new { status = "ready" }) : Results.StatusCode(503); }
     catch { return Results.StatusCode(503); }
 }).AllowAnonymous().RequireRateLimiting("health");
 app.MapControllers();

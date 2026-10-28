@@ -1,0 +1,75 @@
+# Disposable hosted runner only. Installer output and credentials never enter artifacts.
+param([string]$Output)
+$ErrorActionPreference='Stop'
+if ($env:GITHUB_ACTIONS -ne 'true' -or !$IsWindows) { throw 'DISPOSABLE_WINDOWS_RUNNER_REQUIRED' }
+$root=Join-Path $env:RUNNER_TEMP ('gate6b-tcp-'+[guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory $root | Out-Null
+icacls $root /inheritance:r /grant:r "$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name):(OI)(CI)F" 'SYSTEM:(OI)(CI)F' | Out-Null
+$report=[ordered]@{status='BLOCKED';productionParity='UNVERIFIED';phase='download';installerEvidence=@();publicSqlPort=$false}
+$thumb=$null;$instance='GATE6BTCP';$service='MSSQL$GATE6BTCP'
+function Verified([string]$File) {
+ $sig=Get-AuthenticodeSignature $File
+ if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'CN=Microsoft Corporation,') { throw 'MICROSOFT_SIGNATURE_REQUIRED' }
+ $report.installerEvidence+=@{sha256=(Get-FileHash $File -Algorithm SHA256).Hash;signature='Valid Microsoft Corporation';version=(Get-Item $File).VersionInfo.FileVersion}
+}
+function Run-Private([string]$File,[string[]]$Arguments,[int]$Seconds) {
+ $p=Start-Process $File -ArgumentList $Arguments -PassThru -RedirectStandardOutput (Join-Path $root ('stdout-'+[guid]::NewGuid()+'.txt')) -RedirectStandardError (Join-Path $root ('stderr-'+[guid]::NewGuid()+'.txt'))
+ if (!$p.WaitForExit($Seconds*1000)) { Stop-Process -Id $p.Id -Force; throw 'BOUNDED_PROCESS_TIMEOUT' }
+ if ($p.ExitCode -notin @(0,3010)) { $report.processExit=$p.ExitCode;throw 'PROCESS_FAILED' }
+}
+try {
+ if (Get-Service $service -ErrorAction SilentlyContinue) { throw 'REFUSING_EXISTING_SQL_INSTANCE' }
+ $bootstrap=Join-Path $root 'express.exe'
+ # Official current Express link from Microsoft's SQL Server download page.
+ Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?clcid=0x409&country=us&culture=en-us&linkid=2216019' -OutFile $bootstrap -TimeoutSec 180
+ Verified $bootstrap
+ $media=Join-Path $root 'media';New-Item -ItemType Directory $media | Out-Null
+ $report.phase='download-core';Run-Private $bootstrap @('/ACTION=Download','/MEDIATYPE=Core',"/MEDIAPATH=`"$media`"",'/QUIET') 300
+ $core=Get-ChildItem $media -Filter 'SQLEXPR*x64*.exe' -Recurse | Select-Object -First 1
+ if (!$core) { throw 'SIGNED_CORE_MEDIA_UNAVAILABLE' };Verified $core.FullName
+ $unpacked=Join-Path $root 'unpacked';$report.phase='extract';Run-Private $core.FullName @('/Q',"/x:`"$unpacked`"") 120
+ $setup=Join-Path $unpacked 'setup.exe';Verified $setup
+ $report.phase='install'
+ $sa='G6b!'+[guid]::NewGuid().ToString('N')+'aA1'
+ Run-Private $setup @('/Q','/IACCEPTSQLSERVERLICENSETERMS','/SUPPRESSPRIVACYSTATEMENTNOTICE','/ACTION=Install','/FEATURES=SQLEngine',"/INSTANCENAME=$instance",'/SQLSVCACCOUNT="NT Service\MSSQL$GATE6BTCP"',"/SQLSYSADMINACCOUNTS=`"$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)`"",'/SECURITYMODE=SQL',"/SAPWD=$sa",'/TCPENABLED=1','/NPENABLED=0','/SQLSVCSTARTUPTYPE=Manual','/UPDATEENABLED=True') 900
+ Stop-Service $service -ErrorAction SilentlyContinue
+ $report.phase='certificate'
+ $cert=New-SelfSignedCertificate -DnsName $env:COMPUTERNAME,'localhost' -CertStoreLocation 'Cert:\LocalMachine\My' -KeyAlgorithm RSA -KeyLength 2048 -KeySpec KeyExchange -Provider 'Microsoft RSA SChannel Cryptographic Provider' -NotAfter (Get-Date).AddDays(2)
+ $thumb=$cert.Thumbprint
+ $public=Join-Path $root 'sql.cer';Export-Certificate -Cert $cert -FilePath $public | Out-Null
+ Import-Certificate -FilePath $public -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
+ $keyFile=Join-Path "$env:ProgramData\Microsoft\Crypto\RSA\MachineKeys" $cert.PrivateKey.CspKeyContainerInfo.UniqueKeyContainerName
+ icacls $keyFile /grant 'NT SERVICE\MSSQL$GATE6BTCP:R' | Out-Null
+ $id=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL').$instance
+ $network="HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$id\MSSQLServer\SuperSocketNetLib"
+ Set-ItemProperty $network Certificate $thumb.ToLowerInvariant();Set-ItemProperty $network ForceEncryption 1
+ Set-ItemProperty "$network\Tcp" Enabled 1;Set-ItemProperty "$network\Tcp" ListenOnAllIPs 0
+ $loopback=$false
+ foreach ($ip in Get-ChildItem "$network\Tcp" | Where-Object {$_.PSChildName -ne 'IPAll'}) {
+   $v=Get-ItemProperty $ip.PSPath;$enabled=if ($v.IpAddress -eq '127.0.0.1') {1} else {0}
+   Set-ItemProperty $ip.PSPath Enabled $enabled
+   if ($enabled) {$loopback=$true;Set-ItemProperty $ip.PSPath TcpDynamicPorts '';Set-ItemProperty $ip.PSPath TcpPort '50143'}
+ }
+ if (!$loopback) { throw 'LOOPBACK_TCP_CONFIGURATION_UNAVAILABLE' }
+ $report.phase='start-sql';Start-Service $service
+ $env:GATE6B_WINDOWS_TCP='Server=tcp:localhost,50143;Database=master;Integrated Security=True;Encrypt=True;TrustServerCertificate=False;Connect Timeout=5'
+ $env:GATE6B_WINDOWS_PRIVATE=$root
+ $report.phase='native-production';$native=Join-Path $root 'native.json'
+ Run-Private 'dotnet' @('run','--no-build','--project',"`"$env:GITHUB_WORKSPACE/feature/tests/Gate6BOperations/Gate6BOperations.csproj`"",'--','native-tcp',"`"$native`"") 300
+ $report.native=Get-Content $native -Raw | ConvertFrom-Json
+ $report.status='PARTIAL';$report.phase='complete'
+ $report.blocker='Direct native HTTPS and TCP SQL are a subset. Trusted reverse-proxy, full native browser/owner/tenant/draft recovery parity remain unverified. No Windows platform waiver.'
+} catch {
+ $report.errorType=$_.Exception.GetType().Name
+ # Only our fixed identifiers may leave private diagnostics.
+ if ($_.Exception.Message -match '^[A-Z_]+$') {$report.errorCode=$_.Exception.Message}
+} finally {
+ Stop-Service $service -ErrorAction SilentlyContinue
+ if ($thumb) {Remove-Item "Cert:\LocalMachine\Root\$thumb" -ErrorAction SilentlyContinue;Remove-Item "Cert:\LocalMachine\My\$thumb" -DeleteKey -ErrorAction SilentlyContinue}
+ Remove-Item Env:\GATE6B_WINDOWS_TCP -ErrorAction SilentlyContinue
+ Remove-Item Env:\GATE6B_WINDOWS_PRIVATE -ErrorAction SilentlyContinue
+ New-Item -ItemType Directory (Split-Path $Output) -Force | Out-Null
+ $report | ConvertTo-Json -Depth 10 | Set-Content $Output
+ $report | ConvertTo-Json -Depth 10 | Write-Output
+ Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
+}

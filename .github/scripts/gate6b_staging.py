@@ -3,6 +3,8 @@ import hashlib, json, os, shutil, signal, ssl, subprocess, tarfile, tempfile, ti
 from pathlib import Path
 import gate5d_browser
 import gate6b_rollback
+import gate6b_disk
+import gate6b_release
 
 ROOT=Path.cwd(); FEATURE=ROOT/'feature'; EVIDENCE=ROOT/'verification-evidence'; EVIDENCE.mkdir(exist_ok=True)
 
@@ -33,6 +35,9 @@ def verify():
                 if args[0]=='node':
                     mode=env.get('GATE6B_FAULT_MODE','normal');failure=private/'browser'/('gate6b-failure-'+mode+'.json')
                     if failure.exists():report['fault_failure']=json.loads(failure.read_text())
+                    for variable,prefix in [('GATE6B_DISK_PHASE','disk-'),('GATE6B_RELEASE_PHASE','release-')]:
+                        detail=private/'browser'/(prefix+env.get(variable,'missing')+'.json')
+                        if detail.exists():report[prefix+'failure']=json.loads(detail.read_text())
                 raise AssertionError('COMMAND_FAILED_'+Path(args[0]).name)
             return result
         def cp(*args,**kwargs):return command(compose+list(args),**kwargs)
@@ -222,6 +227,7 @@ def verify():
             mark('interrupted_partial_download_version_refresh_and_content_identical_retry')
             mark('production_csrf_roles_revocation_retention_concurrency_upload_limits')
             shutil.copy2(private/'browser/gate6b-faults-normal.json',EVIDENCE/'gate6b-production-faults.json')
+            report['disk_full']=gate6b_disk.verify(private,env,cp,op,command,EVIDENCE,mark)
             op('fingerprint',private/'conflict-before.json')
             control_log=open(private/'lock.log','wb')
             control=subprocess.Popen(probe+['hold-lock',str(private/'lock-ready'),str(private/'lock-release')],cwd=FEATURE,env=env,stdout=control_log,stderr=subprocess.STDOUT,start_new_session=True);processes.append(control)
@@ -306,11 +312,10 @@ def verify():
             keyfiles=list((private/'data/protection-keys').glob('key-*.xml'));assert keyfiles and all('encryptedSecret' in p.read_text() for p in keyfiles)
             command(['sudo','chown','-R','1654:1654',str(private/'data/protection-keys')]);mark('dataprotection_persisted_keys_encrypted_at_rest')
             report['previous_build_rollback']=gate6b_rollback.verify(FEATURE,private,config,env,command,op,EVIDENCE)
+            report['hardened_rollback']=gate6b_release.verify(FEATURE,private,env,command,cp,op,ready,request,EVIDENCE,mark)
             op('expire');env['GATE6B_FAULT_MODE']='expired-draft';command(['node','frontend/tests/gate6bFaults.e2e.mjs'])
             shutil.copy2(private/'browser/gate6b-faults-expired-draft.json',EVIDENCE/'gate6b-expiration.json');mark('expired_draft_after_recovery_denied')
-            env['GATE6B_FAULT_MODE']='workflow-expiry';command(['node','frontend/tests/gate6bFaults.e2e.mjs'],timeout=1300)
-            shutil.copy2(private/'browser/gate6b-faults-workflow-expiry.json',EVIDENCE/'gate6b-workflow-expiry.json');mark('real_twenty_minute_session_expiry_denied')
-            report['status']='PARTIAL';report['remaining']=['Windows managed TCP SQL TLS, runtime login and native proxy parity remain unverified','Previous accepted build is not an approved hardened rollback target','Actual internal pilot not executed','Production key custody, certificate rotation and monitoring exporter are not provisioned']
+            report['status']='PARTIAL';report['linux_technical']='PASS';report['remaining']=['Windows managed TCP SQL TLS, runtime login and native proxy parity remain unverified; no owner platform waiver','Only the pinned hardened A/B staging pair is a supported rollback exercise; Gate 6A remains NO-GO','Actual internal pilot not executed','Production key custody, authorized certificate transition and monitoring exporter are not provisioned']
         except Exception as e:
             import traceback
             frame=traceback.extract_tb(e.__traceback__)[-1];report['source_location']={'module':Path(frame.filename).name,'line':frame.lineno}

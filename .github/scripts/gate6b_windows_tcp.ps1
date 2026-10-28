@@ -31,15 +31,26 @@ try {
  $setup=Join-Path $unpacked 'setup.exe';Verified $setup
  $report.phase='install'
  $sa='G6b!'+[guid]::NewGuid().ToString('N')+'aA1'
- Run-Private $setup @('/Q','/IACCEPTSQLSERVERLICENSETERMS','/SUPPRESSPRIVACYSTATEMENTNOTICE','/ACTION=Install','/FEATURES=SQLEngine',"/INSTANCENAME=$instance",'/SQLSVCACCOUNT="NT Service\MSSQL$GATE6BTCP"',"/SQLSYSADMINACCOUNTS=`"$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)`"",'/SECURITYMODE=SQL',"/SAPWD=$sa",'/TCPENABLED=1','/NPENABLED=0','/SQLSVCSTARTUPTYPE=Manual','/UPDATEENABLED=True') 900
+ Run-Private $setup @('/Q','/IACCEPTSQLSERVERLICENSETERMS','/SUPPRESSPRIVACYSTATEMENTNOTICE','/ACTION=Install','/FEATURES=SQLEngine',"/INSTANCENAME=$instance",'/SQLSVCACCOUNT="NT Service\MSSQL$GATE6BTCP"',"/SQLSYSADMINACCOUNTS=`"$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)`"",'/SECURITYMODE=SQL',"/SAPWD=$sa",'/TCPENABLED=0','/NPENABLED=0','/SQLSVCSTARTUPTYPE=Manual','/UPDATEENABLED=True') 900
  Stop-Service $service -ErrorAction SilentlyContinue
  $report.phase='certificate'
  $cert=New-SelfSignedCertificate -DnsName $env:COMPUTERNAME,'localhost' -CertStoreLocation 'Cert:\LocalMachine\My' -KeyAlgorithm RSA -KeyLength 2048 -KeySpec KeyExchange -Provider 'Microsoft RSA SChannel Cryptographic Provider' -NotAfter (Get-Date).AddDays(2)
  $thumb=$cert.Thumbprint
  $public=Join-Path $root 'sql.cer';Export-Certificate -Cert $cert -FilePath $public | Out-Null
  Import-Certificate -FilePath $public -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
- $keyFile=Join-Path "$env:ProgramData\Microsoft\Crypto\RSA\MachineKeys" $cert.PrivateKey.CspKeyContainerInfo.UniqueKeyContainerName
- icacls $keyFile /grant 'NT SERVICE\MSSQL$GATE6BTCP:R' | Out-Null
+ $account=(Get-CimInstance Win32_Service -Filter "Name='$service'").StartName
+ if ($account -ne 'NT Service\MSSQL$GATE6BTCP') {throw 'SQL_VIRTUAL_SERVICE_REQUIRED'}
+ $keyInfo=$cert.PrivateKey.CspKeyContainerInfo
+ $report.machinePrivateKey=$keyInfo.MachineKeyStore
+ if (!$keyInfo.MachineKeyStore) {throw 'MACHINE_PRIVATE_KEY_REQUIRED'}
+ $keyFile=Join-Path "$env:ProgramData\Microsoft\Crypto\RSA\MachineKeys" $keyInfo.UniqueKeyContainerName
+ if (!(Test-Path -LiteralPath $keyFile -PathType Leaf)) {throw 'MACHINE_KEY_FILE_REQUIRED'}
+ $serviceSid=([System.Security.Principal.NTAccount]::new($account)).Translate([System.Security.Principal.SecurityIdentifier])
+ $acl=Get-Acl -LiteralPath $keyFile
+ $acl.SetAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($serviceSid,[System.Security.AccessControl.FileSystemRights]::Read,[System.Security.AccessControl.AccessControlType]::Allow))
+ Set-Acl -LiteralPath $keyFile -AclObject $acl
+ $report.servicePrivateKeyAclVerified=@((Get-Acl -LiteralPath $keyFile).GetAccessRules($true,$false,[System.Security.Principal.SecurityIdentifier]) | Where-Object {$_.IdentityReference -eq $serviceSid -and $_.AccessControlType -eq 'Allow' -and ($_.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::ReadData)}).Count -gt 0
+ if (!$report.servicePrivateKeyAclVerified) {throw 'SQL_PRIVATE_KEY_ACL_REQUIRED'}
  $id=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL').$instance
  $network="HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$id\MSSQLServer\SuperSocketNetLib"
  Set-ItemProperty $network Certificate $thumb.ToLowerInvariant();Set-ItemProperty $network ForceEncryption 1

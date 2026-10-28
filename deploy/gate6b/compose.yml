@@ -45,7 +45,7 @@ services:
   web:
     image: gate6b-web
     tmpfs:
-      - /var/cache/nginx:uid=101,gid=101,mode=0700,size=8m
+      - /var/cache/nginx:uid=101,gid=101,mode=0700,size=64m
     ports: ['127.0.0.1:8443:8443']
     volumes:
       - ${GATE6B_PRIVATE}/web.crt:/run/tls/web.crt:ro

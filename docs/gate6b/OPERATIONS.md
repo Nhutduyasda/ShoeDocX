@@ -145,7 +145,7 @@ explicit operator approval before real credential/key changes.
   measure free bytes without listing sensitive names; restore capacity before retry.
   B readiness verifies one temporary byte can be written/deleted and returns 503 if
   unavailable. In isolated CI only, fill verified bounded tmpfs mounts, never the
-  host root or SQL volume. Ingress cache is 8 MiB and backend temp 64 MiB. A failed
+  host root or SQL volume. Ingress cache is 64 MiB and backend temp 64 MiB. A failed
   spooled ingress upload must not advance its session or leave a partial/completed
   file. After filler removal repeat the upload. Bounded in-memory Excel exports may
   remain successful. Actual ENOSPC, cleanup, draft integrity and recovery are separate

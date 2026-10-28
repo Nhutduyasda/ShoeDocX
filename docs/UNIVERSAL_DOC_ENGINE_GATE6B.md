@@ -20,7 +20,7 @@ incomplete. No hosted staging or real participant pilot exists.
 | Encrypted backup and complete instance reconstruction | Implemented | SQL CHECKSUM + AES-GCM bundle + ciphertext fingerprint; execution pending |
 | Full fault injection / rollback | Implemented | Explicit Production fault probes and immutable previous-build probe; exact-HEAD outcome required |
 | Hardened two-version rollback | Implemented | Frozen b0604b9 A and later B, same database/key ring, startup row hashes and fresh authorized exports; current CI required |
-| Actual disk exhaustion | Implemented | Only 8 MiB ingress / 64 MiB backend tmpfs filled to ENOSPC, failed-upload atomicity, in-memory exports, readiness and capacity recovery; current CI required |
+| Actual disk exhaustion | Implemented | Only 64 MiB ingress / 64 MiB backend tmpfs filled to ENOSPC, failed-upload atomicity, in-memory exports, readiness and capacity recovery; current CI required |
 | Windows native Production | Blocked | Earlier LocalDB observation used named pipes with encrypt_option FALSE; hardened Production rejects IPC / implicit transport |
 | Windows production SQL TLS parity | Blocked | LocalDB has no verified managed TCP TLS endpoint / separate runtime SQL login / native proxy parity |
 | Real office participant pilot | Owner approval required | INTERNAL PILOT NOT YET EXECUTED |
@@ -122,8 +122,10 @@ Only actual same-HEAD artifact PASS entries count as executed acceptance. Direct
 permission denial is not a full-disk simulation. The bounded tmpfs test requires
 actual ENOSPC and verifies ingress failure before template commit, encrypted draft
 integrity, temporary-file cleanup and capacity restoration. The Excel API deliberately
-buffers bounded uploads/exports in memory: exports that succeed while temporary disk
-is full are resilience evidence, not an invented export-failure claim. Candidate B
+uses bounded memory-backed Excel processing, but framework multipart handling can
+still require temporary storage before the controller. Failed uploads must not mutate
+the session; exports that succeed under ENOSPC are resilience evidence, not an
+invented export-failure claim. Candidate B
 readiness rejects unavailable temporary storage with 503. Current CI evidence is required.
 The rollback probe copies the key ring, preserves the live encrypted draft, uses a
 separate loopback ingress and reports functional XLSX recovery independently from

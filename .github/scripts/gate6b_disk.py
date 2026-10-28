@@ -15,7 +15,7 @@ def verify(private,env,cp,op,command,evidence,mark):
         path=private/'browser'/('disk-'+phase+'.xlsx');op('reopen',path)
         value['independentWorkbook']=gate5d_browser.verify_workbook(path,'F',20);result['phases'].append(value)
     browser('baseline')
-    for service,path,limit,phase in [('web','/var/cache/nginx',8,'ingress-full'),('backend','/tmp',64,'backend-full')]:
+    for service,path,limit,phase in [('web','/var/cache/nginx',64,'ingress-full'),('backend','/tmp',64,'backend-full')]:
         filler=path+'/gate6b-fill'
         uid='101' if service=='web' else '1654'
         try:

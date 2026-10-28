@@ -12,12 +12,17 @@ def verify(private,env,cp,op,command,evidence,mark):
     def browser(phase):
         env['GATE6B_DISK_PHASE']=phase;command(['node','frontend/tests/gate6bDisk.e2e.mjs'])
         value=json.loads((private/'browser'/('disk-'+phase+'.json')).read_text());assert value['status']=='PASS'
-        path=private/'browser'/('disk-'+phase+'.xlsx');op('reopen',path)
-        value['independentWorkbook']=gate5d_browser.verify_workbook(path,'F',20);result['phases'].append(value)
+        if value['exportStatus']==200:
+            path=private/'browser'/('disk-'+phase+'.xlsx');op('reopen',path)
+            value['independentWorkbook']=gate5d_browser.verify_workbook(path,'F',20)
+        else:assert phase=='backend-full' and value['noWorkbookBytesReturned'] and value['approvedSessionUnchanged']
+        result['phases'].append(value)
     browser('baseline')
     for service,path,limit,phase in [('web','/var/cache/nginx',64,'ingress-full'),('backend','/tmp',64,'backend-full')]:
         filler=path+'/gate6b-fill'
         uid='101' if service=='web' else '1654'
+        temporary_files=lambda:cp('exec','-T','-u',uid,service,'sh','-c','find '+path+' -type f ! -name gate6b-fill | sort').stdout
+        files_before=temporary_files()
         try:
             # Check the mount first; a writable overlay/root disk is never a target.
             info=cp('exec','-T','-u','0',service,'sh','-c',"awk '$2==\""+path+"\" && $3==\"tmpfs\" {print $4}' /proc/mounts").stdout.decode()
@@ -31,6 +36,8 @@ def verify(private,env,cp,op,command,evidence,mark):
             browser(phase)
         finally:cp('exec','-T','-u',uid,service,'rm','-f',filler,expected=None)
         browser(phase+'-recovered')
+        assert files_before==temporary_files(),'TEMPORARY_UPLOAD_FILES_NOT_CLEANED'
+        result['volumes'][-1]['temporaryFileSetUnchangedAfterRecovery']=True
         if service=='web':
             remaining=cp('exec','-T','-u','0','web','sh','-c','find /var/cache/nginx -type f | wc -l').stdout.decode().strip()
             assert remaining=='0','PARTIAL_INGRESS_UPLOAD_LEFT_BEHIND';result['partialIngressFilesRemaining']=0

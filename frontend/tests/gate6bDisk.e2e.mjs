@@ -19,8 +19,15 @@ try {
  assert.equal((await client.delete(`/api/universal-doc/sessions/${uploadSession.id}`,{headers,data:{expectedVersion:after.version}})).status(),204);
  const original=JSON.parse(await readFile(join(folder,'gate6b-session.json'),'utf8'));
  const current=await (await client.get(`/api/universal-doc/sessions/${original.id}`)).json();assert.equal(current.reviewState,'Approved');
- const exported=await client.post(`/api/universal-doc/sessions/${current.id}/export`,{headers,data:{expectedVersion:current.version}});report.exportStatus=exported.status();assert.equal(exported.status(),200);
- await writeFile(join(folder,`disk-${phase}.xlsx`),await exported.body());report.inMemoryExportCompleted=true;
+ const exported=await client.post(`/api/universal-doc/sessions/${current.id}/export`,{headers,data:{expectedVersion:current.version}});report.exportStatus=exported.status();
+ if(phase==='backend-full') {
+   assert.equal(exported.status(),409);const denied=await exported.json();
+   assert.match(denied.code,/^[A-Z_]+$/);report.exportErrorCode=denied.code;
+   assert.notEqual(denied.code,'SESSION_VERSION_CONFLICT');assert.notEqual(denied.code,'CURRENT_APPROVAL_REQUIRED');
+   assert.notEqual((await exported.body()).subarray(0,2).toString(),'PK');
+   const unchanged=await (await client.get(`/api/universal-doc/sessions/${current.id}`)).json();assert.equal(unchanged.version,current.version);assert.equal(unchanged.reviewState,'Approved');
+   report.noWorkbookBytesReturned=true;report.approvedSessionUnchanged=true;
+ } else {assert.equal(exported.status(),200);await writeFile(join(folder,`disk-${phase}.xlsx`),await exported.body());report.inMemoryExportCompleted=true;}
  const health=await client.get('/api/health');report.healthStatus=health.status();assert.equal(health.status(),phase==='backend-full'?503:200);
  report.status='PASS';
 }catch(error){report.errorType=error.name;report.sourceLines=[...String(error.stack).matchAll(/gate6bDisk\.e2e\.mjs:(\d+):/g)].map(m=>Number(m[1]));}

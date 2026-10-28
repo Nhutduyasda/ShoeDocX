@@ -148,7 +148,10 @@ explicit operator approval before real credential/key changes.
   host root or SQL volume. Ingress cache is 64 MiB and backend temp 64 MiB. A failed
   spooled ingress upload must not advance its session or leave a partial/completed
   file. After filler removal repeat the upload. Bounded in-memory Excel exports may
-  remain successful. Actual ENOSPC, cleanup, draft integrity and recovery are separate
+  remain successful at ingress exhaustion, but underlying framework/package code may
+  need backend temporary storage even when the controller uses MemoryStream. Backend
+  upload/export rejection must return no XLSX, preserve the approved session/version
+  and recover after capacity restoration. Actual ENOSPC, cleanup, draft integrity and recovery are separate
   evidence from permission denial.
 - Migration failure: leave application stopped, retain exact failed version/schema,
   restore to a separate instance for investigation; no automatic destructive retry.

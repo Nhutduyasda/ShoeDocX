@@ -14,8 +14,10 @@ internal static class Gate6BNativeTcp
     {
         var report = new Dictionary<string, object?> { ["status"]="BLOCKED", ["productionParity"]="UNVERIFIED", ["dockerExecuted"]=false };
         var raw=Environment.GetEnvironmentVariable("GATE6B_WINDOWS_TCP")!;
+        var target=new SqlConnectionStringBuilder(raw);
         if(!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("GITHUB_ACTIONS")!="true" ||
-            !raw.StartsWith("Server=tcp:localhost,50143;",StringComparison.Ordinal)) throw new InvalidOperationException("DISPOSABLE_LOOPBACK_SQL_REQUIRED");
+            target.DataSource!="tcp:localhost,50143" || target.InitialCatalog!="master" || !target.IntegratedSecurity ||
+            target.TrustServerCertificate || target.Encrypt==SqlConnectionEncryptOption.Optional) throw new InvalidOperationException("DISPOSABLE_LOOPBACK_SQL_REQUIRED");
         var parent=Environment.GetEnvironmentVariable("GATE6B_WINDOWS_PRIVATE")??throw new InvalidOperationException("PRIVATE_DIRECTORY_REQUIRED");
         if(!Directory.Exists(parent))throw new InvalidOperationException("PRIVATE_DIRECTORY_REQUIRED");
         var folder=Path.Combine(parent,"native-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
@@ -35,8 +37,9 @@ internal static class Gate6BNativeTcp
             start.Environment["GATE6B_OPERATOR"]=operatorFile;start.Environment["SHOEDOCX_CONFIGURATION_FILE"]=configFile;start.Environment["ASPNETCORE_ENVIRONMENT"]="Production";start.Environment["ASPNETCORE_URLS"]="https://localhost:5443";
             var p=new Process{StartInfo=start};p.OutputDataReceived+=(_,_)=>{};p.ErrorDataReceived+=(_,_)=>{};p.Start();p.BeginOutputReadLine();p.BeginErrorReadLine();return p;
         }
-        async Task Execute(string dll,params string[] arguments) {using var p=Start(dll,arguments);using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(45));try{await p.WaitForExitAsync(deadline.Token);}catch{p.Kill(true);throw;}if(p.ExitCode!=0)throw new InvalidOperationException("NATIVE_MAINTENANCE_FAILED");}
+        async Task Execute(string dll,params string[] arguments) {report["phase"]=arguments[0];using var p=Start(dll,arguments);using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(45));try{await p.WaitForExitAsync(deadline.Token);}catch{p.Kill(true);throw;}if(p.ExitCode!=0)throw new InvalidOperationException("NATIVE_MAINTENANCE_FAILED");}
         try {
+            report["phase"]="sql-tls";
             await using(var c=new SqlConnection(raw)) {
                 for(var i=0;;i++){try{await c.OpenAsync();break;}catch(SqlException)when(i<15){await Task.Delay(1000);}}
                 await using var q=new SqlCommand("SELECT net_transport,encrypt_option FROM sys.dm_exec_connections WHERE session_id=@@SPID",c);
@@ -71,20 +74,21 @@ internal static class Gate6BNativeTcp
             await Execute(api,"--migrate-all");await Execute(api,"--initialize-staging");await Execute(helper,"users");await Execute(helper,"permissions");
             settings["ConnectionStrings"]=new{DefaultConnection=runtimeConnection.ConnectionString};settings["Database"]=new{MaintenanceAuthorized=false};Write();
             report["separateMaintenanceAndRuntimePermissions"]=true;
-            process=Start(api);
+            report["phase"]="production-startup";process=Start(api);
             var policy=new X509ChainPolicy{TrustMode=X509ChainTrustMode.CustomRootTrust,RevocationMode=X509RevocationMode.NoCheck};policy.CustomTrustStore.Add(web);
             using var handler=new SocketsHttpHandler{SslOptions=new SslClientAuthenticationOptions{CertificateChainPolicy=policy}};using var client=new HttpClient(handler){BaseAddress=new Uri("https://localhost:5443"),Timeout=TimeSpan.FromSeconds(3)};
             var ready=false;for(var i=0;i<60&&!process.HasExited;i++){try{if((await client.GetAsync("/api/health")).StatusCode==HttpStatusCode.OK){ready=true;break;}}catch(HttpRequestException){}catch(TaskCanceledException){}await Task.Delay(500);}
             if(!ready)throw new InvalidOperationException("NATIVE_HTTPS_READINESS_FAILED");
             report["actualProductionStarted"]=true;report["trustedHttpsHealth"]=true;
             if((await client.GetAsync("/api/auth/me")).StatusCode!=HttpStatusCode.Unauthorized)throw new InvalidOperationException("NATIVE_AUTHORIZATION_FAILED");
-            using var login=await client.PostAsJsonAsync("/api/auth/login",new{username="admin-a",password=user});login.EnsureSuccessStatusCode();
+            report["phase"]="login-csrf";using var login=await client.PostAsJsonAsync("/api/auth/login",new{username="admin-a",password=user});login.EnsureSuccessStatusCode();
             using var bootstrap=await client.GetAsync("/api/universal-doc/bootstrap");bootstrap.EnsureSuccessStatusCode();
             using var body=JsonDocument.Parse(await bootstrap.Content.ReadAsStringAsync());var csrf=body.RootElement.GetProperty("csrfToken").GetString();
             using var create=new HttpRequestMessage(HttpMethod.Post,"/api/universal-doc/sessions"){Content=JsonContent.Create(new{workflow="example-template"})};create.Headers.Add("X-Studio-CSRF",csrf);
             using var created=await client.SendAsync(create);created.EnsureSuccessStatusCode();
             using var missing=await client.PostAsJsonAsync("/api/universal-doc/sessions",new{workflow="example-template"});if(missing.StatusCode!=HttpStatusCode.BadRequest)throw new InvalidOperationException("NATIVE_CSRF_FAILED");
             report["actualProductionStarted"]=true;report["trustedHttpsAuthCsrf"]=true;report["status"]="PARTIAL";
+            report["phase"]="subset-complete";
             report["remaining"]="Trusted native reverse-proxy, browser, tenant/owner and actual draft recovery parity not yet executed; Windows acceptance is not waived";
         }catch(Exception e){report["errorType"]=e.GetType().Name;if(System.Text.RegularExpressions.Regex.IsMatch(e.Message,"^[A-Z_]+$"))report["errorCode"]=e.Message;}
         finally {

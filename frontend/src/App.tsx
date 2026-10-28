@@ -1,7 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { ConfigProvider, Spin } from 'antd';
 import viVN from 'antd/locale/vi_VN';
-import { AppLayout, type NavTabKey } from './layouts/AppLayout';
+import { AppShell as AppLayout } from './layouts/AppShell';
+import type { NavTabKey } from './types/auth';
+import { PageSkeleton, WorkspaceErrorBoundary } from './components/ui/feedback';
 import { OverviewPage } from './pages/OverviewPage';
 import { ProductMasterPage } from './pages/ProductMasterPage';
 import { ShipmentPage, type ShipmentPageRef } from './pages/ShipmentPage';
@@ -11,7 +13,7 @@ import { BomCalculatorPage } from './pages/BomCalculatorPage';
 import { MaterialManagementPage } from './pages/MaterialManagementPage';
 import { BomManagementPage } from './pages/BomManagementPage';
 import { MaterialPlanningPage } from './pages/MaterialPlanningPage';
-import { LoginPage } from './pages/LoginPage';
+import { SignIn as LoginPage } from './pages/SignIn';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { getAllowedTabsForUser, getDefaultTabForUser } from './types/auth';
 import { enterpriseTheme } from './theme/themeConfig';
@@ -78,7 +80,7 @@ const MainApp: React.FC = () => {
   }
 
   if (window.location.pathname.replace(/\/$/, '') === '/universal-doc-studio') {
-    return <React.Suspense fallback={<Spin size="large" />}><UniversalDocStudio /></React.Suspense>;
+    return <WorkspaceErrorBoundary><React.Suspense fallback={<PageSkeleton />}><UniversalDocStudio /></React.Suspense></WorkspaceErrorBoundary>;
   }
 
   return (
@@ -121,7 +123,7 @@ const App: React.FC = () => {
   return (
     <ConfigProvider locale={viVN} theme={enterpriseTheme}>
       <AuthProvider>
-        <MainApp />
+        <WorkspaceErrorBoundary><MainApp /></WorkspaceErrorBoundary>
       </AuthProvider>
     </ConfigProvider>
   );

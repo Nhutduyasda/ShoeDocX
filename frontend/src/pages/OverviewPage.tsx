@@ -2,8 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Table, Button, Space } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  FileTextOutlined,
-  DatabaseOutlined,
   CameraOutlined,
   PlusOutlined,
   FolderOpenOutlined,
@@ -12,6 +10,9 @@ import {
   AuditOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { useAuth } from '../contexts/AuthContext';
+import { getAllowedTabsForUser } from '../types/auth';
+import { WorkspaceCards } from '../components/WorkspaceCards';
 import { shipmentApi } from '../api/shipmentApi';
 import { productMasterApi } from '../api/productMasterApi';
 import type { SavedShipmentSummary, ProductMaster } from '../types';
@@ -26,6 +27,9 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   onNavigate,
   onOpenOrder,
 }) => {
+  const { user } = useAuth();
+  const allowedTabs = getAllowedTabsForUser(user);
+  const [dataError, setDataError] = useState(false);
   const [shipments, setShipments] = useState<SavedShipmentSummary[]>([]);
   const [products, setProducts] = useState<ProductMaster[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -33,9 +37,10 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   const loadData = async () => {
     try {
       setLoading(true);
+      setDataError(false);
       const [shipmentList, productList] = await Promise.all([
-        shipmentApi.getShipments().catch(() => []),
-        productMasterApi.getAll().catch(() => []),
+        shipmentApi.getShipments().catch(() => { setDataError(true); return []; }),
+        productMasterApi.getAll().catch(() => { setDataError(true); return []; }),
       ]);
       setShipments(shipmentList);
       setProducts(productList);
@@ -176,6 +181,8 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
 
   return (
     <div className="enterprise-page">
+      <WorkspaceCards onNavigate={onNavigate}/>
+      {dataError && <div role="alert" className="signin-error">Không tải được một phần dữ liệu tổng quan. Các số liệu bên dưới có thể chưa đầy đủ. <button type="button" onClick={loadData}>Thử tải lại</button></div>}
       {/* Page Header */}
       <div className="enterprise-page-header">
         <div className="min-w-0 flex-1">
@@ -188,28 +195,28 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
         </div>
 
         <div className="enterprise-actions">
-          <Button
+          {allowedTabs.includes('settlement') && (<Button
             icon={<AuditOutlined className="text-xs" />}
             onClick={() => onNavigate('settlement')}
             className="text-xs h-9 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB]"
           >
             Quyết toán đối chiếu nội bộ
-          </Button>
-          <Button
+          </Button>)}
+          {allowedTabs.includes('ocr') && (<Button
             icon={<CameraOutlined className="text-xs" />}
             onClick={() => onNavigate('ocr')}
             className="text-xs h-9 px-3 border-[#D1D5DB] text-[#374151] hover:bg-[#F9FAFB] hover:text-[#2563EB]"
           >
             Quét OCR phiếu kho
-          </Button>
-          <Button
+          </Button>)}
+          {allowedTabs.includes('shipment') && (<Button
             type="primary"
             icon={<PlusOutlined className="text-xs" />}
             onClick={() => onNavigate('shipment')}
             className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs h-9 px-4 shadow-none"
           >
             Lập hóa đơn mới
-          </Button>
+          </Button>)}
         </div>
       </div>
 
@@ -287,7 +294,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
               Danh sách các hóa đơn đã được lập và sẵn sàng tải Excel
             </p>
           </div>
-          <Button
+          {allowedTabs.includes('history') && (<Button
             type="link"
             size="small"
             onClick={() => onNavigate('history')}
@@ -295,7 +302,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
           >
             <span>Xem tất cả</span>
             <ArrowRightOutlined className="text-[10px]" />
-          </Button>
+          </Button>)}
         </div>
 
         <div className="w-full overflow-x-auto min-w-0">
@@ -311,60 +318,6 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
         </div>
       </div>
 
-      {/* Quick Access Business Workflows */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div
-          onClick={() => onNavigate('shipment')}
-          className="bg-white border border-[#E5E7EB] hover:border-[#93C5FD] rounded-lg p-4 cursor-pointer transition-colors duration-150 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
-        >
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-md bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center text-sm shrink-0">
-              <FileTextOutlined />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-[#111827]">Lập Hóa đơn INV & PKL</div>
-              <div className="text-[11px] text-[#6B7280] mt-0.5">
-                Nhập kho, đối soát và tự động sinh 3 sheet Excel
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div
-          onClick={() => onNavigate('ocr')}
-          className="bg-white border border-[#E5E7EB] hover:border-[#93C5FD] rounded-lg p-4 cursor-pointer transition-colors duration-150 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
-        >
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-md bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center text-sm shrink-0">
-              <CameraOutlined />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-[#111827]">Quét OCR Phiếu Kho</div>
-              <div className="text-[11px] text-[#6B7280] mt-0.5">
-                Chụp ảnh bảng kê, nhận diện số đôi & công đoạn Gò
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div
-          onClick={() => onNavigate('products')}
-          className="bg-white border border-[#E5E7EB] hover:border-[#93C5FD] rounded-lg p-4 cursor-pointer transition-colors duration-150 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
-        >
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-md bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center text-sm shrink-0">
-              <DatabaseOutlined />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-[#111827]">Master Data Hàng Hóa</div>
-              <div className="text-[11px] text-[#6B7280] mt-0.5">
-                Quản lý mã hàng, đơn giá gia công CMT, DAP và quy cách
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
-

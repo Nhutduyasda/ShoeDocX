@@ -5,7 +5,7 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const {chromium}=await import(pathToFileURL(join(resolve(process.env.STUDIO_PLAYWRIGHT_MODULE),'index.mjs')).href);
 const base=process.env.STUDIO_BASE_URL,folder=resolve(process.env.STUDIO_EVIDENCE_DIR);await mkdir(folder,{recursive:true});
-const browser=await chromium.launch({headless:true});let context=await browser.newContext({acceptDownloads:true,viewport:{width:1360,height:1000}}),page=await context.newPage();const errors=[],checks=[],journeys=[],downloads=[];
+const browser=await chromium.launch({headless:true,channel:process.env.STUDIO_BROWSER_CHANNEL||undefined});let context=await browser.newContext({acceptDownloads:true,viewport:{width:1360,height:1000}}),page=await context.newPage();const errors=[],checks=[],journeys=[],downloads=[];
 function watch(p){p.on('pageerror',e=>errors.push(e.name));}watch(page);
 const click=name=>page.getByRole('button',{name,exact:true}).click();
 async function nav(n){await page.getByRole('navigation',{name:'Các bước xử lý Excel'}).getByRole('button').nth(n).click();await page.getByRole('heading',{name:`${n+1}. `,exact:false}).waitFor();}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { FileDrop } from '../../components/ui/file-drop';
 import { useAuth } from '../../contexts/AuthContext';
 import { StudioApi, type OfficePreview, type StudioBootstrap, type StudioDraft, type StudioSession } from './studioApi';
 import { OfficeData, OfficeFields, OfficeMapping, OfficeRules, type OfficeSection } from './OfficeEditors';
@@ -46,8 +47,8 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
   return <main className="uds office-wizard" lang="vi">
     <header className="uds-top"><div><p className="uds-eyebrow">SHOEDOCX · CÔNG CỤ CHỨNG TỪ</p><h1>Trợ lý Excel văn phòng</h1><p>Chọn mẫu, kiểm tra vị trí, nhập dữ liệu và xuất sau phê duyệt.</p></div><div><span>{user?.fullName}</span><a href="/">Không gian làm việc</a><button disabled={busy||unsaved} onClick={onDemo}>Synthetic Demo / kỹ thuật</button><button onClick={logout}>Đăng xuất</button></div></header>
     <p className="uds-banner">Chưa có OCR hoặc AI nhận dạng. Ví dụ Excel chỉ cung cấp gợi ý cấu trúc; dữ liệu nhập tay cần được kiểm tra. Phiên hết hạn sau 20 phút. Bản nháp đã lưu được giữ tối đa 7 ngày.</p>
-    <nav className="uds-steps" aria-label="Các bước xử lý Excel">{steps.map((label,i)=><button disabled={busy} key={label} aria-current={step===i?'step':undefined} onClick={()=>navigate(i)}><span>{i+1}</span>{label}</button>)}</nav>
-    {error&&<div role="alert" className="uds-error">{error}</div>}
+    <div className="office-workspace"><nav className="uds-steps" aria-label="Các bước xử lý Excel">{steps.map((label,i)=><button disabled={busy} key={label} aria-current={step===i?'step':undefined} onClick={()=>navigate(i)}><span>{i+1}</span>{label}</button>)}</nav>
+    <div className="office-editing">{error&&<div role="alert" className="uds-error">{error}</div>}
     {notice&&<p role="status" className="uds-success">{notice}</p>}
     {unsaved&&<p role="status" className="uds-error">Có nội dung chưa áp dụng. Đây chưa phải dữ liệu đã lưu hoặc được xác nhận.</p>}
     {session&&<aside className="uds-state"><strong>Trạng thái máy chủ:</strong> vị trí {session.mappingState==='UserConfirmed'?'đã xác nhận':'chưa xác nhận'}; dữ liệu {session.reviewState==='Approved'?'đã phê duyệt':session.reviewState==='ReadyForApproval'?'đã rà soát, chờ phê duyệt':'chưa hoàn tất rà soát/phê duyệt'}.
@@ -58,7 +59,7 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
     {step===0&&<>
       <p><strong>Mẫu đầu ra:</strong> tệp .xlsx có bố cục muốn giữ. <strong>Ví dụ đã điền:</strong> tệp cùng cấu trúc, có 1–5 dòng dữ liệu minh họa, không phải kết quả đọc ảnh/PDF.</p>
       <p>Giới hạn: 4 sheet tổng, 3 sheet dữ liệu, một dòng mẫu mỗi sheet, 20 dòng đầu ra, 8 quy tắc, 2.000 ô đã phân tích; không quá dòng 1.000/cột AF. Tổng mẫu, ví dụ và nguồn tối đa 2 MiB. Không hỗ trợ macro, liên kết ngoài hoặc công thức ngoài ngữ pháp được chấp nhận.</p>
-      <form className="uds-inline" onSubmit={e=>{e.preventDefault();if(template)void run(async()=>{const s=session??await api.create('example-template');setSession(s);const next=await api.upload(s,template);setLoaded({name:template.name,size:template.size});setTemplate(null);if(templateInput.current)templateInput.current.value='';await refresh(next);setNotice('Đã phân tích mẫu. Xem danh sách sheet và gợi ý ở bước 2.');});}}><label>Mẫu đầu ra (.xlsx)<input disabled={busy||formsDirty} ref={templateInput} aria-label="Mẫu Excel đầu ra" type="file" accept=".xlsx" onChange={e=>setTemplate(e.target.files?.[0]??null)}/></label><button disabled={busy||formsDirty||!template}>Tải và phân tích mẫu</button></form>
+      <form className="uds-inline" onSubmit={e=>{e.preventDefault();if(template)void run(async()=>{const s=session??await api.create('example-template');setSession(s);const next=await api.upload(s,template);setLoaded({name:template.name,size:template.size});setTemplate(null);if(templateInput.current)templateInput.current.value='';await refresh(next);setNotice('Đã phân tích mẫu. Xem danh sách sheet và gợi ý ở bước 2.');});}}><FileDrop file={template} disabled={busy||formsDirty} inputRef={templateInput} onChange={setTemplate} onError={setError}/><button disabled={busy||formsDirty||!template}>Tải và phân tích mẫu</button></form>
       {template&&<p>{template.name} · {template.size} byte <button disabled={busy} onClick={()=>{setTemplate(null);if(templateInput.current)templateInput.current.value='';}}>Bỏ tệp mẫu đã chọn</button></p>}
       {loaded&&<p>Mẫu vừa áp dụng: {loaded.name} · {loaded.size} byte</p>}
       {session&&<form className="uds-inline" onSubmit={e=>{e.preventDefault();if(example)void run(async()=>{await refresh(await api.upload(session,example,'example'));setExample(null);if(exampleInput.current)exampleInput.current.value='';setNotice('Đã đối chiếu ví dụ. Cần kiểm tra lại các mục và vị trí Excel.');});}}><label>Ví dụ đã điền (tùy chọn)<input disabled={busy||formsDirty} ref={exampleInput} aria-label="Ví dụ Excel đã điền" type="file" accept=".xlsx" onChange={e=>setExample(e.target.files?.[0]??null)}/></label><button disabled={busy||formsDirty||!example||!!template}>Đối chiếu ví dụ</button></form>}
@@ -105,5 +106,6 @@ export default function OfficeWizard({onDemo}:{onDemo:()=>void}) {
       <button disabled={busy||unsaved} aria-label={`Xóa bản nháp ${i+1}`} onClick={()=>void run(async()=>{await api.deleteDraft(d);setDrafts(await api.drafts());if(binding?.draft.id===d.id)setBinding(null);setSavedVersion(null);setNotice('Đã xóa bản nháp. Phiên đang mở vẫn tuân theo thời hạn và quyền riêng của nó.');})}>Xóa bản nháp {i+1}</button>
       </article>)}
     </section>}
+    </div><aside className="office-context" aria-label="Tiến độ và trạng thái lưu"><span className="section-kicker">PHIÊN LÀM VIỆC</span><h2>{steps[step]}</h2><p>Bước {step+1} / 6</p><dl><dt>Thay đổi cục bộ</dt><dd>{unsaved?'Chưa áp dụng':'Không có thay đổi chờ áp dụng'}</dd><dt>Bản nháp</dt><dd>{saved?'Đã được máy chủ xác nhận lưu':'Chưa xác nhận lưu trạng thái hiện tại'}</dd><dt>Vị trí Excel</dt><dd>{session?.mappingState==='UserConfirmed'?'Đã xác nhận':'Chưa xác nhận'}</dd><dt>Phê duyệt</dt><dd>{session?.reviewState==='Approved'?'Đã phê duyệt':session?.reviewState==='ReadyForApproval'?'Chờ phê duyệt':'Chưa hoàn tất'}</dd></dl><p className="office-session-note">Phiên có thời hạn 20 phút. Bản nháp riêng tư được giữ tối đa 7 ngày. Khi mở lại cần kiểm tra trạng thái mới từ máy chủ.</p><p>Thông tin xem trước chỉ mô tả dữ liệu và vị trí, không phải bản in Excel chính xác.</p></aside></div>
   </main>;
 }

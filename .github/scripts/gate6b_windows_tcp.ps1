@@ -63,6 +63,21 @@ try {
  $report.errorType=$_.Exception.GetType().Name
  # Only our fixed identifiers may leave private diagnostics.
  if ($_.Exception.Message -match '^[A-Z_]+$') {$report.errorCode=$_.Exception.Message}
+ if ($id) {
+   $log=Join-Path "$env:ProgramFiles\Microsoft SQL Server" "$id\MSSQL\Log\ERRORLOG"
+   if (Test-Path $log) {
+     $text=Get-Content $log -Raw
+     $report.sqlErrorNumbers=@([regex]::Matches($text,'Error: (\d+)') | ForEach-Object {$_.Groups[1].Value} | Sort-Object -Unique)
+     $tlsLines=($text -split "`n" | Where-Object {$_ -match 'certificate|TDSSNI|SSL'}) -join "`n"
+     $report.sqlTlsCodes=@([regex]::Matches($tlsLines,'0x[0-9A-Fa-f]{8}') | ForEach-Object {$_.Value} | Sort-Object -Unique)
+     $report.sqlStartupClassifiers=@{
+       certificateLoadFailure=($text -match 'Unable to load user-specified certificate|could not load the certificate|Unable to initialize SSL')
+       privateKeyAccess=($text -match '0x8009030d|0x80090016|Access is denied')
+       tcpInitializationFailure=($text -match 'TDSSNIClient initialization failed|TCP Provider')
+       portAlreadyUsed=($text -match '10048|Only one usage of each socket')
+     }
+   }
+ }
 } finally {
  Stop-Service $service -ErrorAction SilentlyContinue
  if ($thumb) {Remove-Item "Cert:\LocalMachine\Root\$thumb" -ErrorAction SilentlyContinue;Remove-Item "Cert:\LocalMachine\My\$thumb" -DeleteKey -ErrorAction SilentlyContinue}

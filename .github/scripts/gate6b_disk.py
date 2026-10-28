@@ -17,18 +17,19 @@ def verify(private,env,cp,op,command,evidence,mark):
     browser('baseline')
     for service,path,limit,phase in [('web','/var/cache/nginx',8,'ingress-full'),('backend','/tmp',64,'backend-full')]:
         filler=path+'/gate6b-fill'
+        uid='101' if service=='web' else '1654'
         try:
             # Check the mount first; a writable overlay/root disk is never a target.
             info=cp('exec','-T','-u','0',service,'sh','-c',"awk '$2==\""+path+"\" && $3==\"tmpfs\" {print $4}' /proc/mounts").stdout.decode()
             assert 'size='+str(limit*1024)+'k' in info,'BOUNDED_TMPFS_REQUIRED'
-            full=cp('exec','-T','-u','0',service,'sh','-c','dd if=/dev/zero of='+filler+' bs=1048576 count='+str(limit+1),expected=None)
+            full=cp('exec','-T','-u',uid,service,'sh','-c','dd if=/dev/zero of='+filler+' bs=1048576 count='+str(limit+1),expected=None)
             diagnostic={'service':service,'exit':full.returncode,'actualENOSPC':b'No space left on device' in full.stdout,
                 'toolOutput':full.stdout.decode(errors='replace')[:1200]}
             (evidence/'gate6b-disk-attempt.json').write_text(json.dumps(diagnostic,indent=2));print(json.dumps({'diskAttempt':diagnostic}),flush=True)
             assert full.returncode!=0 and diagnostic['actualENOSPC'],'ENOSPC_NOT_OBSERVED'
             result['volumes'].append({'service':service,'limitMiB':limit,'actualENOSPC':True})
             browser(phase)
-        finally:cp('exec','-T','-u','0',service,'rm','-f',filler,expected=None)
+        finally:cp('exec','-T','-u',uid,service,'rm','-f',filler,expected=None)
         browser(phase+'-recovered')
         if service=='web':
             remaining=cp('exec','-T','-u','0','web','sh','-c','find /var/cache/nginx -type f | wc -l').stdout.decode().strip()
